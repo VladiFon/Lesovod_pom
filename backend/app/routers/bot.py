@@ -893,6 +893,21 @@ def create_worker_note(
     return {"id": note_id}
 
 
+@router.get("/notes/mine")
+def list_my_worker_notes(
+    conn=Depends(get_conn),
+    user=Depends(require_permission("bot.access")),
+):
+    """Экран "Мои заметки" в мобильном приложении — заметки, которые
+    рабочий сам отправлял (общие и адресные вперемешку, по дате, свежие
+    сначала), независимо от того, кому они адресованы. Identity — из
+    токена (user["sotrudnik_id"]), тем же способом, что и у POST /notes
+    выше, а не параметром из query."""
+    if user.get("role") != "worker":
+        raise HTTPException(403, "Доступно только учётным записям рабочих (worker-login)")
+    return webext.list_worker_notes_mine(conn, user["sotrudnik_id"])
+
+
 # ------------------------------------------------------------------ трелёвка ---
 class TrelevkaIn(BaseModel):
     otkuda: str

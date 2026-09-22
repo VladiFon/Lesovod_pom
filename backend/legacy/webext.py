@@ -1020,6 +1020,31 @@ def list_worker_notes(conn, viewer_sotrudnik_id=None):
     return [dict(r) for r in rows]
 
 
+def list_worker_notes_mine(conn, sotrudnik_id):
+    """Лента "Мои заметки" для самого рабочего (мобильное приложение,
+    GET /api/bot/notes/mine) — все его собственные заметки, общие и
+    адресные вперемешку, по дате (свежие сначала). В отличие от
+    list_worker_notes() выше (лента читающего мастера/лесничего, с
+    видимостью по recipient_sotrudnik_id и сортировкой по is_read), здесь
+    автор и так уже знает, что сам отправлял, поэтому фильтр — просто по
+    sotrudnik_id, без ограничения по видимости. recipient_fio — для
+    адресных заметок (кому отправлено), NULL у общих."""
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT worker_notes.id, worker_notes.text, worker_notes.is_read,
+               worker_notes.created_at, worker_notes.recipient_sotrudnik_id,
+               recipient.fio AS recipient_fio
+        FROM worker_notes
+        LEFT JOIN sotrudniki AS recipient ON recipient.id = worker_notes.recipient_sotrudnik_id
+        WHERE worker_notes.sotrudnik_id = ?
+        ORDER BY worker_notes.created_at DESC
+        """,
+        (sotrudnik_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def create_trelevka(conn, sotrudnik_id, otkuda, kuda, obyom, delyanka_item_id=None):
     if not conn.execute("SELECT 1 FROM sotrudniki WHERE id=? AND is_active=1", (sotrudnik_id,)).fetchone():
         raise ValueError(f"Рабочий id={sotrudnik_id} не найден или отключён")
