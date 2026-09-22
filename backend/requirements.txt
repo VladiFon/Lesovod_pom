@@ -1,0 +1,33 @@
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+python-multipart>=0.0.9
+pydantic>=2.0,<3.0
+openpyxl>=3.1
+python-docx>=1.1
+
+# Нужен явно для legacy/key_test.py (проверка ключей/токенов в
+# Настройках) — urllib сам по себе не всегда корректно подхватывает
+# доверенные сертификаты в venv на Windows, поэтому используем тот же
+# бандл сертификатов, что и requests. Обычно уже стоит транзитивно
+# (requests тянет его), но фиксируем явно, чтобы не зависеть от этого.
+certifi>=2024.0
+
+# Telegram-бот (legacy/telegram_bot.py, import telebot)
+pyTelegramBotAPI>=4.14
+
+# Нужны для forest_map.py (карта леса, Блок 2 доработки — bbox-стриминг
+# для живой карты + /api/map/generate). Раньше были закомментированы —
+# теперь раскомментированы, т.к. без них "Живая карта" (LiveMap.jsx)
+# вообще не отвечает (503 с этого текста в HTTPException, см.
+# app/routers/map.py:_map_layer_error_to_http). Ставятся обычным pip
+# install: geopandas>=1.0 сам тянет pyogrio как backend для чтения
+# .geojson — это НЕ требует системного GDAL (в отличие от классической
+# связки geopandas+fiona), поэтому на чистом Windows-сервере (см. План,
+# Блок 4) `pip install -r requirements.txt` должен отработать без
+# отдельной установки GDAL. folium нужен только для устаревшего
+# /api/map/generate (кнопка "Экспорт в HTML" — офлайн-версия карты одним
+# файлом); если она не нужна, folium можно не ставить, живая карта на
+# нём больше не основана.
+geopandas>=1.0
+shapely>=2.0
+folium>=0.16

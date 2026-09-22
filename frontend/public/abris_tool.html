@@ -1,0 +1,3170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Лесосека — построитель схемы разработки</title>
+<script src="/vendor/abris/html2canvas.min.js"></script>
+<script src="/vendor/abris/jspdf.umd.min.js"></script>
+<script src="/vendor/abris/clipper.min.js"></script>
+<style>
+  :root{
+    /* Палитра выровнена с abris_mockup.html («стол чертёжника»): тёмно-зелёные
+       панели, латунный акцент, мшистый акцент слоя контура. buildPrintLayout()
+       ниже по-прежнему строит ОТДЕЛЬНЫЙ, полностью светлый SVG для печати/PDF/PNG
+       (жёстко заданные #111111/#ffffff) — эта палитра его не касается: печатный
+       документ на бумаге должен остаться чёрным по белому независимо от темы
+       редактора.
+       Оффлайн-ограничение сохранено: PySide6/QtWebEngine-сборка работает без
+       интернета, поэтому шрифты — только системные стеки, без Google Fonts/CDN
+       (в отличие от мокапа, где подключён Google Fonts). */
+    --bg-canvas:#132018;
+    --bg-canvas-2:#0b130e;
+    --bg-panel:#1b2b21;
+    --bg-panel-2:#16241c;
+    --paper:#efe7d4;
+    --brass:#c9a24b;
+    --brass-soft:#8a712f;
+    --moss:#7fa37a;
+    --moss-soft:#4f6f52;
+    --ink:#eaeee4;
+    --ink-dim:#9aab99;
+    --ink-faint:#5f7362;
+    --hair:rgba(234,238,228,0.10);
+    --hair-strong:rgba(234,238,228,0.18);
+    --danger:#c56a4d;
+    --grid:rgba(234,238,228,0.055);
+    --mono:'IBM Plex Mono','SFMono-Regular',Consolas,monospace;
+    --serif:'Space Grotesk','Century Gothic','Segoe UI',sans-serif;
+    --sans:'IBM Plex Sans','Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{height:100%;}
+  body{
+    margin:0;
+    height:100vh;
+    background:var(--bg-canvas-2);
+    color:var(--ink);
+    font-family:var(--sans);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden; /* страница сама не скроллится — скроллится только правая
+      панель; иначе строка грида под высоту содержимого панели уезжает вверх
+      при скролле списка инструментов. */
+    -webkit-font-smoothing:antialiased;
+  }
+  svg text{font-family:var(--mono);}
+
+  /* ---------- topbar ---------- */
+  .topbar{
+    display:flex;
+    align-items:center;
+    gap:16px;
+    padding:0 18px;
+    height:52px;
+    flex-shrink:0;
+    background:var(--bg-panel);
+    border-bottom:1px solid var(--hair);
+  }
+  .brand{
+    font-family:var(--serif);
+    font-weight:700;
+    font-size:14.5px;
+    color:var(--ink);
+    display:flex;
+    align-items:center;
+    gap:9px;
+    white-space:nowrap;
+  }
+  .brand .mark{
+    width:20px;height:20px;
+    border:1.5px solid var(--brass);
+    border-radius:3px;
+    display:grid;place-items:center;
+    color:var(--brass);
+    font-size:11px;
+    font-family:var(--mono);
+    transform:rotate(45deg);
+    flex-shrink:0;
+  }
+  .brand .mark span{transform:rotate(-45deg);}
+  .crumb{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--ink-dim);
+    padding-left:15px;
+    border-left:1px solid var(--hair-strong);
+    white-space:nowrap;
+  }
+  .crumb b{color:var(--brass);font-weight:600;letter-spacing:.02em;}
+  .top-spacer{flex:1;}
+  .top-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  .scale-label{
+    font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+    text-transform:uppercase;letter-spacing:.06em;margin-right:2px;
+  }
+  .scale-row{display:flex;gap:4px;align-items:center;}
+  .scale-row .toolbtn{
+    flex:0 0 auto;padding:5px 9px;font-size:10.5px;margin:0;
+  }
+  .scale-row .scale-sep{width:1px;align-self:stretch;background:var(--hair-strong);margin:0 2px;}
+  .scale-row input#customScaleInput{
+    width:64px;flex:0 0 auto;font-family:var(--mono);font-size:10.5px;
+    padding:5px 6px;border:1px solid var(--hair-strong);border-radius:5px;
+    background:var(--bg-panel-2);color:var(--ink);text-align:center;
+  }
+  .scale-row input#customScaleInput.active{border-color:var(--brass);color:var(--brass);}
+  .scale-row input#customScaleInput::placeholder{color:var(--ink-faint);}
+  .scale-row #btnCustomScale{flex:0 0 auto;padding:5px 9px;font-size:10.5px;margin:0;}
+  .icon-btn{
+    width:28px;height:28px;
+    display:grid;place-items:center;
+    border-radius:5px;
+    color:var(--ink-dim);
+    border:1px solid transparent;
+    background:none;
+    cursor:pointer;
+    font-size:14px;
+    font-family:var(--sans);
+    flex-shrink:0;
+  }
+  .icon-btn:hover{background:var(--bg-panel-2);border-color:var(--hair);color:var(--ink);}
+
+  /* ---------- body grid ---------- */
+  .body{
+    display:grid;
+    grid-template-columns:60px 1fr 300px;
+    flex:1;
+    min-height:0;
+  }
+  @media (max-width:900px){
+    .body{grid-template-columns:52px 1fr 260px;}
+  }
+
+  /* ---------- left icon rail (навигация по разделам правой панели) ---------- */
+  .rail{
+    background:var(--bg-panel);
+    border-right:1px solid var(--hair);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:12px 0;
+    gap:3px;
+    overflow-y:auto;
+  }
+  .rail-btn{
+    width:42px;height:42px;
+    border-radius:8px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:2px;
+    color:var(--ink-dim);
+    font-size:15px;
+    background:none;border:none;
+    position:relative;
+    cursor:pointer;
+    font-family:var(--sans);
+    flex-shrink:0;
+  }
+  .rail-btn .ic{line-height:1;}
+  .rail-btn .lbl{font-size:7.5px;font-family:var(--mono);letter-spacing:.02em;}
+  .rail-btn.active{background:var(--bg-panel-2);color:var(--brass);}
+  .rail-btn.active::before{
+    content:"";position:absolute;left:-12px;top:7px;bottom:7px;width:3px;
+    background:var(--brass);border-radius:0 3px 3px 0;
+  }
+  .rail-btn:not(.active):hover{background:var(--bg-panel-2);color:var(--ink);}
+  .rail-div{width:26px;height:1px;background:var(--hair);margin:6px 0;flex-shrink:0;}
+
+  /* ---------- canvas ---------- */
+  #canvasOuter{
+    position:relative;
+    overflow:hidden;
+    min-height:420px;
+    background:
+      radial-gradient(ellipse at 28% 18%, rgba(127,163,122,0.06), transparent 60%),
+      var(--bg-canvas);
+  }
+  #canvasWrap{
+    position:relative;
+    padding:20px;
+    display:flex;
+    align-items:stretch;
+    justify-content:stretch;
+    width:100%;
+    height:100%;
+    min-height:420px;
+    overflow:hidden;
+    transform-origin:0 0;
+    will-change:transform;
+  }
+  #stage{
+    width:100%;
+    height:100%;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0/32px 32px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/32px 32px;
+    border:1px solid var(--hair-strong);
+    border-radius:4px;
+  }
+  .ruler-top, .ruler-left{
+    position:absolute;background:var(--bg-panel-2);
+    font-family:var(--mono);font-size:9px;color:var(--ink-faint);
+    pointer-events:none;
+    z-index:1;
+  }
+  .ruler-top{top:0;left:0;right:0;height:16px;border-bottom:1px solid var(--hair);}
+  .ruler-left{top:16px;left:0;bottom:0;width:16px;border-right:1px solid var(--hair);}
+
+  .float-card{
+    position:absolute;
+    background:var(--bg-panel);
+    border:1px solid var(--hair-strong);
+    border-radius:9px;
+    box-shadow:0 10px 24px rgba(0,0,0,0.4);
+    padding:8px 10px;
+    font-size:12px;
+    z-index:5;
+  }
+  #minimap{
+    right:16px; bottom:16px;
+    width:132px; height:100px;
+    padding:6px;
+  }
+  #minimap svg{width:100%;height:100%;display:block;cursor:pointer;}
+
+  /* ---------- right panel ---------- */
+  .rightpanel{
+    background:var(--bg-panel);
+    border-left:1px solid var(--hair);
+    display:flex;flex-direction:column;
+    min-height:0;
+    overflow:hidden;
+  }
+  .rp-pinned{
+    border-bottom:1px solid var(--hair);
+    padding:14px 16px;
+    flex-shrink:0;
+  }
+  .rp-title{
+    font-family:var(--serif);font-weight:600;font-size:11px;
+    text-transform:uppercase;letter-spacing:.07em;color:var(--ink-dim);
+    display:flex;align-items:center;gap:6px;
+    margin:0 0 10px;
+  }
+  .rp-title .layer-count{
+    font-family:var(--mono);font-size:10px;color:var(--ink-faint);font-weight:400;
+    letter-spacing:0;
+  }
+  .rp-scroll{
+    flex:1;
+    overflow-y:auto;
+    padding-bottom:10px;
+  }
+
+  /* accordion sections (built on native <details>, zero extra JS required) */
+  details.rp-acc{border-bottom:1px solid var(--hair);}
+  details.rp-acc summary{
+    list-style:none;
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 16px;
+    font-family:var(--serif);font-weight:600;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:.06em;
+    color:var(--ink-dim);
+    user-select:none;
+  }
+  details.rp-acc summary::-webkit-details-marker{display:none;}
+  details.rp-acc summary::after{
+    content:"+";
+    font-family:var(--mono);font-size:13px;font-weight:400;
+    color:var(--ink-faint);
+    transition:transform .12s;
+  }
+  details.rp-acc[open] summary::after{content:"–";}
+  details.rp-acc[open] summary{color:var(--ink);}
+  details.rp-acc summary:hover{background:var(--bg-panel-2);color:var(--ink);}
+  details.rp-acc summary small{
+    font-family:var(--mono);font-weight:400;text-transform:none;letter-spacing:0;
+    color:var(--ink-faint);font-size:9.5px;margin-left:6px;
+  }
+  .rp-body{padding:0 16px 16px;}
+
+  .card-note{
+    font-size:10.5px;color:var(--ink-faint);
+    margin:0 0 10px;line-height:1.4;
+  }
+
+  .field{
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    font-size:12.5px;
+    padding:3px 0;
+    border-bottom:1px dotted var(--hair-strong);
+  }
+  .field span:first-child{color:var(--ink-dim); font-size:11.5px;}
+  .field span:last-child{text-align:right; font-weight:600; color:var(--ink);}
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-family:var(--mono);
+    font-size:11px;
+  }
+  table th{
+    text-align:left;
+    color:var(--ink-dim);
+    font-weight:600;
+    border-bottom:1px solid var(--hair-strong);
+    padding:4px 4px;
+  }
+  table td{
+    padding:3px 4px;
+    border-bottom:1px solid var(--hair);
+    color:var(--ink);
+  }
+  table tr:hover td{background:var(--bg-panel-2);}
+
+  .file-btn{
+    display:inline-block;
+    font-family:var(--mono);
+    font-size:11px;
+    padding:7px 12px;
+    background:var(--brass);
+    color:#1a1408;
+    border-radius:5px;
+    cursor:pointer;
+    letter-spacing:.3px;
+    font-weight:600;
+  }
+  .file-btn:hover{background:#dbb45c;}
+  input[type=file]{display:none;}
+  .hint{
+    font-size:10.5px;
+    color:var(--ink-faint);
+    margin-top:8px;
+    padding:8px 9px;
+    background:var(--bg-panel-2);
+    border-left:2px solid var(--brass-soft);
+    border-radius:4px;
+    line-height:1.5;
+  }
+
+  .btnrow{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;}
+  .toolbtn{
+    font-family:var(--mono);
+    font-size:10.5px;
+    padding:7px 9px;
+    background:var(--bg-panel-2);
+    color:var(--ink);
+    border:1px solid var(--hair-strong);
+    border-radius:5px;
+    cursor:pointer;
+    letter-spacing:.2px;
+    text-align:center;
+    flex:1 1 auto;
+    transition:background .12s, border-color .12s;
+  }
+  .toolbtn:hover{background:var(--bg-panel); border-color:var(--moss-soft);}
+  .toolbtn.active{background:var(--brass); color:#1a1408; border-color:var(--brass); font-weight:600;}
+  .toolbtn.primary{background:var(--moss); color:#0f1a13; border-color:var(--moss); font-weight:600;}
+  .toolbtn.primary:hover{background:var(--brass); border-color:var(--brass);}
+  .toolbtn:disabled{opacity:.35; cursor:default;}
+  .toolbtn.disabled{opacity:.35; cursor:default; pointer-events:none;}
+
+  .numrow{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    font-size:12px;
+    margin:8px 0;
+    gap:8px;
+  }
+  .numrow input[type=number]{
+    width:78px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    padding:5px 6px;
+    border:1px solid var(--hair-strong);
+    border-radius:4px;
+    background:var(--bg-canvas);
+    color:var(--ink);
+  }
+  .status{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--brass);
+    min-height:14px;
+    margin-top:4px;
+  }
+  .stripmeta{
+    font-family:var(--mono);
+    font-size:11px;
+    line-height:1.7;
+  }
+  .stripmeta .row{
+    display:flex;
+    justify-content:space-between;
+    border-bottom:1px dotted var(--hair-strong);
+    padding:2px 0;
+    color:var(--ink);
+  }
+  .stripmeta .row span:first-child{color:var(--ink-dim);}
+
+  /* --- слои --- */
+  .layer-row{
+    display:flex;align-items:center;gap:9px;
+    padding:6px 4px;border-radius:6px;
+    font-size:12px;color:var(--ink);
+    cursor:pointer;
+    user-select:none;
+  }
+  .layer-row:hover{background:var(--bg-panel-2);}
+  .layer-row .swatch{width:11px;height:11px;border-radius:3px;flex-shrink:0;}
+  .layer-row .toggle{
+    margin-left:auto;width:28px;height:16px;border-radius:9px;
+    background:var(--moss);position:relative;flex-shrink:0;
+    transition:background .12s;
+  }
+  .layer-row .toggle::after{
+    content:"";position:absolute;top:2px;right:2px;width:12px;height:12px;
+    border-radius:50%;background:var(--ink);transition:right .12s, left .12s;
+  }
+  .layer-row .toggle.off{background:var(--bg-panel-2);border:1px solid var(--hair-strong);}
+  .layer-row .toggle.off::after{left:2px;right:auto;background:var(--ink-faint);}
+  .layer-row.hidden-layer{color:var(--ink-faint);}
+
+  /* --- статус-строка проверки чертежа --- */
+  .checkbar{
+    display:flex;align-items:center;gap:7px;
+    font-family:var(--mono);font-size:10.5px;
+    padding:7px 9px;border-radius:5px;
+    background:var(--bg-panel-2);
+    color:var(--ink-dim);
+    margin-top:10px;
+  }
+  .checkbar .dot{width:7px;height:7px;border-radius:50%;background:var(--moss);flex-shrink:0;}
+  .checkbar.warn{color:var(--danger);}
+  .checkbar.warn .dot{background:var(--danger);}
+
+  /* --- пресеты экспорта --- */
+  .presetbtn{
+    display:block; width:100%; text-align:left;
+    font-family:var(--mono); font-size:11px;
+    padding:9px 11px; margin-bottom:7px;
+    background:var(--bg-panel-2); color:var(--ink);
+    border:1px solid var(--hair-strong); border-radius:5px;
+    cursor:pointer;
+  }
+  .presetbtn:hover{border-color:var(--brass-soft); background:var(--bg-canvas);}
+  .presetbtn b{display:block; font-size:12px; color:var(--brass); margin-bottom:2px; font-family:var(--serif);}
+  .presetbtn span{color:var(--ink-faint); font-size:10px; line-height:1.4;}
+
+  /* --- растровая подложка --- */
+  input[type=range]{width:100%; accent-color:var(--brass);}
+  .rangerow{margin:8px 0;}
+  .rangerow .rangelabel{display:flex; justify-content:space-between; font-size:11px; color:var(--ink-dim); margin-bottom:3px;}
+  .checkrow{display:flex; align-items:center; gap:7px; font-size:11px; color:var(--ink-dim); margin:8px 0;}
+  .checkrow input[type=checkbox]{accent-color:var(--brass); width:14px; height:14px;}
+
+  /* ---------- statusbar ---------- */
+  .statusbar{
+    height:26px;
+    flex-shrink:0;
+    background:var(--bg-panel);
+    border-top:1px solid var(--hair);
+    display:flex;align-items:center;
+    padding:0 16px;gap:14px;
+    font-family:var(--mono);
+    font-size:10.5px;color:var(--ink-faint);
+  }
+  .statusbar .spacer{flex:1;}
+  .statusbar .tag{color:var(--brass);text-transform:uppercase;letter-spacing:.06em;font-size:10px;}
+</style>
+
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="mark"><span>Л</span></span>Лесосека · Абрис</div>
+  <div class="crumb">Этап 4–5 · <b>инфраструктура + экспорт</b></div>
+  <div class="top-spacer"></div>
+  <div class="top-controls">
+    <span class="scale-label">Масштаб печати</span>
+    <div class="scale-row">
+      <div class="toolbtn" data-scale="2500">1:2500</div>
+      <div class="toolbtn active" data-scale="5000">1:5000</div>
+      <div class="toolbtn" data-scale="10000">1:10000</div>
+      <div class="scale-sep"></div>
+      <span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);">1 :</span>
+      <input type="number" id="customScaleInput" min="1" max="1000000" step="1" placeholder="свой">
+      <div class="toolbtn" id="btnCustomScale" title="Применить свой масштаб печати">Задать</div>
+    </div>
+    <div class="icon-btn" id="btnTopUndo" title="Отменить (Ctrl+Z)">↺</div>
+    <div class="icon-btn" id="btnTopRedo" title="Повторить">↻</div>
+    <div class="icon-btn" id="btnTopReset" title="Сбросить зум/сдвиг">⤢</div>
+    <div class="icon-btn" id="btnTopExport" title="К разделу «Экспорт»" style="color:var(--brass);">⇩</div>
+  </div>
+</div>
+
+<div class="body">
+
+  <nav class="rail" id="rail">
+    <button type="button" class="rail-btn active" data-target="secLayers"><div class="ic">▤</div><div class="lbl">СЛОИ</div></button>
+    <button type="button" class="rail-btn" data-target="secData"><div class="ic">⇪</div><div class="lbl">ДАННЫЕ</div></button>
+    <div class="rail-div"></div>
+    <button type="button" class="rail-btn" data-target="secInfra"><div class="ic">⚑</div><div class="lbl">ЗНАКИ</div></button>
+    <button type="button" class="rail-btn" data-target="secMeasure"><div class="ic">⟷</div><div class="lbl">ИЗМЕР.</div></button>
+    <button type="button" class="rail-btn" data-target="secStrips"><div class="ic">▦</div><div class="lbl">ПАСЕКИ</div></button>
+    <button type="button" class="rail-btn" data-target="secSafety"><div class="ic">◎</div><div class="lbl">ЗОНА</div></button>
+    <div class="rail-div"></div>
+    <button type="button" class="rail-btn" data-target="secRaster"><div class="ic">▨</div><div class="lbl">ПОДЛОЖКА</div></button>
+    <button type="button" class="rail-btn" data-target="secExport"><div class="ic">⇩</div><div class="lbl">ЭКСПОРТ</div></button>
+  </nav>
+
+  <div id="canvasOuter">
+    <div class="ruler-top"></div>
+    <div class="ruler-left"></div>
+    <div id="canvasWrap">
+      <svg id="stage" viewBox="0 0 900 700" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div id="minimap" class="float-card" title="Обзор — прямоугольник показывает видимую область">
+      <svg id="minimapSvg" viewBox="0 0 120 90"></svg>
+    </div>
+  </div>
+
+  <aside class="rightpanel">
+
+    <div class="rp-pinned" id="secLayers">
+      <div class="rp-title">Слои <span class="layer-count">6</span></div>
+      <div class="layer-row" data-layer="contour"><div class="swatch" style="background:#7fa37a;"></div>Контур делянки<div class="toggle"></div></div>
+      <div class="layer-row" data-layer="safety"><div class="swatch" style="background:#c56a4d;"></div>Зона безопасности<div class="toggle"></div></div>
+      <div class="layer-row" data-layer="strips"><div class="swatch" style="background:#c9a24b;"></div>Пасеки<div class="toggle"></div></div>
+      <div class="layer-row" data-layer="infra"><div class="swatch" style="background:#8fb88a;"></div>Инфраструктура / знаки<div class="toggle"></div></div>
+      <div class="layer-row" data-layer="labels"><div class="swatch" style="background:#eaeee4;"></div>Подписи<div class="toggle"></div></div>
+      <div class="layer-row" data-layer="raster"><div class="swatch" style="background:#5f7362;"></div>Растровая подложка<div class="toggle"></div></div>
+      <div class="checkbar" id="checkBar"><span class="dot"></span>&nbsp;</div>
+    </div>
+
+    <div class="rp-scroll">
+
+      <details class="rp-acc" id="secData" open>
+        <summary>Данные</summary>
+        <div class="rp-body">
+          <label class="file-btn">Загрузить JSON выгрузку
+            <input type="file" id="fileInput" accept=".json">
+          </label>
+          <div class="hint">Формат — выгрузка оборудования (area / area_data / area_points). Сейчас показан пример из вашего файла.</div>
+
+          <div class="rp-title" style="margin-top:16px;">Данные участка</div>
+          <div id="areaFields"></div>
+
+          <div class="rp-title" style="margin-top:16px;">Bounding box</div>
+          <div id="bboxFields"></div>
+
+          <div class="rp-title" style="margin-top:16px;">Координаты точек</div>
+          <table>
+            <thead><tr><th>№</th><th>X</th><th>Y</th></tr></thead>
+            <tbody id="pointsTable"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <details class="rp-acc" id="secInfra" open>
+        <summary>Инфраструктура / знаки <small>клик → клик на холсте</small></summary>
+        <div class="rp-body">
+          <div class="btnrow">
+            <div class="toolbtn" data-infra="ck">СК склад</div>
+            <div class="toolbtn" data-infra="stack">Штабеля</div>
+            <div class="toolbtn" data-infra="mo">МО</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" data-infra="mz">МЗ</div>
+            <div class="toolbtn" data-infra="corner">Угловой столб</div>
+            <div class="toolbtn" data-infra="kvartal">Кв. просека (2 клика)</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" data-infra="park">Стоянка техники</div>
+            <div class="toolbtn" data-infra="gsm">Склад ГСМ</div>
+            <div class="toolbtn" data-infra="fire">Кострище</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" data-infra="manual">Ручная линия (N кликов)</div>
+            <div class="toolbtn primary" id="btnFinishLine">Завершить линию</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" data-infra="text">Текст (подпись)</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" id="btnInfraUndo">↶ Отменить (Ctrl+Z)</div>
+            <div class="toolbtn" id="btnInfraRedo">↷ Повторить</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" id="btnInfraClear">Очистить всю инфраструктуру</div>
+          </div>
+          <div class="hint">Значки, просеку, ручную линию и подписи можно перетаскивать мышью: точечные значки прилипают к границе; линии двигаются за концы/узлы или целиком, если схватить за середину. При перетаскивании отдельных узлов/концов включается умная привязка — к узлам, серединам сторон и углу 15°/45° — с направляющими на чертеже. Двойной клик по подписи — изменить текст (пустой текст удаляет подпись). Двойной клик по узлу контура — точный ввод X/Y.</div>
+          <div class="status" id="infraStatus"></div>
+          <div class="checkbar" id="infraCheckBar"><span class="dot"></span>&nbsp;</div>
+        </div>
+      </details>
+
+      <details class="rp-acc" id="secMeasure">
+        <summary>Измеритель</summary>
+        <div class="rp-body">
+          <div class="btnrow">
+            <div class="toolbtn" data-infra="measure">Измерить (2 клика)</div>
+            <div class="toolbtn" id="btnMeasureClear">Очистить</div>
+          </div>
+          <div class="hint">Расстояние и азимут (0° — вверх/север, по часовой). Метка держится на чертеже, пока не нажмёте «Очистить» или не измерите заново.</div>
+        </div>
+      </details>
+
+      <details class="rp-acc" id="secStrips">
+        <summary>Пасеки <small>направляющая</small></summary>
+        <div class="rp-body">
+          <div class="btnrow">
+            <div class="toolbtn" id="btnVector">Задать вектор (2 клика)</div>
+            <div class="toolbtn" id="btnEdge">Выбрать сторону полигона</div>
+          </div>
+          <div class="numrow">
+            <span>Ширина пасеки, м</span>
+            <input type="number" id="stripWidth" value="30" min="1" step="1">
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn primary" id="btnBuild" disabled>Построить пасеки</div>
+            <div class="toolbtn" id="btnClearStrips">Очистить</div>
+          </div>
+          <div class="status" id="dirStatus">Вектор не задан.</div>
+          <div class="hint">Клик по холсту — 2 точки задают направление. Или наведите на сторону контура и кликните по ней.</div>
+
+          <div id="stripInfoCard" style="display:none;margin-top:14px;">
+            <div class="rp-title">Пасеки</div>
+            <div class="stripmeta" id="stripMeta"></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="rp-acc" id="secSafety">
+        <summary>Зона безопасности</summary>
+        <div class="rp-body">
+          <div class="numrow" style="margin-top:0;">
+            <span>Радиус зоны, м</span>
+            <input type="number" id="safetyRadius" value="50" min="1" step="1">
+          </div>
+          <div class="numrow">
+            <span>Шаг знаков «D», м</span>
+            <input type="number" id="signSpacing" value="70" min="5" step="5">
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn primary" id="btnSafety">Добавить зону безопасности</div>
+            <div class="toolbtn" id="btnClearSafety">Убрать</div>
+          </div>
+        </div>
+      </details>
+
+      <details class="rp-acc" id="secRaster">
+        <summary>Растровая подложка <small>трассировка</small></summary>
+        <div class="rp-body">
+          <label class="file-btn">Загрузить скан/снимок
+            <input type="file" id="rasterInput" accept="image/*">
+          </label>
+          <div class="rangerow">
+            <div class="rangelabel"><span>Прозрачность</span><span id="rasterOpacityVal">55%</span></div>
+            <input type="range" id="rasterOpacity" min="5" max="100" value="55">
+          </div>
+          <div class="numrow">
+            <span>Ширина изображения, м</span>
+            <input type="number" id="rasterWidth" value="0" min="1" step="1">
+          </div>
+          <div class="numrow">
+            <span>Сдвиг X / Y, м</span>
+            <span style="display:flex;gap:6px;">
+              <input type="number" id="rasterOffsetX" value="0" step="1" style="width:64px;">
+              <input type="number" id="rasterOffsetY" value="0" step="1" style="width:64px;">
+            </span>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" id="btnRasterMove">✥ Двигать перетаскиванием</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" id="btnRasterRemove">Убрать подложку</div>
+          </div>
+          <label class="checkrow"><input type="checkbox" id="rasterIncludePrint"> включать подложку в печать/PDF</label>
+          <div class="hint">Загрузите скан старого абриса или снимок местности — он ляжет под чертёж полупрозрачным слоем для трассировки. Подгоните ширину и сдвиг под известные ориентиры, затем при необходимости включите режим перетаскивания для точной подгонки мышью.</div>
+          <div class="status" id="rasterStatus"></div>
+        </div>
+      </details>
+
+      <details class="rp-acc" id="secExport">
+        <summary>Экспорт</summary>
+        <div class="rp-body">
+          <div class="btnrow">
+            <div class="toolbtn primary" id="btnSaveToApp">💾 Сохранить в приложение</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" id="btnExportPng">Скачать PNG</div>
+            <div class="toolbtn" id="btnExportPdf">Скачать PDF</div>
+          </div>
+          <div class="hint">«Сохранить в приложение» передаёт чертёж напрямую в Техкарту (пункт 5.10). PNG/PDF — для отдельного файла на диск.</div>
+          <div class="status" id="exportStatus"></div>
+
+          <div class="rp-title" style="margin-top:16px;">Экспорт-пресеты <span class="layer-count">1 клик → PDF</span></div>
+          <div class="presetbtn" data-preset="full"><b>Для лесничества</b><span>Полный комплект: контур, зона безопасности, пасеки, вся инфраструктура и знаки, все поля участка.</span></div>
+          <div class="presetbtn" data-preset="tenant"><b>Для арендатора</b><span>Рабочий чертёж без служебных полей (ответственный, дата подготовки) — только участок, площадь, вид рубки.</span></div>
+          <div class="presetbtn" data-preset="glr"><b>Для ГЛР</b><span>Только контур делянки и таблица координат — без пасек и внутренней инфраструктуры.</span></div>
+          <div class="hint">Пресет не меняет включённые/выключенные слои на экране — переопределяет их только в собираемом документе.</div>
+          <div class="status" id="presetStatus"></div>
+        </div>
+      </details>
+
+    </div>
+  </aside>
+</div>
+
+<div class="statusbar">
+  <div id="viewHint">средняя кнопка мыши — сдвиг · колесо/pinch — зум · 2× клик — сброс</div>
+  <div class="spacer"></div>
+  <span class="tag">Лесовод</span>
+</div>
+
+
+<script>
+const DEFAULT_DATA = {"area": [{"uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "num_lch": 5, "num_kv": "139", "area": 1.1, "leshos": 211, "num": "2", "usetype": "Прочие рубки", "cuttingtyp": "сплошная санитарная", "fio": "пом. л-го. Крыштахович В.М.", "date": "15.06.2026", "info": "", "num_vds": "15", "leshos_text": "Оршанский лесхоз", "lesnich_text": "Болбасовское", "vedomstvo_text": "Витебское"}], "area_data": [{"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "table_type": 0, "coord_type": 0, "binding_point_x": "712385.0", "binding_point_y": "6030382.890000001", "magnetic_inclination": 0.0}], "area_points": [{"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 0, "point_x": "712414.7799999998", "point_y": "6030442.329999999", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 1, "point_x": "712432.62", "point_y": "6030429.339999998", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 2, "point_x": "712446.2390668092", "point_y": "6030416.375923873", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 3, "point_x": "712457.6299999999", "point_y": "6030412.67", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 4, "point_x": "712481.2165857843", "point_y": "6030394.5164087415", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 5, "point_x": "712507.3900000002", "point_y": "6030371.08", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 6, "point_x": "712529.8910304486", "point_y": "6030354.296896342", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 7, "point_x": "712548.3929573335", "point_y": "6030342.59184447", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 8, "point_x": "712542.4505745932", "point_y": "6030317.879159635", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 9, "point_x": "712524.866895021", "point_y": "6030288.456194616", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 10, "point_x": "712522.6211110208", "point_y": "6030285.895001378", "point_type": "Лесосека"}, {"area_uid": "f987a242-4750-45c6-b881-a3fb06d9e9b2", "point_number": 11, "point_x": "712385.0", "point_y": "6030382.890000001", "point_type": "Лесосека"}]};
+
+const svgNS = "http://www.w3.org/2000/svg";
+const VB_W = 900, VB_H = 700, PADDING = 90;
+
+function el(tag, attrs, parent){
+  const e = document.createElementNS(svgNS, tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]);
+  if(parent) parent.appendChild(e);
+  return e;
+}
+
+// ---- global state ----
+let STATE = {
+  points: [],          // {n,x,y} real-world meters
+  areaMeta: {},        // raw area[0] metadata from the JSON (лесхоз, мастер, etc.)
+  transform: null,     // {scale, offX, offY, minX, maxY}
+  mode: null,           // 'vector' | 'edge' | {kind:'point'|'line', type, clicks} | null
+  vectorClicks: [],     // world-space points collected while in 'vector' mode
+  direction: null,      // {angle} radians, direction of паseka lines
+  directionSourceLabel: "",
+  stripLayer: null,     // svg <g> holding drawn strips, kept separate so we can clear it
+  safetyLayer: null,    // svg <g> holding safety-zone buffer + D signs
+  infraLayer: null,     // svg <g> holding infrastructure icons/lines (excluding free-text labels)
+  labelsLayer: null,    // svg <g> holding free-text labels placed with the "Текст" tool
+  contourLayer: null,   // svg <g> holding the делянка outline + vertex points/numbers
+  measureLayer: null,   // svg <g> holding the "Измеритель" tool's line + distance/azimuth chip
+  previewLayer: null,   // svg <g> holding live polyline-in-progress preview
+  infrastructure: [],   // placed infrastructure items
+  dragging: null,        // drag handle object while a vertex/icon/whole line is being dragged
+  printScale: 5000,      // denominator S for print scale 1:S (пресеты 2500/5000/10000 или произвольное значение из поля "свой масштаб")
+  layerVisibility: {contour:true, safety:true, strips:true, infra:true, labels:true, raster:true},
+  rasterLayer: null,     // svg <g> holding the tracing underlay <image>, painted first (bottom-most)
+  guideLayer: null,      // svg <g> holding live smart-guide lines/highlights while dragging
+  rasterUnderlay: null,  // {dataUrl, naturalW, naturalH, widthM, offsetX, offsetY, opacity, includeInPrint} or null
+  rasterMoveMode: false  // true while "Двигать перетаскиванием" is armed for the raster underlay
+};
+
+// Показывает/скрывает слои по STATE.layerVisibility — вызывается после
+// каждой полной перерисовки (renderBBoxAndSvg) и из обработчиков кликов
+// панели "Слои", чтобы включение/выключение работало сразу, без пересборки
+// самого чертежа.
+function applyLayerVisibility(){
+  const v = STATE.layerVisibility;
+  const set = (layer, on) => { if(layer) layer.style.display = on ? "" : "none"; };
+  set(STATE.contourLayer, v.contour);
+  set(STATE.safetyLayer, v.safety);
+  set(STATE.stripLayer, v.strips);
+  set(STATE.infraLayer, v.infra);
+  set(STATE.labelsLayer, v.labels);
+  set(STATE.rasterLayer, v.raster);
+}
+
+// Рисует растровую подложку-трассировку (скан старого абриса / снимок
+// местности) из STATE.rasterUnderlay в STATE.rasterLayer. Позиционирование
+// упрощённое (без полноценной геопривязки): пользователь задаёт реальную
+// ширину изображения в метрах и сдвиг (X/Y) центра изображения относительно
+// центра bbox делянки — этого достаточно, чтобы подогнать скан под
+// известные ориентиры на контуре. Высота считается из соотношения сторон
+// исходного файла, чтобы изображение не искажалось.
+function renderRasterUnderlay(){
+  const layer = STATE.rasterLayer;
+  if(!layer) return;
+  layer.innerHTML = "";
+  const ru = STATE.rasterUnderlay;
+  if(!ru || !STATE.transform) return;
+
+  const xs = STATE.points.map(p=>p.x), ys = STATE.points.map(p=>p.y);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2 + ru.offsetX;
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2 + ru.offsetY;
+  const widthM = ru.widthM;
+  const heightM = widthM * (ru.naturalH / ru.naturalW);
+
+  const topLeftWorld = {x: cx - widthM/2, y: cy + heightM/2}; // +heightM/2 т.к. Y растёт вверх
+  const s = worldToScreen(topLeftWorld);
+  const wScreen = widthM * STATE.transform.scale;
+  const hScreen = heightM * STATE.transform.scale;
+
+  el("image", {
+    href: ru.dataUrl, x: s.x, y: s.y, width: wScreen, height: hScreen,
+    opacity: ru.opacity, preserveAspectRatio: "none"
+  }, layer).setAttributeNS("http://www.w3.org/1999/xlink", "href", ru.dataUrl);
+}
+
+// Проверка контура делянки на самопересечения — та же класс ошибки, что
+// раньше портил зону безопасности (см. Clipper-фикс выше), только здесь
+// проверяется САМ исходный контур, до всякого офсета: если делянку
+// оцифровали с перепутанным порядком точек, граница получится
+// "бантиком", и об этом стоит сказать сразу в редакторе, а не после
+// печати. Возвращает true, если найдено пересечение непримыкающих сторон.
+function contourSelfIntersects(points){
+  const n = points.length;
+  function segInt(a,b,c,d){
+    function ccw(p,q,r){ return (r.y-p.y)*(q.x-p.x) > (q.y-p.y)*(r.x-p.x); }
+    return ccw(a,c,d) !== ccw(b,c,d) && ccw(a,b,c) !== ccw(a,b,d);
+  }
+  for(let i=0;i<n;i++){
+    for(let j=i+1;j<n;j++){
+      if(Math.abs(i-j)<=1 || (i===0 && j===n-1)) continue; // adjacent edges share a vertex — not a crossing
+      const a=points[i], b=points[(i+1)%n], c=points[j], d=points[(j+1)%n];
+      if(segInt(a,b,c,d)) return true;
+    }
+  }
+  return false;
+}
+
+// ---- история действий (отмена/повтор) ----
+// Простой снапшот-стек: перед каждым мутирующим действием (разместили
+// значок, подвинули, стёрли подпись, ввели точные координаты узла,
+// очистили инфраструктуру) сохраняем полную копию STATE.points +
+// STATE.infrastructure. Проще и надёжнее точечных "diff"-патчей — цена
+// в объёме памяти для чертежа из полусотни объектов пренебрежимо мала.
+STATE.history = {undo: [], redo: []};
+const HISTORY_LIMIT = 40;
+
+function snapshotState(){
+  return {
+    points: STATE.points.map(p => ({...p})),
+    infrastructure: JSON.parse(JSON.stringify(STATE.infrastructure))
+  };
+}
+
+function pushHistory(){
+  STATE.history.undo.push(snapshotState());
+  if(STATE.history.undo.length > HISTORY_LIMIT) STATE.history.undo.shift();
+  STATE.history.redo = []; // новое действие отменяет "будущее" для повтора
+  updateHistoryButtons();
+}
+
+function restoreSnapshot(snap){
+  STATE.points = snap.points.map(p => ({...p}));
+  STATE.infrastructure = JSON.parse(JSON.stringify(snap.infrastructure));
+  renderBBoxAndSvg(STATE.points);
+  renderTable(STATE.points);
+  renderInfra();
+}
+
+function undoHistory(){
+  if(!STATE.history.undo.length) return;
+  const current = snapshotState();
+  const prev = STATE.history.undo.pop();
+  STATE.history.redo.push(current);
+  restoreSnapshot(prev);
+  updateHistoryButtons();
+}
+
+function redoHistory(){
+  if(!STATE.history.redo.length) return;
+  const current = snapshotState();
+  const next = STATE.history.redo.pop();
+  STATE.history.undo.push(current);
+  restoreSnapshot(next);
+  updateHistoryButtons();
+}
+
+function updateHistoryButtons(){
+  const u = document.getElementById("btnInfraUndo");
+  const r = document.getElementById("btnInfraRedo");
+  if(u) u.classList.toggle("disabled", STATE.history.undo.length === 0);
+  if(r) r.classList.toggle("disabled", STATE.history.redo.length === 0);
+}
+
+function runContourCheck(){
+  const bar = document.getElementById("checkBar");
+  if(!bar) return;
+  if(!STATE.points || STATE.points.length < 3){
+    bar.className = "checkbar";
+    bar.innerHTML = `<span class="dot"></span>нет контура`;
+    return;
+  }
+  const bad = contourSelfIntersects(STATE.points);
+  if(bad){
+    bar.className = "checkbar warn";
+    bar.innerHTML = `<span class="dot"></span>контур самопересекается — проверьте порядок точек`;
+  } else {
+    bar.className = "checkbar";
+    bar.innerHTML = `<span class="dot"></span>контур корректен, ГОСТ Р 56695`;
+  }
+}
+
+// ---- мини-карта (обзор) ----
+// Рисует уменьшенный контур делянки в верхнем правом углу холста и
+// прямоугольник видимой области — полезно, когда чертёж сильно
+// приближен зумом и часть его физически не видна на экране.
+const MINIMAP_W = 120, MINIMAP_H = 90;
+
+function renderMinimap(){
+  const svg = document.getElementById("minimapSvg");
+  if(!svg || !STATE.transform) return;
+  svg.setAttribute("viewBox", `0 0 ${MINIMAP_W} ${MINIMAP_H}`);
+  svg.innerHTML = "";
+  const kx = MINIMAP_W / VB_W, ky = MINIMAP_H / VB_H;
+
+  const d = STATE.points.map((p, i) => {
+    const s = worldToScreen(p);
+    return `${i===0?'M':'L'} ${(s.x*kx).toFixed(1)} ${(s.y*ky).toFixed(1)}`;
+  }).join(" ") + " Z";
+  el("path", {d, fill:"rgba(127,163,122,0.25)", stroke:"#7fa37a", "stroke-width":1}, svg);
+
+  el("rect", {
+    id:"minimapViewport", x:0, y:0, width:MINIMAP_W, height:MINIMAP_H,
+    fill:"none", stroke:"#c9a24b", "stroke-width":1.4
+  }, svg);
+  updateMinimapViewport();
+}
+
+// Пересчитывает рамку "видимой области" на мини-карте по фактическому
+// текущему положению #stage на экране (getScreenCTM учитывает CSS
+// translate/scale от initCanvasZoom сам по себе — не нужно повторно
+// решать ту же геометрию вручную, как в svgPointFromEvent()).
+function updateMinimapViewport(){
+  const svg = document.getElementById("stage");
+  const outer = document.getElementById("canvasOuter");
+  const rectEl = document.getElementById("minimapViewport");
+  if(!svg || !outer || !rectEl || !svg.getScreenCTM) return;
+  const ctm = svg.getScreenCTM();
+  if(!ctm) return;
+  const inv = ctm.inverse();
+  const outerRect = outer.getBoundingClientRect();
+  const toSvgPt = (cx, cy) => {
+    const pt = svg.createSVGPoint();
+    pt.x = cx; pt.y = cy;
+    return pt.matrixTransform(inv);
+  };
+  const corners = [
+    toSvgPt(outerRect.left, outerRect.top), toSvgPt(outerRect.right, outerRect.top),
+    toSvgPt(outerRect.right, outerRect.bottom), toSvgPt(outerRect.left, outerRect.bottom)
+  ];
+  const xs = corners.map(p=>p.x), ys = corners.map(p=>p.y);
+  const kx = MINIMAP_W / VB_W, ky = MINIMAP_H / VB_H;
+  rectEl.setAttribute("x", (Math.min(...xs)*kx).toFixed(1));
+  rectEl.setAttribute("y", (Math.min(...ys)*ky).toFixed(1));
+  rectEl.setAttribute("width", ((Math.max(...xs)-Math.min(...xs))*kx).toFixed(1));
+  rectEl.setAttribute("height", ((Math.max(...ys)-Math.min(...ys))*ky).toFixed(1));
+}
+
+// Клик по мини-карте — прыгнуть центром вида к этой точке (быстрая
+// навигация при сильном приближении, без необходимости панорамировать
+// средней кнопкой мыши через весь чертёж).
+document.getElementById("minimapSvg").addEventListener("click", (evt) => {
+  if(!STATE.transform) return;
+  const svgMini = document.getElementById("minimapSvg");
+  const pt = svgMini.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  const loc = pt.matrixTransform(svgMini.getScreenCTM().inverse());
+  const kx = VB_W / MINIMAP_W, ky = VB_H / MINIMAP_H;
+  const targetVbX = loc.x * kx, targetVbY = loc.y * ky;
+
+  const stage = document.getElementById("stage");
+  const outer = document.getElementById("canvasOuter");
+  const view = STATE.getViewTransform ? STATE.getViewTransform() : null;
+  if(!view) return;
+  // экранная (client) позиция целевой VB-точки при текущем масштабе —
+  // через ту же CTM-математику, что и остальные преобразования координат
+  const ctm = stage.getScreenCTM();
+  const pt2 = stage.createSVGPoint(); pt2.x = targetVbX; pt2.y = targetVbY;
+  const clientTarget = pt2.matrixTransform(ctm);
+  const outerRect = outer.getBoundingClientRect();
+  const dx = (outerRect.left + outerRect.width/2) - clientTarget.x;
+  const dy = (outerRect.top + outerRect.height/2) - clientTarget.y;
+  if(STATE.panBy) STATE.panBy(dx, dy);
+});
+
+function loadData(data){
+  const areaMeta = (data.area && data.area[0]) || {};
+  const points = (data.area_points || [])
+    .slice()
+    .sort((a,b)=>a.point_number - b.point_number)
+    .map(p => ({n: p.point_number, x: parseFloat(p.point_x), y: parseFloat(p.point_y)}));
+
+  if(points.length === 0){
+    alert("В файле не найдено точек area_points.");
+    return;
+  }
+
+  STATE.points = points;
+  STATE.areaMeta = areaMeta;
+  STATE.direction = null;
+  STATE.vectorClicks = [];
+  STATE.mode = null;
+  STATE.infrastructure = [];
+  STATE.history = {undo: [], redo: []}; // новый документ — старая история отмены не имеет смысла
+  document.getElementById("dirStatus").textContent = "Вектор не задан.";
+  document.getElementById("btnBuild").setAttribute("disabled", "true");
+  document.getElementById("stripInfoCard").style.display = "none";
+
+  renderMeta(areaMeta);
+  renderBBoxAndSvg(points);
+  renderTable(points);
+  renderInfra(); // на пустой инфраструктуре тоже инициализирует статус-строку проверки "знаки друг на друге"
+  wireCanvasInteraction();
+  updateHistoryButtons();
+}
+
+function renderMeta(m){
+  const rows = [
+    ["Лесхоз", m.leshos_text],
+    ["Лесничество", m.lesnich_text],
+    ["Объединение", m.vedomstvo_text],
+    ["Квартал", m.num_kv],
+    ["Выдел", m.num_vds],
+    ["Участок №", m.num],
+    ["Площадь, га", m.area],
+    ["Вид пользования", m.usetype],
+    ["Вид рубки", m.cuttingtyp],
+    ["Ответственный", m.fio],
+    ["Дата", m.date],
+  ];
+  const box = document.getElementById("areaFields");
+  box.innerHTML = rows.map(([label, val]) =>
+    `<div class="field"><span>${label}</span><span>${(val===undefined||val==="")?"—":val}</span></div>`
+  ).join("");
+}
+
+function renderBBoxAndSvg(points){
+  const xs = points.map(p=>p.x);
+  const ys = points.map(p=>p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = maxX - minX, h = maxY - minY;
+
+  document.getElementById("bboxFields").innerHTML = `
+    <div class="field"><span>X min → max</span><span>${minX.toFixed(2)} → ${maxX.toFixed(2)}</span></div>
+    <div class="field"><span>Y min → max</span><span>${minY.toFixed(2)} → ${maxY.toFixed(2)}</span></div>
+    <div class="field"><span>Ширина (X)</span><span>${w.toFixed(2)} м</span></div>
+    <div class="field"><span>Высота (Y)</span><span>${h.toFixed(2)} м</span></div>
+    <div class="field"><span>Точек</span><span>${points.length}</span></div>
+  `;
+
+  // normalize into screen space, preserving aspect ratio, flipping Y (geo Y up -> screen Y down).
+  // Reserve extra world-space margin equal to the safety-zone radius (+ a little slack for the
+  // "D" sign icons/arrows) so the buffer zone never gets clipped by the SVG's implicit viewBox
+  // clipping — this is what was causing the "абрис не влазит" issue, on screen and in export alike.
+  const safetyInput = document.getElementById("safetyRadius");
+  const reservedMargin = (safetyInput ? (parseFloat(safetyInput.value) || 50) : 50) + 15;
+  const fitMinX = minX - reservedMargin, fitMaxX = maxX + reservedMargin;
+  const fitMinY = minY - reservedMargin, fitMaxY = maxY + reservedMargin;
+  const fitW = fitMaxX - fitMinX, fitH = fitMaxY - fitMinY;
+
+  const drawW = VB_W - PADDING*2;
+  const drawH = VB_H - PADDING*2;
+  const scale = Math.min(drawW / (fitW || 1), drawH / (fitH || 1));
+  const offX = PADDING + (drawW - fitW*scale)/2 - (fitMinX - minX)*scale;
+  const offY = PADDING + (drawH - fitH*scale)/2 - (maxY - fitMaxY)*scale;
+
+  const toScreen = (p) => ({
+    x: offX + (p.x - minX) * scale,
+    y: offY + (maxY - p.y) * scale  // flip
+  });
+
+  const screenPts = points.map(p => ({...p, s: toScreen(p)}));
+
+  STATE.transform = {scale, offX, offY, minX, maxY};
+
+  const svg = document.getElementById("stage");
+  svg.setAttribute("viewBox", `0 0 ${VB_W} ${VB_H}`);
+  svg.innerHTML = "";
+
+  // Растровая подложка-трассировка рисуется самой первой (= самый нижний
+  // слой в SVG-порядке отрисовки), под всем остальным чертежом, включая
+  // масштабную линейку/стрелку севера. Данные подложки хранятся в
+  // STATE.rasterUnderlay и переживают полную перерисовку (та же схема,
+  // что и для контура/инфраструктуры — рисуем заново из STATE на каждый renderBBoxAndSvg).
+  const rasterLayer = el("g", {id:"rasterLayer"}, svg);
+  STATE.rasterLayer = rasterLayer;
+  renderRasterUnderlay();
+
+  // scale bar + north arrow (always visible, not a toggleable layer — same
+  // as a real topographic sheet's furniture)
+  drawScaleBar(svg, scale);
+  drawNorthArrow(svg);
+
+  // Layer order matters for painting AND for the new layer-visibility panel:
+  // build the layers that should sit *underneath* the contour first, then
+  // the contour itself last, so its outline/point numbers are always
+  // legible on top of пасеки/safety-zone fills — without the old
+  // draw-the-points-twice workaround this replaces.
+  const stripLayer = el("g", {id:"stripLayer"}, svg);
+  STATE.stripLayer = stripLayer;
+
+  const safetyLayer = el("g", {id:"safetyLayer"}, svg);
+  STATE.safetyLayer = safetyLayer;
+
+  const infraLayer = el("g", {id:"infraLayer"}, svg);
+  STATE.infraLayer = infraLayer;
+
+  const labelsLayer = el("g", {id:"labelsLayer"}, svg);
+  STATE.labelsLayer = labelsLayer;
+
+  const contourLayer = el("g", {id:"contourLayer"}, svg);
+  STATE.contourLayer = contourLayer;
+
+  const pathD = screenPts.map((p,i) => `${i===0?'M':'L'} ${p.s.x.toFixed(2)} ${p.s.y.toFixed(2)}`).join(" ") + " Z";
+  el("path", {
+    d: pathD,
+    fill: "rgba(127,163,122,0.10)",
+    stroke: "#7fa37a",
+    "stroke-width": 2.5,
+    "stroke-linejoin":"round"
+  }, contourLayer);
+  screenPts.forEach(p => {
+    el("circle", {cx:p.s.x, cy:p.s.y, r:5.5, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":2}, contourLayer);
+    el("text", {
+      x: p.s.x + 12, y: p.s.y - 10,
+      "font-size":13, fill:"#c9a24b", "font-weight":"600"
+    }, contourLayer).textContent = p.n;
+  });
+
+  // measure tool + free-hand shapes/annotation layer — always on top
+  const measureLayer = el("g", {id:"measureLayer"}, svg);
+  STATE.measureLayer = measureLayer;
+
+  const previewLayer = el("g", {id:"previewLayer"}, svg);
+  STATE.previewLayer = previewLayer;
+
+  // умные направляющие при перетаскивании — самый верхний слой, поверх
+  // абсолютно всего, иначе линии-направляющие терялись бы под значками
+  const guideLayer = el("g", {id:"guideLayer"}, svg);
+  STATE.guideLayer = guideLayer;
+
+  applyLayerVisibility();
+  runContourCheck();
+  renderMinimap();
+}
+
+// ---- coordinate helpers ----
+function worldToScreen(p){
+  const t = STATE.transform;
+  return {
+    x: t.offX + (p.x - t.minX) * t.scale,
+    y: t.offY + (t.maxY - p.y) * t.scale
+  };
+}
+function screenToWorld(sx, sy){
+  const t = STATE.transform;
+  return {
+    x: t.minX + (sx - t.offX) / t.scale,
+    y: t.maxY - (sy - t.offY) / t.scale
+  };
+}
+function svgPointFromEvent(evt){
+  const svg = document.getElementById("stage");
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  const ctm = svg.getScreenCTM().inverse();
+  const loc = pt.matrixTransform(ctm);
+  return {x: loc.x, y: loc.y};
+}
+
+// --- Зум колесиком/пинчем ---
+// Масштабируем #canvasWrap (обёртку), а не сам #stage: buildPrintLayout()
+// клонирует именно #stage через cloneNode(true), так что этот transform
+// никогда не попадёт в экспортируемый PNG/PDF. svgPointFromEvent() продолжает
+// работать корректно и с применённым зумом, т.к. getScreenCTM() учитывает
+// CSS-трансформации всех родителей элемента, включая #canvasWrap.
+//
+// Слушатель раньше висел только на #canvasWrap — если жест зума (особенно
+// pinch-to-zoom на тачпаде, который Chromium репортит как wheel-событие с
+// ctrlKey:true) начинался или проходил над правой панелью/заголовком, до
+// нашего кода событие не долетало, и вместо него срабатывал встроенный
+// зум Chromium (Ctrl+колесо), масштабирующий целиком всю страницу — это
+// и был баг "увеличивается вся страница, а не схема". Слушаем весь
+// window и ГЛУШИМ нативный зум при ctrlKey всегда, независимо от того,
+// где на экране находится курсор — а собственно масштабируем диаграмму
+// только когда событие произошло над #canvasWrap (или в любом месте,
+// если зум явно запрошен через ctrlKey/pinch, чтобы pinch-жест где
+// угодно на странице тоже интуитивно зумил именно схему).
+(function initCanvasZoom(){
+  const wrap = document.getElementById("canvasWrap");
+  const MIN_SCALE = 0.4;
+  const MAX_SCALE = 6;
+  const ZOOM_STEP = 0.12;
+  let scale = 1, translateX = 0, translateY = 0;
+
+  function applyTransform(){
+    wrap.style.transformOrigin = "0 0";
+    wrap.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+  }
+
+  // Раньше зум делался только через transform-origin в процентах — без
+  // явного translate это не давало сдвигать чертёж (панорамирование), и
+  // при сильном приближении часть делянки становилась физически
+  // недоступной (canvasWrap рисуется с overflow:hidden, скроллбаров нет).
+  // Теперь масштаб/сдвиг считаются явно в JS (translateX/Y/scale — учтены
+  // и в WORLD_TO_MINIMAP ниже), формула "точка под курсором остаётся под
+  // курсором" — как обычный zoom-to-point в любом графическом редакторе.
+  function applyZoom(evt){
+    const parentRect = wrap.parentElement.getBoundingClientRect();
+    const mouseX = evt.clientX - parentRect.left;
+    const mouseY = evt.clientY - parentRect.top;
+    const contentX = (mouseX - translateX) / scale;
+    const contentY = (mouseY - translateY) / scale;
+
+    const direction = evt.deltaY < 0 ? 1 : -1;
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale + direction * ZOOM_STEP * scale));
+
+    translateX = mouseX - contentX * newScale;
+    translateY = mouseY - contentY * newScale;
+    scale = newScale;
+    applyTransform();
+    updateMinimapViewport();
+  }
+
+  window.addEventListener("wheel", (evt) => {
+    const overCanvas = wrap.contains(evt.target);
+    // Any pinch/Ctrl+wheel must never be allowed to fall through to
+    // Chromium's own page zoom, no matter where it happens.
+    if(evt.ctrlKey || overCanvas){
+      evt.preventDefault();
+      applyZoom(evt);
+    }
+    // plain (non-ctrl) wheel scrolling outside the canvas — e.g. over the
+    // right-hand panel's own scrollbar — is left alone so that panel can
+    // still scroll normally.
+  }, {passive: false});
+
+  // Панорамирование — зажатая СРЕДНЯЯ кнопка мыши (колесо), как в
+  // большинстве графических/CAD-редакторов. Выбрана намеренно: левая
+  // кнопка везде занята кликами по инструментам/перетаскиванием
+  // вершин и значков, конфликтовать с ней нельзя.
+  let panning = null;
+  wrap.addEventListener("mousedown", (evt) => {
+    if(evt.button !== 1) return;
+    evt.preventDefault();
+    panning = {startX: evt.clientX, startY: evt.clientY, tx0: translateX, ty0: translateY};
+  });
+  window.addEventListener("mousemove", (evt) => {
+    if(!panning) return;
+    translateX = panning.tx0 + (evt.clientX - panning.startX);
+    translateY = panning.ty0 + (evt.clientY - panning.startY);
+    applyTransform();
+    updateMinimapViewport();
+  });
+  window.addEventListener("mouseup", () => { panning = null; });
+
+  // Двойной клик по свободному полю (не по самому чертежу) — сброс зума к 100%
+  wrap.addEventListener("dblclick", (evt) => {
+    if(evt.target === wrap){
+      scale = 1; translateX = 0; translateY = 0;
+      applyTransform();
+      updateMinimapViewport();
+    }
+  });
+
+  STATE.getViewTransform = () => ({scale, translateX, translateY});
+  STATE.panBy = (dx, dy) => {
+    translateX += dx; translateY += dy;
+    applyTransform();
+    updateMinimapViewport();
+  };
+})();
+
+function drawScaleBar(svg, scale){
+  const meters = 100;
+  const barLen = meters * scale;
+  const x0 = 30, y0 = VB_H - 30;
+  el("line", {x1:x0, y1:y0, x2:x0+barLen, y2:y0, stroke:"#7fa37a", "stroke-width":2}, svg);
+  el("line", {x1:x0, y1:y0-6, x2:x0, y2:y0+6, stroke:"#7fa37a", "stroke-width":2}, svg);
+  el("line", {x1:x0+barLen, y1:y0-6, x2:x0+barLen, y2:y0+6, stroke:"#7fa37a", "stroke-width":2}, svg);
+  el("text", {x:x0, y:y0-10, "font-size":11, fill:"#93a692"}, svg).textContent = meters + " м";
+}
+
+// Стрелка "на север" — фиксированное указание "верх экрана = север", как на
+// обычной топографической схеме без географической привязки/поворота (сам
+// абрис не хранит азимут листа). Всегда видна, в панель слоёв не входит —
+// как рамка и масштабная линейка на бумажном чертеже.
+function drawNorthArrow(svg){
+  const cx = VB_W - 46, topY = 26;
+  el("path", {
+    d:`M ${cx} ${topY} L ${cx-9} ${topY+30} L ${cx} ${topY+22} L ${cx+9} ${topY+30} Z`,
+    fill:"#c9a24b"
+  }, svg);
+  el("text", {
+    x:cx, y:topY+46, "font-size":12, "font-weight":"700", fill:"#c9a24b", "text-anchor":"middle"
+  }, svg).textContent = "С";
+}
+
+function renderTable(points){
+  const xs = points.map(p=>p.x);
+  const ys = points.map(p=>p.y);
+  const minX = Math.min(...xs), minY = Math.min(...ys);
+  const tbody = document.getElementById("pointsTable");
+  tbody.innerHTML = points.map(p => `
+    <tr><td>${p.n}</td><td>${p.x.toFixed(2)}</td><td>${p.y.toFixed(2)}</td></tr>
+  `).join("");
+}
+
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try{
+      const data = JSON.parse(ev.target.result);
+      loadData(data);
+    }catch(err){
+      alert("Не удалось разобрать JSON: " + err.message);
+    }
+  };
+  reader.readAsText(file, "UTF-8");
+});
+
+// ======================================================================
+// ЭТАП 2 — алгоритм нарезки пасек
+// ======================================================================
+
+function setMode(mode){
+  STATE.mode = mode;
+  STATE.vectorClicks = [];
+  document.getElementById("btnVector").classList.toggle("active", mode === "vector");
+  document.getElementById("btnEdge").classList.toggle("active", mode === "edge");
+  const status = document.getElementById("dirStatus");
+  if(mode === "vector") status.textContent = "Кликните 2 точки на холсте, задавая вектор...";
+  if(mode === "edge") status.textContent = "Наведите на сторону контура и кликните по ней...";
+}
+
+document.getElementById("btnVector").addEventListener("click", () => setMode("vector"));
+document.getElementById("btnEdge").addEventListener("click", () => setMode("edge"));
+
+document.getElementById("btnClearStrips").addEventListener("click", () => {
+  if(STATE.stripLayer) STATE.stripLayer.innerHTML = "";
+  document.getElementById("stripInfoCard").style.display = "none";
+});
+
+document.getElementById("btnBuild").addEventListener("click", () => {
+  if(!STATE.direction) return;
+  const width = parseFloat(document.getElementById("stripWidth").value) || 30;
+  buildStrips(STATE.points, STATE.direction.angle, width);
+});
+
+function wireCanvasInteraction(){
+  const svg = document.getElementById("stage");
+  svg.onclick = (evt) => {
+    if(!STATE.mode) return;
+    const screenPt = svgPointFromEvent(evt);
+
+    if(STATE.mode === "vector"){
+      const worldPt = screenToWorld(screenPt.x, screenPt.y);
+      STATE.vectorClicks.push(worldPt);
+      markClickDot(screenPt);
+      if(STATE.vectorClicks.length === 2){
+        const [a,b] = STATE.vectorClicks;
+        const angle = Math.atan2(b.y - a.y, b.x - a.x);
+        setDirection(angle, "задан вручную (2 клика)");
+        STATE.mode = null;
+        document.getElementById("btnVector").classList.remove("active");
+      }
+    }
+
+    if(STATE.mode === "edge"){
+      const worldPt = screenToWorld(screenPt.x, screenPt.y);
+      const edge = nearestEdge(STATE.points, worldPt);
+      if(edge){
+        const angle = Math.atan2(edge.b.y - edge.a.y, edge.b.x - edge.a.x);
+        setDirection(angle, `сторона полигона ${edge.a.n}–${edge.b.n}`);
+      }
+      STATE.mode = null;
+      document.getElementById("btnEdge").classList.remove("active");
+    }
+
+    if(typeof STATE.mode === "object" && STATE.mode && STATE.mode.kind){
+      handleInfraClick(screenPt);
+    }
+  };
+
+  svg.ondblclick = (evt) => {
+    if(STATE.mode) return;
+    const screenPt = svgPointFromEvent(evt);
+
+    // Сначала проверяем узлы контура делянки — точный ввод X/Y по двойному
+    // клику важен для межевой точности (мышью на экране сложно попасть
+    // ровнее пары метров даже при большом зуме).
+    const vertexHit = hitTestContourVertex(screenPt);
+    if(vertexHit){
+      const p = STATE.points[vertexHit];
+      const nx = window.prompt(`Точка ${p.n} — X (м):`, p.x.toFixed(2));
+      if(nx === null) return;
+      const ny = window.prompt(`Точка ${p.n} — Y (м):`, p.y.toFixed(2));
+      if(ny === null) return;
+      const fx = parseFloat(nx.replace(",", ".")), fy = parseFloat(ny.replace(",", "."));
+      if(Number.isNaN(fx) || Number.isNaN(fy)){
+        alert("Координаты должны быть числами.");
+        return;
+      }
+      p.x = fx; p.y = fy;
+      pushHistory();
+      renderBBoxAndSvg(STATE.points);
+      renderTable(STATE.points);
+      renderInfra();
+      document.getElementById("infraStatus").textContent =
+        "Точка обновлена. Пасеки/зону безопасности, если были построены, пересчитайте заново — контур изменился.";
+      return;
+    }
+
+    const hit = hitTestInfra(screenPt);
+    if(!hit || hit.whole) return;
+    const item = STATE.infrastructure[hit.idx];
+    if(item.type !== "text") return;
+    const next = window.prompt("Текст подписи (пусто — удалить):", item.text);
+    if(next === null) return; // cancelled
+    pushHistory();
+    if(next.trim() === ""){
+      STATE.infrastructure.splice(hit.idx, 1);
+    } else {
+      item.text = next.trim();
+    }
+    renderInfra();
+  };
+
+  svg.onmousedown = (evt) => {
+    if(STATE.mode) return; // placement/vector/edge/polyline modes take priority — no dragging mid-action
+    const screenPt = svgPointFromEvent(evt);
+
+    if(STATE.rasterMoveMode && STATE.rasterUnderlay){
+      STATE.dragging = {raster:true, startGrab: screenToWorld(screenPt.x, screenPt.y),
+        startOffset: {x: STATE.rasterUnderlay.offsetX, y: STATE.rasterUnderlay.offsetY}};
+      evt.preventDefault();
+      return;
+    }
+
+    const hit = hitTestInfra(screenPt);
+    if(hit){
+      pushHistory(); // один снапшот на весь жест перетаскивания, не на каждый mousemove
+      if(hit.whole){
+        const item = STATE.infrastructure[hit.idx];
+        const grabWorld = screenToWorld(screenPt.x, screenPt.y);
+        STATE.dragging = {
+          whole: true,
+          idx: hit.idx,
+          startGrab: grabWorld,
+          startPts: item.kind === "line"
+            ? {a: {...item.a}, b: {...item.b}}
+            : item.points.map(p => ({...p})),
+        };
+      } else {
+        STATE.dragging = hit;
+      }
+      evt.preventDefault();
+    }
+  };
+
+  if(!STATE.dragListenersBound){
+    document.addEventListener("mousemove", (evt) => {
+      if(!STATE.dragging) return;
+      const screenPt = svgPointFromEvent(evt);
+      const worldPt = screenToWorld(screenPt.x, screenPt.y);
+      const d = STATE.dragging;
+
+      if(d.raster){
+        const dx = worldPt.x - d.startGrab.x, dy = worldPt.y - d.startGrab.y;
+        STATE.rasterUnderlay.offsetX = d.startOffset.x + dx;
+        STATE.rasterUnderlay.offsetY = d.startOffset.y + dy;
+        document.getElementById("rasterOffsetX").value = STATE.rasterUnderlay.offsetX.toFixed(1);
+        document.getElementById("rasterOffsetY").value = STATE.rasterUnderlay.offsetY.toFixed(1);
+        renderRasterUnderlay();
+        return;
+      }
+
+      if(d.whole){
+        const item = STATE.infrastructure[d.idx];
+        const dx = worldPt.x - d.startGrab.x, dy = worldPt.y - d.startGrab.y;
+        if(item.kind === "line"){
+          item.a = {x: d.startPts.a.x + dx, y: d.startPts.a.y + dy};
+          item.b = {x: d.startPts.b.x + dx, y: d.startPts.b.y + dy};
+        } else {
+          item.points = d.startPts.map(p => ({x: p.x + dx, y: p.y + dy}));
+        }
+        clearSmartGuides();
+      } else {
+        // Умная привязка при перетаскивании отдельного узла/конца: сначала
+        // пробуем прилипнуть к существующим узлам/серединам сторон, затем —
+        // к углу 15°/45° от соседнего узла (для просеки/ручной линии), и
+        // только если ничего не подошло — к горизонтали/вертикали
+        // относительно других точек чертежа. computeSmartSnap рисует
+        // направляющие сама, через STATE.guideLayer.
+        const item = STATE.infrastructure[d.idx];
+        let anchor = null;
+        if(item && item.kind === "line"){
+          anchor = d.role === "a" ? {...item.b} : {...item.a};
+        } else if(item && item.kind === "polyline" && typeof d.vi === "number"){
+          const neighborIdx = d.vi > 0 ? d.vi - 1 : (item.points.length > 1 ? 1 : null);
+          if(neighborIdx !== null && item.points[neighborIdx]) anchor = {...item.points[neighborIdx]};
+        }
+        const snap = computeSmartSnap(worldPt, {excludeInfraIdx: d.idx, anchor});
+        d.set(snap.point);
+        renderSmartGuides(snap.guides);
+      }
+      renderInfra();
+    });
+    document.addEventListener("mouseup", () => {
+      const d = STATE.dragging;
+      if(!d) return;
+      clearSmartGuides();
+      if(!d.raster && !d.whole && d.snap){
+        const item = STATE.infrastructure[d.idx];
+        const edge = nearestEdge(STATE.points, item.pos);
+        if(edge){
+          const snapped = closestPointOnSegment(item.pos, edge.a, edge.b);
+          const distMeters = Math.hypot(item.pos.x-snapped.x, item.pos.y-snapped.y);
+          const thresholdMeters = 14 / STATE.transform.scale;
+          if(distMeters < thresholdMeters) item.pos = snapped;
+        }
+        renderInfra();
+      }
+      STATE.dragging = null;
+    });
+    STATE.dragListenersBound = true;
+  }
+}
+
+// Собирает "ручки" для перетаскивания: у точечных значков одна (pos), у
+// просеки (line) — две (концы a/b), у ручной линии (polyline) — по одной
+// на каждый узел. Используются как для попадания курсором, так и для
+// собственно перемещения через замыкание set().
+function collectDragHandles(){
+  const handles = [];
+  STATE.infrastructure.forEach((item, idx) => {
+    if(item.kind === "point"){
+      handles.push({idx, role:"point", snap: item.type !== "text", get:() => item.pos, set:p => { item.pos = p; }});
+    } else if(item.kind === "line"){
+      handles.push({idx, role:"a", snap:false, get:() => item.a, set:p => { item.a = p; }});
+      handles.push({idx, role:"b", snap:false, get:() => item.b, set:p => { item.b = p; }});
+    } else if(item.kind === "polyline"){
+      item.points.forEach((_, vi) => {
+        handles.push({idx, role:"vertex", vi, snap:false, get:() => item.points[vi], set:p => { item.points[vi] = p; }});
+      });
+    }
+  });
+  return handles;
+}
+
+// ---- умная привязка / направляющие при перетаскивании ----
+const SNAP_NODE_PX = 10;    // радиус прилипания к узлу/середине стороны, в экранных px
+const SNAP_AXIS_PX = 8;     // допуск выравнивания по горизонтали/вертикали с другой точкой
+const SNAP_ANGLE_STEP = 15; // шаг привязки угла (покрывает и 15°, и 45°, и 90°)
+const SNAP_ANGLE_TOL = 3;   // допуск в градусах, при котором угол считается "почти" кратным шагу
+
+// Точки-кандидаты для прилипания: все узлы контура делянки + середины его
+// сторон, плюс узлы/концы/середины всей прочей инфраструктуры (кроме
+// перетаскиваемого сейчас элемента — иначе прилипание к самому себе
+// мешало бы двигать линию/ломаную).
+function collectSnapCandidates(excludeInfraIdx){
+  const pts = [];
+  STATE.points.forEach(p => pts.push({x:p.x, y:p.y}));
+  const n = STATE.points.length;
+  for(let i=0;i<n;i++){
+    const a = STATE.points[i], b = STATE.points[(i+1)%n];
+    pts.push({x:(a.x+b.x)/2, y:(a.y+b.y)/2});
+  }
+  STATE.infrastructure.forEach((item, idx) => {
+    if(idx === excludeInfraIdx) return;
+    if(item.kind === "point"){
+      pts.push({x:item.pos.x, y:item.pos.y});
+    } else if(item.kind === "line"){
+      pts.push({x:item.a.x, y:item.a.y});
+      pts.push({x:item.b.x, y:item.b.y});
+      pts.push({x:(item.a.x+item.b.x)/2, y:(item.a.y+item.b.y)/2});
+    } else if(item.kind === "polyline"){
+      item.points.forEach(p => pts.push({x:p.x, y:p.y}));
+      for(let i=0;i<item.points.length-1;i++){
+        const a = item.points[i], b = item.points[i+1];
+        pts.push({x:(a.x+b.x)/2, y:(a.y+b.y)/2});
+      }
+    }
+  });
+  return pts;
+}
+
+// Возвращает {point, guides} — итоговую (возможно, скорректированную)
+// мировую точку и список направляющих для отрисовки. Порядок приоритета:
+// 1) прилипание к узлу/середине стороны (самое точное и самое частое намерение);
+// 2) прилипание угла к 15°/45°/... относительно anchor (для просеки/ручной линии);
+// 3) выравнивание по горизонтали и/или вертикали с другой точкой чертежа.
+function computeSmartSnap(worldPt, opts){
+  const candidates = collectSnapCandidates(opts.excludeInfraIdx);
+  const screenPt = worldToScreen(worldPt);
+
+  let best = null, bestDist = SNAP_NODE_PX;
+  candidates.forEach(c => {
+    const s = worldToScreen(c);
+    const d = Math.hypot(s.x-screenPt.x, s.y-screenPt.y);
+    if(d < bestDist){ bestDist = d; best = c; }
+  });
+  if(best) return {point:{x:best.x, y:best.y}, guides:[{type:"node", world:best}]};
+
+  if(opts.anchor){
+    const dx = worldPt.x - opts.anchor.x, dy = worldPt.y - opts.anchor.y;
+    const dist = Math.hypot(dx, dy);
+    if(dist > 1e-6){
+      const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+      const nearest = Math.round(angleDeg / SNAP_ANGLE_STEP) * SNAP_ANGLE_STEP;
+      if(Math.abs(angleDeg - nearest) <= SNAP_ANGLE_TOL){
+        const rad = nearest * Math.PI / 180;
+        const snapped = {x: opts.anchor.x + Math.cos(rad)*dist, y: opts.anchor.y + Math.sin(rad)*dist};
+        return {point:snapped, guides:[{type:"radial", anchor:opts.anchor, angleDeg:nearest}]};
+      }
+    }
+  }
+
+  const guides = [];
+  const outPt = {...worldPt};
+  let bestX = null, bestXDist = SNAP_AXIS_PX;
+  let bestY = null, bestYDist = SNAP_AXIS_PX;
+  candidates.forEach(c => {
+    const s = worldToScreen(c);
+    const ddx = Math.abs(s.x-screenPt.x), ddy = Math.abs(s.y-screenPt.y);
+    if(ddx < bestXDist){ bestXDist = ddx; bestX = c; }
+    if(ddy < bestYDist){ bestYDist = ddy; bestY = c; }
+  });
+  if(bestX){ outPt.x = bestX.x; guides.push({type:"vertical", world:bestX}); }
+  if(bestY){ outPt.y = bestY.y; guides.push({type:"horizontal", world:bestY}); }
+  return {point:outPt, guides};
+}
+
+function clearSmartGuides(){
+  if(STATE.guideLayer) STATE.guideLayer.innerHTML = "";
+}
+
+function renderSmartGuides(guides){
+  const layer = STATE.guideLayer;
+  if(!layer) return;
+  layer.innerHTML = "";
+  guides.forEach(g => {
+    if(g.type === "node"){
+      const s = worldToScreen(g.world);
+      el("circle", {cx:s.x, cy:s.y, r:8, fill:"none", stroke:"#c9a24b", "stroke-width":1.8}, layer);
+      el("circle", {cx:s.x, cy:s.y, r:2, fill:"#c9a24b"}, layer);
+    } else if(g.type === "vertical"){
+      const s = worldToScreen(g.world);
+      el("line", {x1:s.x, y1:0, x2:s.x, y2:VB_H, stroke:"#c9a24b", "stroke-width":1, "stroke-dasharray":"5 4", opacity:0.85}, layer);
+    } else if(g.type === "horizontal"){
+      const s = worldToScreen(g.world);
+      el("line", {x1:0, y1:s.y, x2:VB_W, y2:s.y, stroke:"#c9a24b", "stroke-width":1, "stroke-dasharray":"5 4", opacity:0.85}, layer);
+    } else if(g.type === "radial"){
+      const s = worldToScreen(g.anchor);
+      // направление в экранном пространстве считаем через вторую мировую
+      // точку вдоль угла, а не просто "угол напрямую в px" — worldToScreen
+      // переворачивает Y, так что напрямую переносить мировой угол на экран нельзя.
+      const rad = g.angleDeg * Math.PI / 180;
+      const farWorld = {x: g.anchor.x + Math.cos(rad)*100000, y: g.anchor.y + Math.sin(rad)*100000};
+      const sFar = worldToScreen(farWorld);
+      const dirX = sFar.x - s.x, dirY = sFar.y - s.y;
+      const len = Math.hypot(dirX, dirY) || 1;
+      const ux = dirX/len, uy = dirY/len;
+      const reach = 900;
+      el("line", {
+        x1:s.x-ux*reach, y1:s.y-uy*reach, x2:s.x+ux*reach, y2:s.y+uy*reach,
+        stroke:"#c9a24b", "stroke-width":1, "stroke-dasharray":"5 4", opacity:0.85
+      }, layer);
+      el("circle", {cx:s.x, cy:s.y, r:3, fill:"#c9a24b"}, layer);
+    }
+  });
+}
+
+function distToSegment(p, a, b){
+  const dx = b.x-a.x, dy = b.y-a.y, len2 = dx*dx + dy*dy;
+  if(len2 === 0) return Math.hypot(p.x-a.x, p.y-a.y);
+  const t = Math.max(0, Math.min(1, ((p.x-a.x)*dx + (p.y-a.y)*dy) / len2));
+  return Math.hypot(p.x-(a.x+t*dx), p.y-(a.y+t*dy));
+}
+
+function hitTestInfra(screenPt){
+  // 1) сначала конкретные вершины (точки/концы просеки/узлы ручной линии) —
+  // у них приоритет, чтобы можно было точно двигать отдельный узел.
+  let best = null, bestDist = 14;
+  collectDragHandles().forEach(h => {
+    const s = worldToScreen(h.get());
+    const d = Math.hypot(s.x-screenPt.x, s.y-screenPt.y);
+    if(d < bestDist){ bestDist = d; best = h; }
+  });
+  if(best) return best;
+
+  // 2) иначе — тело линии/ручной линии целиком, чтобы её можно было
+  // сдвинуть за середину, не трогая форму.
+  let bestWhole = null, bestWholeDist = 10;
+  STATE.infrastructure.forEach((item, idx) => {
+    if(item.kind === "line"){
+      const s1 = worldToScreen(item.a), s2 = worldToScreen(item.b);
+      const d = distToSegment(screenPt, s1, s2);
+      if(d < bestWholeDist){ bestWholeDist = d; bestWhole = {idx, whole:true}; }
+    } else if(item.kind === "polyline"){
+      const pts = item.points.map(worldToScreen);
+      for(let i=0; i<pts.length-1; i++){
+        const d = distToSegment(screenPt, pts[i], pts[i+1]);
+        if(d < bestWholeDist){ bestWholeDist = d; bestWhole = {idx, whole:true}; }
+      }
+    }
+  });
+  return bestWhole;
+}
+
+// Индекс ближайшей вершины КОНТУРА ДЕЛЯНКИ (не инфраструктуры) под курсором,
+// в пределах ~14px — используется и для двойного клика (точный ввод X/Y),
+// и для перетаскивания самого контура мышью.
+function hitTestContourVertex(screenPt){
+  let bestIdx = null, bestDist = 14;
+  STATE.points.forEach((p, idx) => {
+    const s = worldToScreen(p);
+    const d = Math.hypot(s.x-screenPt.x, s.y-screenPt.y);
+    if(d < bestDist){ bestDist = d; bestIdx = idx; }
+  });
+  return bestIdx;
+}
+
+function markClickDot(screenPt){
+  el("circle", {cx:screenPt.x, cy:screenPt.y, r:4, fill:"#c9a24b"}, STATE.stripLayer || document.getElementById("stage"));
+}
+
+function nearestEdge(points, worldPt){
+  let best = null, bestDist = Infinity;
+  for(let i=0;i<points.length;i++){
+    const a = points[i], b = points[(i+1)%points.length];
+    const d = pointToSegmentDist(worldPt, a, b);
+    if(d < bestDist){ bestDist = d; best = {a,b}; }
+  }
+  return best;
+}
+
+function pointToSegmentDist(p, a, b){
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len2 = dx*dx + dy*dy;
+  if(len2 === 0) return Math.hypot(p.x-a.x, p.y-a.y);
+  let t = ((p.x-a.x)*dx + (p.y-a.y)*dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const projX = a.x + t*dx, projY = a.y + t*dy;
+  return Math.hypot(p.x-projX, p.y-projY);
+}
+
+function setDirection(angle, sourceLabel){
+  STATE.direction = {angle};
+  STATE.directionSourceLabel = sourceLabel;
+  document.getElementById("dirStatus").textContent =
+    `Направление: ${(angle*180/Math.PI).toFixed(1)}° — ${sourceLabel}`;
+  document.getElementById("btnBuild").removeAttribute("disabled");
+}
+
+// --- geometry: rotate polygon into direction-aligned frame, slice, rotate back ---
+
+function rotate(p, theta){
+  const c = Math.cos(theta), s = Math.sin(theta);
+  return { x: p.x*c + p.y*s, y: -p.x*s + p.y*c };
+}
+function unrotate(p, theta){
+  const c = Math.cos(theta), s = Math.sin(theta);
+  return { x: p.x*c - p.y*s, y: p.x*s + p.y*c };
+}
+
+function levelSegmentsRotated(rotated, level){
+  const xs = [];
+  for(let i=0;i<rotated.length;i++){
+    const a = rotated[i], b = rotated[(i+1)%rotated.length];
+    if((a.y <= level && b.y > level) || (b.y <= level && a.y > level)){
+      const t = (level - a.y) / (b.y - a.y);
+      xs.push(a.x + t*(b.x - a.x));
+    }
+  }
+  xs.sort((m,n)=>m-n);
+  const segs = [];
+  for(let i=0;i+1<xs.length;i+=2) segs.push([xs[i], xs[i+1]]);
+  return segs;
+}
+
+// clip a polygon by a horizontal half-plane (Sutherland-Hodgman, single edge)
+function clipHalfPlane(poly, level, keepAbove){
+  const out = [];
+  const n = poly.length;
+  if(n === 0) return out;
+  for(let i=0;i<n;i++){
+    const cur = poly[i], nxt = poly[(i+1)%n];
+    const curIn = keepAbove ? cur.y >= level : cur.y <= level;
+    const nxtIn = keepAbove ? nxt.y >= level : nxt.y <= level;
+    if(curIn) out.push(cur);
+    if(curIn !== nxtIn){
+      const t = (level - cur.y) / (nxt.y - cur.y);
+      out.push({x: cur.x + t*(nxt.x - cur.x), y: level});
+    }
+  }
+  return out;
+}
+
+function pointInPolygon(p, poly){
+  let inside = false;
+  for(let i=0, j=poly.length-1; i<poly.length; j=i++){
+    const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+    const hit = ((yi>p.y) !== (yj>p.y)) && (p.x < (xj-xi)*(p.y-yi)/(yj-yi)+xi);
+    if(hit) inside = !inside;
+  }
+  return inside;
+}
+
+// jittered-grid scatter of points inside a simple polygon, in whatever frame poly is given
+function scatterInPolygon(poly, spacing, jitterFrac, maxPoints){
+  if(poly.length < 3) return [];
+  const xs = poly.map(p=>p.x), ys = poly.map(p=>p.y);
+  const minX=Math.min(...xs), maxX=Math.max(...xs);
+  const minY=Math.min(...ys), maxY=Math.max(...ys);
+  const pts = [];
+  for(let y=minY+spacing/2; y<maxY; y+=spacing){
+    for(let x=minX+spacing/2; x<maxX; x+=spacing){
+      const jx = x + (Math.random()-0.5)*spacing*jitterFrac;
+      const jy = y + (Math.random()-0.5)*spacing*jitterFrac;
+      const cand = {x:jx, y:jy};
+      if(pointInPolygon(cand, poly)){
+        pts.push(cand);
+        if(pts.length >= maxPoints) return pts;
+      }
+    }
+  }
+  return pts;
+}
+
+const TRAIL_HALF_GAP = 0.9;          // metres — half-distance between the two "волок" lines
+const TRAIL_CLEAR_MARGIN = 3.6;      // metres — trees/stumps stay this far from the trail centreline
+const TREE_SPACING_STANDING = 13;    // metres between scattered standing trees
+const TREE_SPACING_FELLED = 17;      // metres between stumps/fallen trees (sparser, less clutter)
+const TREE_LEN_MIN = 8, TREE_LEN_MAX = 12; // metres, fallen-tree length
+
+function buildStrips(points, theta, width){
+  const rotated = points.map(p => ({...rotate(p, theta), n:p.n}));
+  const ys = rotated.map(p=>p.y);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+  const lineLevels = [];
+  for(let y = minY; y <= maxY + 1e-9; y += width) lineLevels.push(y);
+  if(lineLevels[lineLevels.length-1] < maxY - 1e-6) lineLevels.push(maxY);
+
+  const toWorldSeg = (xa, xb, level) => [
+    unrotate({x:xa, y:level}, theta),
+    unrotate({x:xb, y:level}, theta)
+  ];
+
+  // boundary lines between strips
+  const allSegmentsWorld = [];
+  lineLevels.forEach(level => {
+    levelSegmentsRotated(rotated, level).forEach(([xa,xb]) => {
+      allSegmentsWorld.push(toWorldSeg(xa, xb, level));
+    });
+  });
+
+  // skid trail ("волок") — two close parallel lines through the middle of each strip
+  const trailSegmentsWorld = [];
+  for(let i=0; i<lineLevels.length-1; i++){
+    const mid = (lineLevels[i] + lineLevels[i+1]) / 2;
+    [mid - TRAIL_HALF_GAP, mid + TRAIL_HALF_GAP].forEach(lvl => {
+      levelSegmentsRotated(rotated, lvl).forEach(([xa,xb]) => {
+        trailSegmentsWorld.push(toWorldSeg(xa, xb, lvl));
+      });
+    });
+  }
+
+  // per-strip content: even index -> standing trees (green), odd index -> felled trees + stumps
+  const centroidOf = (poly) => {
+    let sx=0, sy=0;
+    poly.forEach(p => { sx+=p.x; sy+=p.y; });
+    return {x: sx/poly.length, y: sy/poly.length};
+  };
+
+  const strips = [];
+  for(let i=0; i<lineLevels.length-1; i++){
+    const levelA = lineLevels[i], levelB = lineLevels[i+1];
+    const mid = (levelA + levelB) / 2;
+    const clipped = clipHalfPlane(clipHalfPlane(rotated, levelA, true), levelB, false);
+    if(clipped.length < 3) { strips.push({index:i, trees:[], felled:[], label:null}); continue; }
+
+    const label = unrotate(centroidOf(clipped), theta);
+    const clearOfTrail = (p) => Math.abs(p.y - mid) > TRAIL_CLEAR_MARGIN;
+
+    if(i % 2 === 0){
+      const treePtsRotated = scatterInPolygon(clipped, TREE_SPACING_STANDING, 0.5, 250)
+        .filter(clearOfTrail);
+      strips.push({
+        index:i, kind:"standing", label,
+        trees: treePtsRotated.map(p => unrotate(p, theta))
+      });
+    } else {
+      const stumpPtsRotated = scatterInPolygon(clipped, TREE_SPACING_FELLED, 0.5, 250)
+        .filter(clearOfTrail);
+      const felled = stumpPtsRotated.map(pr => {
+        const dirSign = pr.y > mid ? -1 : 1;
+        const wobble = (Math.random()-0.5) * 0.4; // slight diagonal variance
+        let dx = wobble, dy = dirSign;
+        const len = Math.hypot(dx,dy) || 1;
+        dx/=len; dy/=len;
+        const treeLen = TREE_LEN_MIN + Math.random()*(TREE_LEN_MAX-TREE_LEN_MIN);
+        const tipRotated = {x: pr.x + dx*treeLen, y: pr.y + dy*treeLen};
+        return {
+          base: unrotate(pr, theta),
+          tip: unrotate(tipRotated, theta)
+        };
+      });
+      strips.push({index:i, kind:"felled", label, stumps: stumpPtsRotated.map(p=>unrotate(p,theta)), felled});
+    }
+  }
+
+  drawStrips(allSegmentsWorld, trailSegmentsWorld, strips, theta, width);
+}
+
+function drawStrips(segments, trailSegments, strips, theta, width){
+  const layer = STATE.stripLayer;
+  layer.innerHTML = "";
+
+  segments.forEach(([p1,p2]) => {
+    const s1 = worldToScreen(p1), s2 = worldToScreen(p2);
+    el("line", {
+      x1:s1.x, y1:s1.y, x2:s2.x, y2:s2.y,
+      stroke:"#7fa37a", "stroke-width":1.4, "stroke-dasharray":"1 5", "stroke-linecap":"round"
+    }, layer);
+  });
+
+  // волок пасеки — две сближенные параллельные чёрные линии по середине каждой полосы
+  trailSegments.forEach(([p1,p2]) => {
+    const s1 = worldToScreen(p1), s2 = worldToScreen(p2);
+    el("line", {
+      x1:s1.x, y1:s1.y, x2:s2.x, y2:s2.y,
+      stroke:"#c9a24b", "stroke-width":1.6, "stroke-linecap":"round"
+    }, layer);
+  });
+
+  // содержимое полос: стоящий лес (зелёные кружки) / поваленные деревья + пни
+  strips.forEach(strip => {
+    if(strip.kind === "standing"){
+      strip.trees.forEach(pw => {
+        const s = worldToScreen(pw);
+        el("circle", {cx:s.x, cy:s.y, r:3.6, fill:"#8fc07f", stroke:"#4a6b43", "stroke-width":0.9}, layer);
+        el("circle", {cx:s.x, cy:s.y, r:1.1, fill:"#4a6b43"}, layer);
+      });
+    } else if(strip.kind === "felled"){
+      strip.felled.forEach(t => {
+        const base = worldToScreen(t.base), tip = worldToScreen(t.tip);
+        const dx = tip.x-base.x, dy = tip.y-base.y;
+        const len = Math.hypot(dx,dy) || 1;
+        const px = -dy/len, py = dx/len; // screen-space perpendicular
+        const baseW = 2.4, tipW = 0.5;
+        const b1 = {x:base.x+px*baseW, y:base.y+py*baseW};
+        const b2 = {x:base.x-px*baseW, y:base.y-py*baseW};
+        const t1 = {x:tip.x+px*tipW, y:tip.y+py*tipW};
+        const t2 = {x:tip.x-px*tipW, y:tip.y-py*tipW};
+        el("polygon", {
+          points:`${b1.x},${b1.y} ${t1.x},${t1.y} ${t2.x},${t2.y} ${b2.x},${b2.y}`,
+          fill:"#a9835c", stroke:"#6b4f30", "stroke-width":0.6
+        }, layer);
+      });
+      strip.stumps.forEach(pw => {
+        const s = worldToScreen(pw);
+        el("circle", {cx:s.x, cy:s.y, r:2.6, fill:"#8a6a48", stroke:"#5c4530", "stroke-width":0.8}, layer);
+      });
+    }
+  });
+
+  // strip center-lines + numbering (with legibility chip) + direction arrows
+  // — keyed off each strip's own centroid, so every real piece gets a label,
+  //   including thin edge slivers where boundary-line pairing would desync.
+  const dir = {x: Math.cos(theta), y: Math.sin(theta)};
+
+  strips.forEach((strip, i) => {
+    if(!strip.label) return;
+    const sMid = worldToScreen(strip.label);
+
+    el("circle", {cx:sMid.x, cy:sMid.y, r:11, fill:"#efe7d4", "fill-opacity":"0.88", stroke:"#c9a24b", "stroke-width":1.2}, layer);
+    el("text", {
+      x:sMid.x, y:sMid.y+4.5, "font-size":13, fill:"#c9a24b", "font-weight":"700",
+      "text-anchor":"middle"
+    }, layer).textContent = (i+1);
+
+    drawArrow(layer, strip.label, dir, 22);
+  });
+
+  document.getElementById("stripInfoCard").style.display = "block";
+  document.getElementById("stripMeta").innerHTML = `
+    <div class="row"><span>Ширина пасеки</span><span>${width} м</span></div>
+    <div class="row"><span>Число полос</span><span>${strips.length}</span></div>
+    <div class="row"><span>Направление</span><span>${(theta*180/Math.PI).toFixed(1)}°</span></div>
+    <div class="row"><span>Источник вектора</span><span>${STATE.directionSourceLabel}</span></div>
+    <div class="row"><span>Волок (просвет)</span><span>${(TRAIL_HALF_GAP*2).toFixed(1)} м</span></div>
+    <div class="row"><span>Зелёные — лес</span><span>нечётные №</span></div>
+    <div class="row"><span>Пни/поваленные</span><span>чётные №</span></div>
+  `;
+}
+
+function drawArrow(layer, centerWorld, dirUnit, lengthMeters){
+  const half = lengthMeters/2;
+  const p1 = {x: centerWorld.x - dirUnit.x*half, y: centerWorld.y - dirUnit.y*half};
+  const p2 = {x: centerWorld.x + dirUnit.x*half, y: centerWorld.y + dirUnit.y*half};
+  const s1 = worldToScreen(p1), s2 = worldToScreen(p2);
+  const angleDeg = Math.atan2(s2.y-s1.y, s2.x-s1.x) * 180/Math.PI;
+
+  el("line", {x1:s1.x, y1:s1.y, x2:s2.x, y2:s2.y, stroke:"#c9a24b", "stroke-width":1.6}, layer);
+  const head = el("path", {
+    d:"M 0 0 L -7 -3.5 L -7 3.5 Z",
+    fill:"#c9a24b",
+    transform:`translate(${s2.x},${s2.y}) rotate(${angleDeg})`
+  }, layer);
+}
+
+// ======================================================================
+// ЭТАП 3 (частично) — автоматическая зона безопасности + знаки «D»
+// ======================================================================
+
+function lineLineIntersect(p1, d1, p2, d2){
+  const denom = d1.x*d2.y - d1.y*d2.x;
+  if(Math.abs(denom) < 1e-9) return null; // near-parallel edges
+  const t = ((p2.x-p1.x)*d2.y - (p2.y-p1.y)*d2.x) / denom;
+  return {x: p1.x + d1.x*t, y: p1.y + d1.y*t};
+}
+
+// Outward polygon offset (buffer) via edge-translation + join at each vertex.
+//
+// The old version always joined two offset edges with a pure miter (straight
+// line-line intersection). That is only safe when the corner is close to a
+// right angle: at a sharp/acute vertex — or one where the two edges are
+// nearly parallel/reversed — the intersection point can lie many multiples
+// of `dist` away from the real corner, producing the long spikes and
+// self-crossing loops seen in the drawn "safety zone" (knots of "D" signs
+// bunching up around them). This is the exact same problem stroke renderers
+// solve with a "miter limit": cap how far the miter point may travel from
+// the vertex, and fall back to a "bevel" join (the two offset edge
+// endpoints connected directly, no sharp point) whenever it would exceed
+// that cap. This keeps the safety-zone contour the same basic shape as the
+// делянка, offset outward by a constant distance everywhere, with no
+// runaway spikes.
+function polygonOutwardOffsetMiterBevel(points, dist){
+  const n = points.length;
+  let area2 = 0;
+  for(let i=0;i<n;i++){
+    const a = points[i], b = points[(i+1)%n];
+    area2 += a.x*b.y - b.x*a.y;
+  }
+  const ccw = area2 > 0;
+
+  const edges = points.map((a, i) => {
+    const b = points[(i+1)%n];
+    const dx = b.x-a.x, dy = b.y-a.y;
+    const len = Math.hypot(dx,dy) || 1;
+    const ux = dx/len, uy = dy/len;
+    const nx = ccw ? uy : -uy;
+    const ny = ccw ? -ux : ux;
+    return { p: {x:a.x+nx*dist, y:a.y+ny*dist}, dir:{x:ux,y:uy}, nx, ny };
+  });
+
+  const MITER_LIMIT = 4; // same convention/order of magnitude as SVG's stroke-miterlimit default
+
+  const out = [];
+  for(let i=0;i<n;i++){
+    const v = points[i];
+    const e1 = edges[(i-1+n)%n], e2 = edges[i];
+    // The two offset-edge endpoints nearest this vertex — always well defined,
+    // unlike the miter point, so this is the safe fallback ("bevel").
+    const bevelA = {x: v.x + e1.nx*dist, y: v.y + e1.ny*dist};
+    const bevelB = {x: v.x + e2.nx*dist, y: v.y + e2.ny*dist};
+    const miter = lineLineIntersect(e1.p, e1.dir, e2.p, e2.dir);
+    const miterLen = miter ? Math.hypot(miter.x - v.x, miter.y - v.y) : Infinity;
+    if(miter && miterLen <= MITER_LIMIT * dist){
+      out.push(miter);
+    } else {
+      out.push(bevelA, bevelB);
+    }
+  }
+  return out;
+}
+
+// Proper polygon buffer (outward offset) using Clipper's Vatti-based
+// ClipperOffset — the same class of algorithm QGIS/Inkscape use for
+// "buffer" operations. Unlike the local miter/bevel join fix above, this
+// also removes *global* self-intersections: on a very concave/zig-zag
+// делянка contour, two offset edges on opposite sides of a narrow "waist"
+// can still cross each other even when every individual corner join is
+// well-behaved — ClipperOffset resolves that the same way a real buffer
+// polygon should (merging/clipping the overlap), instead of producing a
+// bow-tie or a loop hanging off the shape.
+function polygonOutwardOffset(points, dist){
+  if(typeof ClipperLib === "undefined"){
+    // clipper.min.js failed to load for some reason — degrade gracefully
+    // to the locally-robust miter/bevel offset rather than break entirely.
+    return polygonOutwardOffsetMiterBevel(points, dist);
+  }
+  const SCALE = 1000; // integer sub-units per metre (~1mm precision) — plenty for a forestry sketch
+  const baseX = points[0].x, baseY = points[0].y; // keep integers small regardless of absolute (UTM-like) coordinates
+  const path = points.map(p => ({
+    X: Math.round((p.x - baseX) * SCALE),
+    Y: Math.round((p.y - baseY) * SCALE)
+  }));
+
+  // arcTolerance is the max chord error allowed when approximating a round
+  // corner with straight segments — 0.4 m is imperceptible at any print
+  // scale used here (1:2500–1:10000) but keeps the resulting path to a
+  // sane number of points (tens, not thousands).
+  const co = new ClipperLib.ClipperOffset(2, 0.4 * SCALE);
+  co.AddPath(path, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+  const solution = new ClipperLib.Paths();
+  co.Execute(solution, dist * SCALE);
+
+  if(!solution.length) return points; // shouldn't happen for a simple closed polygon, but don't crash if it does
+
+  // A pathological (self-crossing / very thin) contour can make the buffer
+  // split into more than one outer ring — keep the largest by area, which
+  // is the actual safety-zone boundary for a normal делянка.
+  let best = solution[0], bestArea = 0;
+  solution.forEach(p => {
+    let a = 0;
+    for(let i=0;i<p.length;i++){
+      const p1 = p[i], p2 = p[(i+1)%p.length];
+      a += p1.X*p2.Y - p2.X*p1.Y;
+    }
+    a = Math.abs(a);
+    if(a > bestArea){ bestArea = a; best = p; }
+  });
+
+  return best.map(p => ({ x: p.X/SCALE + baseX, y: p.Y/SCALE + baseY }));
+}
+
+function samplePerimeter(poly, spacing){
+  const n = poly.length;
+  const pts = [];
+  let distSinceLast = 0;
+  for(let i=0;i<n;i++){
+    const a = poly[i], b = poly[(i+1)%n];
+    const segLen = Math.hypot(b.x-a.x, b.y-a.y);
+    let segPos = 0;
+    while(distSinceLast + (segLen - segPos) >= spacing){
+      segPos += (spacing - distSinceLast);
+      const t = segPos/segLen;
+      pts.push({x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t});
+      distSinceLast = 0;
+    }
+    distSinceLast += (segLen - segPos);
+  }
+  return pts;
+}
+
+function buildSafetyZone(points, dist, signSpacing){
+  const offset = polygonOutwardOffset(points, dist);
+  const layer = STATE.safetyLayer;
+  layer.innerHTML = "";
+
+  const pathD = offset.map((p,i) => {
+    const s = worldToScreen(p);
+    return `${i===0?'M':'L'} ${s.x.toFixed(2)} ${s.y.toFixed(2)}`;
+  }).join(" ") + " Z";
+
+  el("path", {
+    d: pathD, fill:"none", stroke:"#c9a24b", "stroke-width":1.8, "stroke-dasharray":"9 6"
+  }, layer);
+
+  const signs = samplePerimeter(offset, signSpacing);
+  signs.forEach(p => {
+    const s = worldToScreen(p);
+    el("circle", {cx:s.x, cy:s.y, r:11, fill:"#efe7d4", stroke:"#c9a24b", "stroke-width":1.6}, layer);
+    el("text", {
+      x:s.x, y:s.y+4, "font-size":12, "font-weight":"700", fill:"#c9a24b", "text-anchor":"middle"
+    }, layer).textContent = "D";
+  });
+
+  document.getElementById("btnClearSafety").classList.remove("active");
+}
+
+document.getElementById("btnSafety").addEventListener("click", () => {
+  const dist = parseFloat(document.getElementById("safetyRadius").value) || 50;
+  const spacing = parseFloat(document.getElementById("signSpacing").value) || 70;
+  buildSafetyZone(STATE.points, dist, spacing);
+});
+
+document.getElementById("btnClearSafety").addEventListener("click", () => {
+  if(STATE.safetyLayer) STATE.safetyLayer.innerHTML = "";
+});
+
+// --- панель "Слои": клик по строке включает/выключает соответствующий
+// слой на холсте. Печать (buildPrintLayout) слои экрана не читает — она
+// собирает свой SVG заново из STATE, поэтому скрытие слоя в редакторе
+// НЕ убирает его с итогового документа (это отдельная, явная настройка
+// под будущие экспорт-пресеты, а не общий переключатель).
+document.querySelectorAll(".layer-row[data-layer]").forEach(row => {
+  row.addEventListener("click", () => {
+    const key = row.getAttribute("data-layer");
+    STATE.layerVisibility[key] = !STATE.layerVisibility[key];
+    row.querySelector(".toggle").classList.toggle("off", !STATE.layerVisibility[key]);
+    row.classList.toggle("hidden-layer", !STATE.layerVisibility[key]);
+    applyLayerVisibility();
+  });
+});
+
+// ======================================================================
+// ЭТАП 4 — инфраструктура (клик-разместить, с прилипанием к границе)
+// ======================================================================
+
+function closestPointOnSegment(p, a, b){
+  const dx = b.x-a.x, dy = b.y-a.y;
+  const len2 = dx*dx + dy*dy;
+  if(len2 === 0) return {x:a.x, y:a.y};
+  let t = ((p.x-a.x)*dx + (p.y-a.y)*dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return {x: a.x + t*dx, y: a.y + t*dy};
+}
+
+function armInfra(type){
+  const kind = type === "kvartal" ? "line"
+             : type === "manual" ? "polyline"
+             : type === "measure" ? "measure"
+             : "point";
+  STATE.mode = {kind, type, clicks:[]};
+  document.querySelectorAll("[data-infra]").forEach(b =>
+    b.classList.toggle("active", b.getAttribute("data-infra") === type)
+  );
+  const msg = kind === "line" ? "Кликните начальную точку просеки..."
+            : kind === "polyline" ? "Кликайте точки линии, затем нажмите «Завершить линию»..."
+            : kind === "measure" ? "Кликните первую точку измерения..."
+            : type === "text" ? "Кликните место для подписи на холсте..."
+            : "Кликните точку установки на холсте...";
+  document.getElementById("infraStatus").textContent = msg;
+  if(STATE.previewLayer) STATE.previewLayer.innerHTML = "";
+}
+
+document.querySelectorAll("[data-infra]").forEach(btn => {
+  btn.addEventListener("click", () => armInfra(btn.getAttribute("data-infra")));
+});
+
+document.getElementById("btnFinishLine").addEventListener("click", () => {
+  const mode = STATE.mode;
+  if(mode && mode.kind === "polyline" && mode.clicks.length >= 2){
+    pushHistory();
+    STATE.infrastructure.push({type:"manual", kind:"polyline", points: mode.clicks.slice()});
+  }
+  clearInfraMode();
+  if(STATE.previewLayer) STATE.previewLayer.innerHTML = "";
+  renderInfra();
+});
+
+document.getElementById("btnMeasureClear").addEventListener("click", () => {
+  if(STATE.measureLayer) STATE.measureLayer.innerHTML = "";
+});
+
+document.getElementById("btnInfraUndo").addEventListener("click", undoHistory);
+document.getElementById("btnInfraRedo").addEventListener("click", redoHistory);
+document.getElementById("btnInfraClear").addEventListener("click", () => {
+  if(STATE.infrastructure.length === 0) return;
+  pushHistory();
+  STATE.infrastructure = [];
+  renderInfra();
+});
+
+// ======================================================================
+// Растровая подложка-трассировка — загрузка, подгонка, перетаскивание
+// ======================================================================
+
+document.getElementById("rasterInput").addEventListener("change", (evt) => {
+  const file = evt.target.files && evt.target.files[0];
+  if(!file) return;
+  const status = document.getElementById("rasterStatus");
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result;
+    const img = new Image();
+    img.onload = () => {
+      const xs = STATE.points.map(p=>p.x), ys = STATE.points.map(p=>p.y);
+      const bboxW = Math.max(1, Math.max(...xs) - Math.min(...xs));
+      // По умолчанию подложка немного шире контура делянки — так исходный
+      // скан почти наверняка целиком её накрывает, а дальше пользователь
+      // подгоняет ширину/сдвиг под реальные ориентиры вручную.
+      const initialWidthM = Math.round(bboxW * 1.3);
+      STATE.rasterUnderlay = {
+        dataUrl, naturalW: img.naturalWidth || img.width, naturalH: img.naturalHeight || img.height,
+        widthM: initialWidthM, offsetX: 0, offsetY: 0, opacity: 0.55, includeInPrint: false
+      };
+      document.getElementById("rasterWidth").value = initialWidthM;
+      document.getElementById("rasterOffsetX").value = 0;
+      document.getElementById("rasterOffsetY").value = 0;
+      document.getElementById("rasterOpacity").value = 55;
+      document.getElementById("rasterOpacityVal").textContent = "55%";
+      document.getElementById("rasterIncludePrint").checked = false;
+      STATE.layerVisibility.raster = true;
+      document.querySelector('.layer-row[data-layer="raster"] .toggle').classList.remove("off");
+      document.querySelector('.layer-row[data-layer="raster"]').classList.remove("hidden-layer");
+      renderRasterUnderlay();
+      applyLayerVisibility();
+      status.textContent = "Подложка загружена — подгоните ширину и сдвиг под известные ориентиры.";
+    };
+    img.onerror = () => { status.textContent = "Не удалось прочитать изображение."; };
+    img.src = dataUrl;
+  };
+  reader.onerror = () => { status.textContent = "Ошибка чтения файла."; };
+  reader.readAsDataURL(file);
+  evt.target.value = ""; // разрешить повторно выбрать тот же файл
+});
+
+document.getElementById("rasterOpacity").addEventListener("input", (evt) => {
+  document.getElementById("rasterOpacityVal").textContent = evt.target.value + "%";
+  if(!STATE.rasterUnderlay) return;
+  STATE.rasterUnderlay.opacity = parseInt(evt.target.value, 10) / 100;
+  renderRasterUnderlay();
+});
+
+function applyRasterNumericInput(id, field){
+  document.getElementById(id).addEventListener("change", (evt) => {
+    if(!STATE.rasterUnderlay) return;
+    const v = parseFloat(evt.target.value);
+    if(Number.isNaN(v)) return;
+    STATE.rasterUnderlay[field] = v;
+    renderRasterUnderlay();
+  });
+}
+applyRasterNumericInput("rasterWidth", "widthM");
+applyRasterNumericInput("rasterOffsetX", "offsetX");
+applyRasterNumericInput("rasterOffsetY", "offsetY");
+
+document.getElementById("rasterIncludePrint").addEventListener("change", (evt) => {
+  if(!STATE.rasterUnderlay) return;
+  STATE.rasterUnderlay.includeInPrint = evt.target.checked;
+});
+
+document.getElementById("btnRasterMove").addEventListener("click", (evt) => {
+  if(!STATE.rasterUnderlay){
+    document.getElementById("rasterStatus").textContent = "Сначала загрузите подложку.";
+    return;
+  }
+  STATE.rasterMoveMode = !STATE.rasterMoveMode;
+  evt.currentTarget.classList.toggle("active", STATE.rasterMoveMode);
+  document.getElementById("rasterStatus").textContent = STATE.rasterMoveMode
+    ? "Режим перетаскивания подложки включён — тяните за холст мышью. Нажмите кнопку ещё раз, чтобы выключить."
+    : "";
+});
+
+document.getElementById("btnRasterRemove").addEventListener("click", () => {
+  STATE.rasterUnderlay = null;
+  STATE.rasterMoveMode = false;
+  document.getElementById("btnRasterMove").classList.remove("active");
+  renderRasterUnderlay();
+  document.getElementById("rasterStatus").textContent = "Подложка удалена.";
+});
+
+// Ctrl+Z / Ctrl+Y (и Ctrl+Shift+Z) — стандартные сочетания отмены/повтора.
+document.addEventListener("keydown", (evt) => {
+  if(!(evt.ctrlKey || evt.metaKey)) return;
+  const key = evt.key.toLowerCase();
+  if(key === "z" && !evt.shiftKey){ evt.preventDefault(); undoHistory(); }
+  else if(key === "y" || (key === "z" && evt.shiftKey)){ evt.preventDefault(); redoHistory(); }
+});
+
+function clearInfraMode(){
+  STATE.mode = null;
+  document.querySelectorAll("[data-infra]").forEach(b => b.classList.remove("active"));
+  document.getElementById("infraStatus").textContent = "";
+}
+
+function handleInfraClick(screenPt){
+  const worldPt = screenToWorld(screenPt.x, screenPt.y);
+  const mode = STATE.mode;
+
+  if(mode.kind === "point" && mode.type === "text"){
+    const text = window.prompt("Текст подписи:", "");
+    clearInfraMode();
+    if(text && text.trim() !== ""){
+      pushHistory();
+      STATE.infrastructure.push({type:"text", kind:"point", pos:worldPt, text:text.trim(), size:13});
+      renderInfra();
+    }
+  } else if(mode.kind === "point"){
+    let pos = worldPt;
+    const edge = nearestEdge(STATE.points, worldPt);
+    if(edge){
+      const snapped = closestPointOnSegment(worldPt, edge.a, edge.b);
+      const distMeters = Math.hypot(worldPt.x-snapped.x, worldPt.y-snapped.y);
+      const thresholdMeters = 14 / STATE.transform.scale; // ~14px snap radius
+      if(distMeters < thresholdMeters) pos = snapped;
+    }
+    pushHistory();
+    STATE.infrastructure.push({type:mode.type, kind:"point", pos});
+    clearInfraMode();
+    renderInfra();
+  } else if(mode.kind === "line"){
+    mode.clicks.push(worldPt);
+    if(mode.clicks.length === 2){
+      pushHistory();
+      STATE.infrastructure.push({type:mode.type, kind:"line", a:mode.clicks[0], b:mode.clicks[1]});
+      clearInfraMode();
+      renderInfra();
+    } else {
+      document.getElementById("infraStatus").textContent = "Кликните конечную точку просеки...";
+    }
+  } else if(mode.kind === "polyline"){
+    mode.clicks.push(worldPt);
+    document.getElementById("infraStatus").textContent =
+      `Точек: ${mode.clicks.length}. Кликайте дальше или «Завершить линию».`;
+    renderPolylinePreview(mode.clicks);
+  } else if(mode.kind === "measure"){
+    mode.clicks.push(worldPt);
+    if(mode.clicks.length === 2){
+      drawMeasurement(mode.clicks[0], mode.clicks[1]);
+      clearInfraMode();
+    } else {
+      document.getElementById("infraStatus").textContent = "Кликните вторую точку измерения...";
+    }
+  }
+}
+
+// Инструмент "Измеритель" — тянешь между двумя кликами, получаешь
+// расстояние и азимут (0° = "вверх экрана" = север по стрелке
+// drawNorthArrow, по часовой стрелке). Рисуется в STATE.measureLayer,
+// поверх всего остального, и НЕ входит в STATE.infrastructure — это
+// временная измерительная пометка, а не элемент чертежа; поэтому у неё
+// своя кнопка очистки, а не общий "Удалить последний" инфраструктуры.
+function drawMeasurement(a, b){
+  const layer = STATE.measureLayer;
+  if(!layer) return;
+  const sa = worldToScreen(a), sb = worldToScreen(b);
+  const distMeters = Math.hypot(b.x-a.x, b.y-a.y);
+  let azimuthDeg = Math.atan2(b.x-a.x, b.y-a.y) * 180/Math.PI;
+  if(azimuthDeg < 0) azimuthDeg += 360;
+
+  el("line", {x1:sa.x, y1:sa.y, x2:sb.x, y2:sb.y, stroke:"#c9a24b", "stroke-width":1.4}, layer);
+  el("circle", {cx:sa.x, cy:sa.y, r:2.6, fill:"#c9a24b"}, layer);
+  el("circle", {cx:sb.x, cy:sb.y, r:2.6, fill:"#c9a24b"}, layer);
+
+  const midX = (sa.x+sb.x)/2, midY = (sa.y+sb.y)/2;
+  const label = `${distMeters.toFixed(1)} м · аз. ${azimuthDeg.toFixed(0)}°`;
+  const chipW = 15 + label.length * 5.6;
+  el("rect", {
+    x: midX - chipW/2, y: midY - 11, width: chipW, height: 18, rx:4,
+    fill:"#c9a24b"
+  }, layer);
+  el("text", {
+    x: midX, y: midY + 3.5, "font-size":11, "font-weight":"700", fill:"#1a1408", "text-anchor":"middle"
+  }, layer).textContent = label;
+}
+
+function renderPolylinePreview(points){
+  const layer = STATE.previewLayer;
+  if(!layer) return;
+  layer.innerHTML = "";
+  const screenPts = points.map(worldToScreen);
+  if(screenPts.length >= 2){
+    const d = screenPts.map((p,i) => `${i===0?'M':'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
+    el("path", {d, fill:"none", stroke:"#c1542c", "stroke-width":1.6, "stroke-dasharray":"4 3"}, layer);
+  }
+  screenPts.forEach(p => el("circle", {cx:p.x, cy:p.y, r:3, fill:"#c1542c"}, layer));
+}
+
+function renderInfra(){
+  const layer = STATE.infraLayer;
+  const labelsLayer = STATE.labelsLayer;
+  if(!layer) return;
+  layer.innerHTML = "";
+  if(labelsLayer) labelsLayer.innerHTML = "";
+  STATE.infrastructure.forEach(item =>
+    drawInfraItem(item.type === "text" ? (labelsLayer || layer) : layer, item)
+  );
+  checkInfraOverlaps();
+}
+
+// ---- автопроверка "знаки друг на друге" ----
+// Понятные подписи типов условных знаков — для текста предупреждения,
+// чтобы человек сразу понимал, какие два знака нужно раздвинуть, не
+// разглядывая пиктограммы на чертеже.
+const INFRA_LABELS = {
+  ck:"СК склад", stack:"Штабеля", mo:"МО", mz:"МЗ",
+  corner:"Угловой столб", park:"Стоянка техники", gsm:"Склад ГСМ", fire:"Кострище"
+};
+
+// Проверяет, не легли ли два (или больше) точечных знака практически друг
+// на друга — сравниваются только точечные пиктограммы (не линии/подписи:
+// просеку/ручную линию/текст перекрытием мерить не имеет смысла). Порог в
+// экранных px, а не в метрах — совпадения ищем такие, что реально мешают
+// читать чертёж на экране/печати при текущем масштабе.
+const INFRA_OVERLAP_PX = 16;
+function checkInfraOverlaps(){
+  const bar = document.getElementById("infraCheckBar");
+  if(!bar || !STATE.transform) return;
+  const pts = [];
+  STATE.infrastructure.forEach((item, idx) => {
+    if(item.kind === "point" && item.type !== "text"){
+      pts.push({idx, item, s: worldToScreen(item.pos)});
+    }
+  });
+  const pairs = [];
+  for(let i=0;i<pts.length;i++){
+    for(let j=i+1;j<pts.length;j++){
+      const d = Math.hypot(pts[i].s.x-pts[j].s.x, pts[i].s.y-pts[j].s.y);
+      if(d < INFRA_OVERLAP_PX) pairs.push([pts[i], pts[j]]);
+    }
+  }
+  if(pairs.length === 0){
+    bar.className = "checkbar";
+    bar.innerHTML = `<span class="dot"></span>знаки не перекрываются`;
+  } else {
+    const labels = pairs.map(([a,b]) =>
+      `${INFRA_LABELS[a.item.type] || a.item.type} × ${INFRA_LABELS[b.item.type] || b.item.type}`
+    );
+    bar.className = "checkbar warn";
+    bar.innerHTML = `<span class="dot"></span>знаки перекрываются: ${labels.join(", ")} — раздвиньте вручную`;
+  }
+}
+
+function drawInfraItem(layer, item){
+  if(item.kind === "line"){
+    const a = worldToScreen(item.a), b = worldToScreen(item.b);
+    el("line", {
+      x1:a.x, y1:a.y, x2:b.x, y2:b.y,
+      stroke:"#7fa37a", "stroke-width":1.6, "stroke-dasharray":"10 3 2 3"
+    }, layer);
+    return;
+  }
+  if(item.kind === "polyline"){
+    const screenPts = item.points.map(worldToScreen);
+    const d = screenPts.map((p,i) => `${i===0?'M':'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
+    el("path", {d, fill:"none", stroke:"#7fa37a", "stroke-width":1.4}, layer);
+    return;
+  }
+  const s = worldToScreen(item.pos);
+  switch(item.type){
+    case "text":
+      el("text", {
+        x:s.x, y:s.y, "font-size":item.size || 13, fill:"#eaeee4",
+        "font-family":"'Space Grotesk','Segoe UI',sans-serif", "paint-order":"stroke",
+        stroke:"#0f1a13", "stroke-width":3
+      }, layer).textContent = item.text;
+      break;
+    case "ck":
+      el("rect", {x:s.x-9, y:s.y-9, width:18, height:18, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":1.4}, layer);
+      el("text", {x:s.x, y:s.y+4, "font-size":9, "text-anchor":"middle", "font-weight":"700", fill:"#7fa37a"}, layer).textContent = "СК";
+      break;
+    case "stack":
+      el("rect", {x:s.x-11, y:s.y-7, width:22, height:14, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":1.2}, layer);
+      [-4,0,4].forEach(dy => {
+        el("line", {x1:s.x-11, y1:s.y+dy, x2:s.x+11, y2:s.y+dy, stroke:"#7fa37a", "stroke-width":0.8}, layer);
+      });
+      break;
+    case "mo":
+      el("circle", {cx:s.x, cy:s.y, r:10, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":1.4}, layer);
+      el("text", {x:s.x, y:s.y+4, "font-size":8.5, "text-anchor":"middle", "font-weight":"700", fill:"#7fa37a"}, layer).textContent = "МО";
+      break;
+    case "mz":
+      el("circle", {cx:s.x, cy:s.y, r:10, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":1.4}, layer);
+      el("text", {x:s.x, y:s.y+4, "font-size":8.5, "text-anchor":"middle", "font-weight":"700", fill:"#7fa37a"}, layer).textContent = "МЗ";
+      break;
+    case "corner":
+      el("circle", {cx:s.x, cy:s.y, r:6, fill:"none", stroke:"#7fa37a", "stroke-width":1.6}, layer);
+      break;
+    case "park":
+      // Стоянка техники — прямоугольник с "P", по аналогии с МО/МЗ, но
+      // квадратный (не круглый), чтобы не путать со знаками на кружке.
+      el("rect", {x:s.x-10, y:s.y-9, width:20, height:18, rx:2, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":1.4}, layer);
+      el("text", {x:s.x, y:s.y+4, "font-size":10, "text-anchor":"middle", "font-weight":"700", fill:"#7fa37a"}, layer).textContent = "P";
+      break;
+    case "gsm":
+      // Склад ГСМ — треугольник с восклицательным знаком (пожаро- и
+      // экологически опасный объект — знак нарочно отличается формой
+      // от остальных, как настоящий предупреждающий знак).
+      el("path", {
+        d:`M ${s.x} ${s.y-10} L ${s.x+9} ${s.y+8} L ${s.x-9} ${s.y+8} Z`,
+        fill:"#efe7d4", stroke:"#c56a4d", "stroke-width":1.4, "stroke-linejoin":"round"
+      }, layer);
+      el("text", {x:s.x, y:s.y+5.5, "font-size":10, "text-anchor":"middle", "font-weight":"700", fill:"#c56a4d"}, layer).textContent = "!";
+      break;
+    case "fire":
+      // Кострище / место для курения — по нормам противопожарной
+      // безопасности лесосеки такие места тоже принято отмечать на схеме.
+      el("circle", {cx:s.x, cy:s.y, r:9, fill:"#efe7d4", stroke:"#c9a24b", "stroke-width":1.4}, layer);
+      el("path", {
+        d:`M ${s.x} ${s.y+5} C ${s.x-4} ${s.y+1} ${s.x-2} ${s.y-2} ${s.x} ${s.y-6} C ${s.x+2} ${s.y-2} ${s.x+4} ${s.y+1} ${s.x} ${s.y+5} Z`,
+        fill:"#c9a24b"
+      }, layer);
+      break;
+  }
+}
+
+// ======================================================================
+// ЭТАП 5 — сборка макета (чертёж + таблица + условные обозначения) и экспорт
+// ======================================================================
+
+// У каждой записи легенды есть категория `cat` — используется пресетами
+// экспорта, чтобы, например, лист "для ГЛР" показывал только то, что
+// реально относится к границе/координатам делянки, без пасек и служебной
+// инфраструктуры (см. EXPORT_PRESETS.glr.legendCats ниже).
+const LEGEND_LEFT = [
+  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="2.2"/>`), label: "Граница лесосеки, погрузочных пунктов", cat:"boundary"},
+  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="14" y2="10" stroke="#c1542c" stroke-width="1.6"/><circle cx="18" cy="10" r="1.6" fill="#c1542c"/><line x1="22" y1="10" x2="35" y2="10" stroke="#c1542c" stroke-width="1.6"/>`), label: "Границы зон безопасности", cat:"safety"},
+  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="1.3" stroke-dasharray="4 3"/>`), label: "Границы пасек", cat:"strip"},
+  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="27" y2="10" stroke="#111111" stroke-width="1.4"/><path d="M27 10 L20 6 L20 14 Z" fill="#111111"/>`), label: "Направление разработки пасеки", cat:"strip"},
+  {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="9" fill="#ffffff" stroke="#c1542c" stroke-width="1.2"/><text x="18" y="13" font-size="10" text-anchor="middle" fill="#c1542c" font-weight="700">1</text>`), label: "Номер участка (пасеки лесозаготовки) 1,2,3…", cat:"strip"},
+  {swatch: () => svgSwatch(`<text x="18" y="14" font-size="13" text-anchor="middle" fill="#111111">***</text>`), label: "Порубочные остатки", cat:"other"},
+  {swatch: () => svgSwatch(`<text x="18" y="14" font-size="11" text-anchor="middle" font-weight="700" fill="#111111">СК</text>`), label: "Промежуточный лесопромышленный склад", cat:"infra"},
+  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="1.4" stroke-dasharray="8 2 1 2"/>`), label: "Квартальная просека", cat:"boundary"},
+];
+
+const LEGEND_RIGHT = [
+  {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="9" fill="#ffffff" stroke="#c1542c" stroke-width="1.4"/><text x="18" y="13" font-size="9" text-anchor="middle" font-weight="700" fill="#c1542c">D</text>`), label: "Знак ограждения опасной зоны", cat:"safety"},
+  {swatch: () => svgSwatch(`<rect x="2" y="4" width="30" height="12" fill="#ffffff" stroke="#111111" stroke-width="1.1"/><line x1="2" y1="8" x2="32" y2="8" stroke="#111111" stroke-width="0.7"/><line x1="2" y1="12" x2="32" y2="12" stroke="#111111" stroke-width="0.7"/>`), label: "Штабеля лесопродукции", cat:"infra"},
+  {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="6" fill="none" stroke="#111111" stroke-width="1.6"/>`), label: "Угловые столбы (по углам визиров)", cat:"boundary"},
+  {swatch: () => svgSwatch(`<text x="18" y="14" font-size="11" text-anchor="middle" font-weight="700" fill="#111111">МО</text>`), label: "Место отдыха", cat:"infra"},
+  {swatch: () => svgSwatch(`<text x="18" y="14" font-size="11" text-anchor="middle" font-weight="700" fill="#111111">МЗ</text>`), label: "Место заправки", cat:"infra"},
+  {swatch: () => svgSwatch(`<line x1="1" y1="7" x2="35" y2="7" stroke="#111111" stroke-width="1"/><line x1="1" y1="13" x2="35" y2="13" stroke="#111111" stroke-width="1"/>`), label: "Дорога", cat:"infra"},
+  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="1" stroke-dasharray="4 3"/>`), label: "Тропинки", cat:"infra"},
+  {swatch: () => svgSwatch(`<rect x="8" y="3" width="20" height="14" rx="2" fill="#ffffff" stroke="#111111" stroke-width="1.2"/><text x="18" y="14" font-size="10" text-anchor="middle" font-weight="700" fill="#111111">P</text>`), label: "Стоянка техники", cat:"infra"},
+  {swatch: () => svgSwatch(`<path d="M18 2 L27 17 L9 17 Z" fill="#ffffff" stroke="#111111" stroke-width="1.2"/><text x="18" y="15.5" font-size="10" text-anchor="middle" font-weight="700" fill="#111111">!</text>`), label: "Место хранения ГСМ", cat:"infra"},
+  {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="8" fill="#ffffff" stroke="#111111" stroke-width="1.2"/>`), label: "Кострище / место для курения", cat:"infra"},
+];
+
+// Экспорт-пресеты (Этап 6, доп. пункт "экспорт-пресеты одной кнопкой") —
+// каждый переопределяет, какие слои чертежа, поля легенды и поля шапки
+// попадут в СОБИРАЕМЫЙ ДОКУМЕНТ, не трогая текущие вкл/выкл слоёв на
+// экране (те применяются только когда preset.layers === null).
+const EXPORT_PRESETS = {
+  full: {
+    key:"full", label:"Для лесничества", filenameTag:"lesnichestvo",
+    layers: null, legendCats: null, metaKeys: null
+  },
+  tenant: {
+    key:"tenant", label:"Для арендатора", filenameTag:"arendator",
+    layers: {contour:true, safety:true, strips:true, infra:true, labels:true},
+    legendCats: null,
+    metaKeys: ["leshos_text","lesnich_text","num_kv","num_vds","num","area","cuttingtyp"]
+  },
+  glr: {
+    key:"glr", label:"Для ГЛР", filenameTag:"glr",
+    layers: {contour:true, safety:false, strips:false, infra:false, labels:false},
+    legendCats: ["boundary"],
+    metaKeys: null
+  }
+};
+
+function svgSwatch(innerSvg){
+  return `<svg width="36" height="20" viewBox="0 0 36 20" xmlns="http://www.w3.org/2000/svg">${innerSvg}</svg>`;
+}
+
+const PRINT_DPI = 200;      // physical DPI used to convert real-world metres into export pixels
+const A4_WIDTH_MM = 210;
+const A4_HEIGHT_MM = 297;
+
+// Экранная палитра (светлые зелёные/золотистые/охристые тона) рассчитана
+// на тёмный фон интерфейса редактора. На белой бумаге, особенно при
+// печати на ч/б принтере (цвет -> градация серого по яркости), эти тона
+// превращаются в бледно-серый и становятся почти неразличимы - раньше
+// здесь был ручной список конкретных hex-замен (PRINT_COLOR_MAP), но он
+// не покрывал все цвета, использующиеся в чертеже (например, цвет зоны
+// безопасности #c56a4d/#c1542c в нём не было вовсе - поэтому на печати
+// эта зона пропадала). Вместо ручного списка теперь используется общий
+// алгоритм: любой заливочный/обводочный цвет клона, чья яркость выше
+// print-safe порога, автоматически затемняется под этот порог. Это
+// гарантированно ловит все текущие и будущие цвета слоёв, а не только
+// перечисленные вручную. На сам рабочий чертёж на экране (STATE.stage)
+// это не влияет - правится только клон, который уходит в PDF/PNG/Техкарту.
+const PRINT_LUMINANCE_CEILING = 95; // 0 (чёрный) - 255 (белый); ниже — печатается уверенно даже на бледном тонере
+const PRINT_MIN_FILL_ALPHA = 0.32;  // минимальная непрозрачность полупрозрачных заливок (напр. контур делянки) для печати
+// Эти два цвета - НЕ данные чертежа, а намеренно светлый "бумажный" фон
+// плашек-подложек под подписи/пикетами (см. #efe7d4 в местах вида
+// fill:"#efe7d4", stroke:"#7fa37a") и сам белый лист - их не темним.
+const PRINT_KEEP_LIGHT = new Set(["#ffffff", "#efe7d4"]);
+
+function hexToRgb(hex){
+  let h = hex.replace("#", "");
+  if(h.length === 3) h = h.split("").map(c => c + c).join("");
+  const n = parseInt(h, 16);
+  return {r:(n >> 16) & 255, g:(n >> 8) & 255, b:n & 255};
+}
+function rgbToHex(r, g, b){
+  const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
+  return "#" + c(r) + c(g) + c(b);
+}
+function luminance(r, g, b){
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+// Затемняет hex-цвет до print-safe яркости, сохраняя оттенок. Уже
+// достаточно тёмные цвета (например #111111 контуров) возвращает как есть.
+function printSafeHex(hex){
+  const {r, g, b} = hexToRgb(hex);
+  const lum = luminance(r, g, b);
+  if(lum <= PRINT_LUMINANCE_CEILING) return hex;
+  const factor = PRINT_LUMINANCE_CEILING / lum;
+  return rgbToHex(r * factor, g * factor, b * factor);
+}
+// Поднимает альфа-канал у полупрозрачных rgba(...)-заливок минимум до
+// PRINT_MIN_FILL_ALPHA - на белом листе низкая непрозрачность выглядит
+// почти невидимой полоской, даже если сам базовый цвет тёмный.
+function printSafeRgba(v){
+  const m = v.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/);
+  if(!m) return v;
+  const r = +m[1], g = +m[2], b = +m[3];
+  const a = Math.max(parseFloat(m[4]), PRINT_MIN_FILL_ALPHA);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function applyPrintPalette(root){
+  root.querySelectorAll("*").forEach(node => {
+    // Спец-случай: подписи на экране - светлый текст с тёмным хало
+    // (для тёмного фона редактора). На белом листе инвертируем: тёмная
+    // буква + белая обводка, иначе текст выглядит полым/невидимым.
+    if(node.getAttribute("fill") === "#eaeee4"){
+      node.setAttribute("fill", "#1a1408");
+      if(node.getAttribute("stroke")) node.setAttribute("stroke", "#ffffff");
+      return;
+    }
+    ["fill", "stroke"].forEach(attr => {
+      const v = node.getAttribute(attr);
+      if(!v || v === "none") return;
+      if(/^#[0-9a-fA-F]{6}$/.test(v)){
+        if(PRINT_KEEP_LIGHT.has(v.toLowerCase())) return;
+        const safe = printSafeHex(v);
+        if(safe !== v) node.setAttribute(attr, safe);
+      } else if(v.indexOf("rgba(") === 0){
+        const safe = printSafeRgba(v);
+        if(safe !== v) node.setAttribute(attr, safe);
+      }
+    });
+  });
+}
+
+function buildPrintLayout(preset){
+  const meta = STATE.areaMeta || {};
+
+  // Лист фиксирован под А4 - раньше ширина/высота вычислялись из реального
+  // масштаба (totalMeters * pxPerMeter) и получался холст произвольного
+  // размера, который потом либо давил лишними полями в docx, либо не
+  // влезал в печатный лист без искажений. Теперь холст = ровно А4 в
+  // пикселях при PRINT_DPI, а чертёж вписывается в оставшееся место под
+  // заголовком/таблицей/легендой - результат гарантированно ложится в
+  // страницу техкарты "спокойно", без ручной подгонки на стороне docx.
+  const pageW = Math.round(A4_WIDTH_MM / 25.4 * PRINT_DPI);
+  const pageH = Math.round(A4_HEIGHT_MM / 25.4 * PRINT_DPI);
+  const padding = 50;
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = `position:absolute; left:-99999px; top:0; width:${pageW}px; height:${pageH}px; ` +
+    `background:#ffffff; font-family:Georgia,serif; color:#111111; padding:${padding}px; ` +
+    `box-sizing:border-box; display:flex; flex-direction:column;`;
+
+  const title = document.createElement("div");
+  title.textContent = "5.10. Схема разработки лесосеки" + (preset ? ` — ${preset.label}` : "");
+  title.style.cssText = "text-align:center; font-size:19px; font-weight:600; margin-bottom:4px; flex:0 0 auto;";
+  wrap.appendChild(title);
+
+  const scaleLabel = document.createElement("div");
+  scaleLabel.style.cssText = "text-align:center; font-size:12.5px; margin-bottom:14px; letter-spacing:.4px; flex:0 0 auto;";
+  wrap.appendChild(scaleLabel);
+
+  // Резиновая ячейка под чертёж - занимает весь остаток высоты страницы
+  // после того, как остальные (переменной высоты - например таблица
+  // координат растёт с числом точек) блоки уже посчитаны браузером.
+  const drawSlot = document.createElement("div");
+  drawSlot.style.cssText = "flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden;";
+  wrap.appendChild(drawSlot);
+
+  // ПЛС — погрузочный пункт (стопка брёвен), статичный пиктограф под чертежом, как на эталоне
+  const plsWrap = document.createElement("div");
+  plsWrap.style.cssText = "display:flex; justify-content:center; margin:6px 0 18px; flex:0 0 auto;";
+  plsWrap.innerHTML = `
+    <svg width="180" height="60" viewBox="0 0 180 60">
+      <line x1="10" y1="46" x2="170" y2="46" stroke="#111111" stroke-width="1.2"/>
+      <g stroke="#111111" stroke-width="1.1" fill="none">
+        <ellipse cx="35" cy="42" rx="7" ry="3"/><ellipse cx="48" cy="38" rx="7" ry="3"/><ellipse cx="61" cy="34" rx="7" ry="3"/>
+        <ellipse cx="42" cy="34" rx="7" ry="3"/><ellipse cx="55" cy="30" rx="7" ry="3"/><ellipse cx="49" cy="26" rx="7" ry="3"/>
+        <ellipse cx="105" cy="42" rx="7" ry="3"/><ellipse cx="119" cy="42" rx="7" ry="3"/><ellipse cx="133" cy="42" rx="7" ry="3"/>
+      </g>
+      <text x="90" y="58" font-size="11" text-anchor="middle" font-family="Georgia,serif" fill="#111111">ПЛС</text>
+    </svg>`;
+  wrap.appendChild(plsWrap);
+
+  // meta row
+  const metaRow = document.createElement("div");
+  metaRow.style.cssText = "display:flex; flex-wrap:wrap; gap:18px; font-size:12px; margin-bottom:16px; border-top:1px solid #111111; border-bottom:1px solid #111111; padding:8px 0; flex:0 0 auto;";
+  const metaFieldsAll = [
+    ["Лесхоз", meta.leshos_text, "leshos_text"], ["Лесничество", meta.lesnich_text, "lesnich_text"],
+    ["Квартал", meta.num_kv, "num_kv"], ["Выдел", meta.num_vds, "num_vds"], ["Участок №", meta.num, "num"],
+    ["Площадь, га", meta.area, "area"], ["Вид рубки", meta.cuttingtyp, "cuttingtyp"],
+    ["Ответственный", meta.fio, "fio"], ["Дата", meta.date, "date"]
+  ];
+  const metaFields = (preset && preset.metaKeys)
+    ? metaFieldsAll.filter(f => preset.metaKeys.includes(f[2]))
+    : metaFieldsAll;
+  metaFields.forEach(([k,v]) => {
+    const f = document.createElement("div");
+    f.innerHTML = `<b>${k}:</b> ${(v===undefined||v==="")?"—":v}`;
+    metaRow.appendChild(f);
+  });
+  wrap.appendChild(metaRow);
+
+  // two-column layout: coordinate table | legend
+  const cols = document.createElement("div");
+  cols.style.cssText = "display:flex; gap:26px; flex:0 0 auto;";
+
+  const tableCol = document.createElement("div");
+  tableCol.style.cssText = "flex:0 0 300px;";
+  const tableTitle = document.createElement("div");
+  tableTitle.textContent = "Координаты угловых точек";
+  tableTitle.style.cssText = "font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px;";
+  tableCol.appendChild(tableTitle);
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%; border-collapse:collapse; font-family:Georgia,serif; font-size:11px;";
+  table.innerHTML = "<thead><tr>"+
+    "<th style='text-align:left;border:1px solid #111111;padding:3px 5px;'>№</th>"+
+    "<th style='text-align:left;border:1px solid #111111;padding:3px 5px;'>X, м</th>"+
+    "<th style='text-align:left;border:1px solid #111111;padding:3px 5px;'>Y, м</th>"+
+    "<th style='text-align:left;border:1px solid #111111;padding:3px 5px;'>Тип</th>"+
+    "</tr></thead>";
+  const tbody = document.createElement("tbody");
+  const rowsForTable = STATE.points.concat(STATE.points.length ? [STATE.points[0]] : []); // close the loop, как в эталоне
+  rowsForTable.forEach(p => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td style='border:1px solid #cccccc;padding:2px 5px;'>${p.n}</td>`+
+      `<td style='border:1px solid #cccccc;padding:2px 5px;'>${p.x.toFixed(2)}</td>`+
+      `<td style='border:1px solid #cccccc;padding:2px 5px;'>${p.y.toFixed(2)}</td>`+
+      `<td style='border:1px solid #cccccc;padding:2px 5px;'>Лесосека</td>`;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  tableCol.appendChild(table);
+  cols.appendChild(tableCol);
+
+  const legendCol = document.createElement("div");
+  legendCol.style.cssText = "flex:1;";
+  const legendTitle = document.createElement("div");
+  legendTitle.textContent = "Условные обозначения:";
+  legendTitle.style.cssText = "font-size:13px; font-weight:700; margin-bottom:8px;";
+  legendCol.appendChild(legendTitle);
+  const legendGrid = document.createElement("div");
+  legendGrid.style.cssText = "display:flex; gap:24px; font-size:11.5px;";
+
+  const buildLegendColumn = (items) => {
+    const col = document.createElement("div");
+    col.style.cssText = "display:flex; flex-direction:column; gap:6px;";
+    items.forEach(item => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex; align-items:center; gap:6px;";
+      const swatch = document.createElement("span");
+      swatch.innerHTML = item.swatch();
+      swatch.style.cssText = "flex:0 0 auto; line-height:0;";
+      const label = document.createElement("span");
+      label.textContent = item.label;
+      row.appendChild(swatch);
+      row.appendChild(label);
+      col.appendChild(row);
+    });
+    return col;
+  };
+  const legendLeft = (preset && preset.legendCats) ? LEGEND_LEFT.filter(it => preset.legendCats.includes(it.cat)) : LEGEND_LEFT;
+  const legendRight = (preset && preset.legendCats) ? LEGEND_RIGHT.filter(it => preset.legendCats.includes(it.cat)) : LEGEND_RIGHT;
+  legendGrid.appendChild(buildLegendColumn(legendLeft));
+  legendGrid.appendChild(buildLegendColumn(legendRight));
+  // Значки легенды собираются напрямую (не клонируются со сцены), поэтому
+  // отдельно прогоняем их через тот же print-safe алгоритм затемнения -
+  // иначе, например, цвет зоны безопасности в условных обозначениях
+  // остался бы бледным даже после исправления самого чертежа.
+  applyPrintPalette(legendGrid);
+  legendCol.appendChild(legendGrid);
+  cols.appendChild(legendCol);
+
+  wrap.appendChild(cols);
+  document.body.appendChild(wrap);
+
+  // Размер чертежа считаем от РЕАЛЬНОГО выбранного масштаба (1:2500/5000/
+  // /10000), а не растягиванием под свободное место, как было раньше —
+  // иначе подпись масштаба на листе не соответствовала тому, что
+  // фактически нарисовано. При масштабе 1:S и печатном PRINT_DPI: 1 метр
+  // местности -> 1000/S мм на бумаге -> (PRINT_DPI/25.4)*(1000/S) px.
+  const totalMetersX = VB_W / STATE.transform.scale;
+  const totalMetersY = VB_H / STATE.transform.scale;
+  const truePxPerMeter = (PRINT_DPI / 25.4) * 1000 / STATE.printScale;
+  let dw = Math.round(totalMetersX * truePxPerMeter);
+  let dh = Math.round(totalMetersY * truePxPerMeter);
+
+  // Лист всегда А4 (см. "Экспорт" ниже — А3 больше не используется нигде).
+  // Если чертёж при выбранном масштабе физически не влезает в оставшееся
+  // под заголовком/таблицей/легендой место, единственный способ не
+  // соврать в подписи масштаба — явно уменьшить и явно предупредить, а
+  // не молча подменить цифру, как это делалось раньше.
+  const slotRect = drawSlot.getBoundingClientRect();
+  const availW = Math.max(1, slotRect.width);
+  const availH = Math.max(1, slotRect.height);
+  let shrunkForFit = false;
+  if(dw > availW || dh > availH){
+    const fitFactor = Math.min(availW / dw, availH / dh);
+    dw = Math.max(1, Math.round(dw * fitFactor));
+    dh = Math.max(1, Math.round(dh * fitFactor));
+    shrunkForFit = true;
+  }
+
+  const svgClone = document.getElementById("stage").cloneNode(true);
+  svgClone.removeAttribute("id");
+  svgClone.removeAttribute("style");
+  svgClone.setAttribute("width", String(dw));
+  svgClone.setAttribute("height", String(dh));
+  svgClone.style.cssText = "display:block; background:#ffffff;";
+  applyPrintPalette(svgClone);
+
+  // Пресет переопределяет видимость слоёв в СОБИРАЕМОМ документе — независимо
+  // от того, что сейчас включено/выключено на экране (см. карточку "Слои").
+  if(preset && preset.layers){
+    const layerIds = {contour:"contourLayer", safety:"safetyLayer", strips:"stripLayer", infra:"infraLayer", labels:"labelsLayer"};
+    Object.keys(layerIds).forEach(k => {
+      const g = svgClone.querySelector("#" + layerIds[k]);
+      if(g) g.style.display = preset.layers[k] ? "" : "none";
+    });
+  }
+  // Растровая подложка-трассировка — черновой ориентир для оцифровки на
+  // экране, не часть официального документа: в печать/экспорт попадает,
+  // только если пользователь явно включил чекбокс "включать подложку в
+  // печать/PDF" — иначе она всегда скрыта в экспортируемой копии, вне
+  // зависимости от того, показана ли она сейчас на экране и от пресета.
+  const rasterClone = svgClone.querySelector("#rasterLayer");
+  if(rasterClone) rasterClone.style.display = (STATE.rasterUnderlay && STATE.rasterUnderlay.includeInPrint) ? "" : "none";
+
+  drawSlot.appendChild(svgClone);
+
+  scaleLabel.textContent = shrunkForFit
+    ? `Масштаб 1 : ${STATE.printScale} не влезает на лист А4 вместе с таблицей и легендой — чертёж уменьшен пропорционально. Выберите более мелкий масштаб печати (например 1:10000), чтобы получить точный 1:${STATE.printScale}.`
+    : `Масштаб 1 : ${STATE.printScale}`;
+
+  return wrap;
+}
+
+const customScaleInput = document.getElementById("customScaleInput");
+
+document.querySelectorAll("[data-scale]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    STATE.printScale = parseInt(btn.getAttribute("data-scale"), 10);
+    document.querySelectorAll("[data-scale]").forEach(b => b.classList.toggle("active", b === btn));
+    // пресет выбран явно - сбрасываем визуальное состояние "свой масштаб",
+    // но само число в поле не трогаем, чтобы пользователь мог быстро
+    // вернуться к нему повторным нажатием "Задать"
+    customScaleInput.classList.remove("active");
+  });
+});
+
+// Пользовательский масштаб печати: любой знаменатель 1:S, а не только
+// три преднастроенных значения. Валидируем на положительное целое в
+// разумных картографических пределах (1:1 - 1:1 000 000), чтобы не
+// уйти в деление на 0 / отрицательные числа / NaN дальше в
+// buildPrintLayout() (truePxPerMeter = ... / STATE.printScale).
+function applyCustomScale(){
+  const raw = parseInt(customScaleInput.value, 10);
+  const status = document.getElementById("exportStatus");
+  if(!Number.isFinite(raw) || raw < 1 || raw > 1000000){
+    if(status) status.textContent = "Укажите масштаб 1:S, где S — целое число от 1 до 1 000 000.";
+    return;
+  }
+  STATE.printScale = raw;
+  document.querySelectorAll("[data-scale]").forEach(b => b.classList.remove("active"));
+  customScaleInput.classList.add("active");
+  if(status) status.textContent = `Масштаб печати задан вручную: 1:${raw}.`;
+}
+document.getElementById("btnCustomScale").addEventListener("click", applyCustomScale);
+customScaleInput.addEventListener("keydown", (e) => {
+  if(e.key === "Enter") applyCustomScale();
+});
+
+async function renderPrintCanvas(preset){
+  if(typeof html2canvas === "undefined"){
+    throw new Error("Библиотека html2canvas не загрузилась (проверьте сеть/блокировщик).");
+  }
+  const wrap = buildPrintLayout(preset);
+  await new Promise(r => setTimeout(r, 60)); // let layout settle before capture
+  try{
+    // scale:1 so each output pixel corresponds exactly to PRINT_DPI — needed for the
+    // true cartographic-scale math in buildPrintLayout to hold when placed in the PDF.
+    const canvas = await html2canvas(wrap, {scale:1, backgroundColor:"#ffffff", useCORS:true});
+    return canvas;
+  } finally {
+    document.body.removeChild(wrap);
+  }
+}
+
+document.getElementById("btnExportPng").addEventListener("click", async () => {
+  const status = document.getElementById("exportStatus");
+  status.textContent = "Формируем PNG...";
+  try{
+    const canvas = await renderPrintCanvas();
+    const link = document.createElement("a");
+    link.download = `lesoseka_schema_1-${STATE.printScale}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+    status.textContent = "Готово.";
+  } catch(err){
+    status.textContent = "Ошибка: " + err.message;
+  }
+});
+
+// Лист всегда А4 (портрет) — canvas уже собран buildPrintLayout ровно в
+// размер А4 при PRINT_DPI, поэтому здесь просто кладём картинку на всю
+// страницу без подбора формата/подгонки под неё.
+document.getElementById("btnExportPdf").addEventListener("click", async () => {
+  const status = document.getElementById("exportStatus");
+  status.textContent = "Формируем PDF...";
+  try{
+    if(typeof window.jspdf === "undefined"){
+      throw new Error("Библиотека jsPDF не загрузилась (проверьте сеть/блокировщик).");
+    }
+    const canvas = await renderPrintCanvas();
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, A4_WIDTH_MM, A4_HEIGHT_MM);
+    pdf.save(`lesoseka_schema_1-${STATE.printScale}.pdf`);
+    status.textContent = `Готово (лист А4, масштаб 1:${STATE.printScale}).`;
+  } catch(err){
+    status.textContent = "Ошибка: " + err.message;
+  }
+});
+
+// Экспорт-пресеты — один клик сразу собирает PDF с нужным набором слоёв/
+// легенды/полей шапки (см. EXPORT_PRESETS выше), тем же пайплайном
+// html2canvas → jsPDF, что и обычная кнопка "Скачать PDF".
+document.querySelectorAll(".presetbtn[data-preset]").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const preset = EXPORT_PRESETS[btn.getAttribute("data-preset")];
+    const status = document.getElementById("presetStatus");
+    if(!preset) return;
+    status.textContent = `Формируем PDF («${preset.label}»)...`;
+    try{
+      if(typeof window.jspdf === "undefined"){
+        throw new Error("Библиотека jsPDF не загрузилась (проверьте сеть/блокировщик).");
+      }
+      const canvas = await renderPrintCanvas(preset);
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, A4_WIDTH_MM, A4_HEIGHT_MM);
+      pdf.save(`lesoseka_schema_${preset.filenameTag}_1-${STATE.printScale}.pdf`);
+      status.textContent = `Готово («${preset.label}», лист А4, масштаб 1:${STATE.printScale}).`;
+    } catch(err){
+      status.textContent = "Ошибка: " + err.message;
+    }
+  });
+});
+
+// ======================================================================
+// Сохранение в веб-приложение "Цифровой помощник лесовода" —
+// POST /api/delyanki/items/{item_id}/abris (multipart/form-data, поле
+// "file"), см. app/routers/delyanki.py:upload_abris. item_id и адрес
+// backend передаются через query-параметры страницы (см. Plots.jsx:
+// window.open(`/abris_tool.html?item_id=...&api_base=...&label=...`)) —
+// эта страница открывается в отдельной вкладке, а не встроенным
+// QWebEngineView, поэтому вместо QWebChannel-моста — обычный fetch.
+// ======================================================================
+
+const ABRIS_PARAMS = new URLSearchParams(window.location.search);
+const ABRIS_ITEM_ID = ABRIS_PARAMS.get("item_id");
+const ABRIS_API_BASE = ABRIS_PARAMS.get("api_base") || "/api";
+const ABRIS_LABEL = ABRIS_PARAMS.get("label") || "";
+if(ABRIS_LABEL){
+  const crumbEl = document.querySelector(".crumb");
+  if(crumbEl) crumbEl.innerHTML = `Делянка · <b>${ABRIS_LABEL}</b>`;
+  document.title = `Абрис — ${ABRIS_LABEL}`;
+}
+
+// Токен читаем из того же localStorage-ключа, что и основной SPA
+// (см. api/client.js: getToken() / "lesovod_token") — страница открыта
+// в отдельной вкладке того же origin, поэтому localStorage общий.
+function getAbrisToken(){
+  try{ return localStorage.getItem("lesovod_token"); }catch(e){ return null; }
+}
+
+document.getElementById("btnSaveToApp").addEventListener("click", async () => {
+  const status = document.getElementById("exportStatus");
+  if(!ABRIS_ITEM_ID){
+    status.textContent = "Ошибка: страница открыта без указания выдела (item_id) — вернитесь на экран «Делянки» и нажмите «Нарисовать абрис» там.";
+    return;
+  }
+  status.textContent = "Сохраняем абрис...";
+  try{
+    const canvas = await renderPrintCanvas();
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error("Не удалось собрать PNG")), "image/png");
+    });
+    const formData = new FormData();
+    const safeStem = (ABRIS_LABEL || "abris").replace(/[\\/*?:"<>|]/g, "_");
+    formData.append("file", blob, `Абрис_${safeStem}.png`);
+
+    const token = getAbrisToken();
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    if(!token){
+      status.textContent = "Внимание: не найден токен авторизации — сохраняем без него, сервер может ответить 401. Откройте абрис заново со страницы «Делянки», предварительно залогинившись в приложении.";
+    }
+    const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/abris`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    if(!resp.ok){
+      const text = await resp.text().catch(() => "");
+      throw new Error(`Сервер ответил ${resp.status}: ${text.slice(0, 200)}`);
+    }
+    status.textContent = "Готово — абрис сохранён в делянке.";
+    if(window.opener){
+      try{ new BroadcastChannel("lesovod-abris").postMessage({itemId: ABRIS_ITEM_ID}); }catch(e){ /* BroadcastChannel недоступен — не критично */ }
+      status.textContent += " Можно закрыть эту вкладку.";
+    }
+  } catch(err){
+    status.textContent = "Ошибка: " + err.message;
+  }
+});
+
+loadData(DEFAULT_DATA);
+</script>
+
+<script>
+// ======================================================================
+// Обвязка нового расположения (рейка слева + топбар) — ЧИСТО навигационная,
+// поверх основной логики выше. Ничего не знает про STATE и не трогает
+// рендеринг/данные — только открывает/прокручивает соответствующий раздел
+// правой панели и дублирует пару уже существующих кнопок в топбар.
+// ======================================================================
+(function wireChrome(){
+  const rail = document.getElementById("rail");
+  if(!rail) return;
+
+  rail.querySelectorAll(".rail-btn[data-target]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-target");
+      const target = document.getElementById(id);
+      rail.querySelectorAll(".rail-btn").forEach(b => b.classList.toggle("active", b === btn));
+      if(!target) return;
+      if(target.tagName === "DETAILS") target.open = true;
+      target.scrollIntoView({behavior:"smooth", block:"start"});
+    });
+  });
+
+  // Топбар — undo/redo дублируют уже существующие кнопки панели
+  // "Инфраструктура" (та же история STATE.history, один источник правды).
+  const bindClick = (fromId, toId) => {
+    const from = document.getElementById(fromId);
+    const to = document.getElementById(toId);
+    if(from && to) from.addEventListener("click", () => to.click());
+  };
+  bindClick("btnTopUndo", "btnInfraUndo");
+  bindClick("btnTopRedo", "btnInfraRedo");
+
+  const resetBtn = document.getElementById("btnTopReset");
+  if(resetBtn){
+    resetBtn.addEventListener("click", () => {
+      // Тот же сброс зума/сдвига, что и двойной клик по свободному полю
+      // холста (см. initCanvasZoom выше) — просто через кнопку в топбаре.
+      const wrap = document.getElementById("canvasWrap");
+      if(wrap) wrap.dispatchEvent(new MouseEvent("dblclick", {bubbles:true}));
+    });
+  }
+
+  const exportBtn = document.getElementById("btnTopExport");
+  if(exportBtn){
+    exportBtn.addEventListener("click", () => {
+      rail.querySelector('.rail-btn[data-target="secExport"]')?.click();
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

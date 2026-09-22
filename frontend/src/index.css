@@ -1,0 +1,36 @@
+@import "./design-tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-ui text-base antialiased;
+  }
+
+  /* Тонкий скроллбар — тот же, что в QSS десктопа (width 8px, #c1c8c2) */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c1c8c2;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a3aca5;
+  }
+
+  /* Видимый фокус для клавиатурной навигации — не убираем outline, а
+     стилизуем его в тон бренду (frontend-design: "visible keyboard
+     focus" — это не опционально). */
+  :focus-visible {
+    outline: 2px solid var(--color-pine-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
