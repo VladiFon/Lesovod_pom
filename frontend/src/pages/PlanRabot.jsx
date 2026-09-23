@@ -219,7 +219,7 @@ export default function PlanRabot() {
       { key: "zadacha", header: "Задача" },
       { key: "delyanka", header: "Место работы", render: (t) => {
         if (t.lesokultury_uchastok_id) {
-          return `🌱 кв. ${t.lku_kvartal || "—"} / выд. ${t.lku_vydel || "—"}`;
+          return `кв. ${t.lku_kvartal || "—"} / выд. ${t.lku_vydel || "—"}`;
         }
         return t.kvartal ? `кв. ${t.kvartal} / выд. ${t.vydel}` : "—";
       } },
@@ -230,7 +230,7 @@ export default function PlanRabot() {
           <button onClick={() => handleToggleStatus(t)}>
             <StatusBadge
               tone={t.status === "выполнена" ? "success" : "neutral"}
-              label={t.status === "выполнена" ? "✅ Выполнена" : "⏳ Активна"}
+              label={t.status === "выполнена" ? "Выполнена" : "Активна"}
               dot={false}
             />
           </button>
@@ -251,7 +251,7 @@ export default function PlanRabot() {
   );
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-[18px] flex flex-col gap-[14px]">
       <Card>
         <div className="flex flex-wrap items-end gap-3">
           <TextField label="С" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -261,7 +261,7 @@ export default function PlanRabot() {
             <select
               value={sotrudnikFilter}
               onChange={(e) => setSotrudnikFilter(e.target.value)}
-              className="bg-surface-alt border border-transparent focus:border-pine rounded-md px-3 py-2 text-base text-ink outline-none min-w-[200px]"
+              className="bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none min-w-[200px]"
             >
               <option value="">Все сотрудники</option>
               {sotrudniki.map((s) => (
@@ -294,7 +294,7 @@ export default function PlanRabot() {
             <select
               value={form.sotrudnik_id}
               onChange={(e) => setForm((f) => ({ ...f, sotrudnik_id: e.target.value }))}
-              className="bg-surface-alt border border-transparent focus:border-pine rounded-md px-3 py-2.5 text-base text-ink outline-none"
+              className="bg-surface border border-border focus:border-pine rounded-md px-3 py-2.5 text-base text-ink outline-none"
             >
               <option value="">Выберите сотрудника…</option>
               {sotrudniki.map((s) => (
@@ -400,7 +400,7 @@ export default function PlanRabot() {
                         key={u.id}
                         onClick={() => setForm((f) => ({ ...f, lesokulturyUchastok: u }))}
                         className={[
-                          "w-full text-left px-3 py-2 border-b border-border last:border-b-0 hover:bg-hover",
+                          "w-full text-left px-3 py-2 border-b border-hover last:border-b-0 hover:bg-hover",
                           form.lesokulturyUchastok?.id === u.id ? "bg-mint" : "",
                         ].join(" ")}
                       >

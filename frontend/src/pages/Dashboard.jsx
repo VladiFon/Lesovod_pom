@@ -90,7 +90,7 @@ function WeatherCard({ weather, loading, error, onRefresh }) {
 
   return (
     <Card
-      title="🌦️ Погода в лесу"
+      title="Погода в лесу"
       actions={
         <button
           onClick={onRefresh}
@@ -98,11 +98,11 @@ function WeatherCard({ weather, loading, error, onRefresh }) {
           title="Обновить погоду сейчас"
           className="h-7 w-7 rounded-md flex items-center justify-center text-muted hover:bg-hover hover:text-pine disabled:opacity-60"
         >
-          {loading ? "⏳" : "🔄"}
+          {loading ? "…" : "↻"}
         </button>
       }
     >
-      <div className="text-2xl font-extrabold text-pine-deep">
+      <div className="font-mono text-[28px] font-bold text-pine-deep leading-none mt-2">
         {weather?.temperature != null ? `${Math.round(weather.temperature)}°C` : "—°C"}
       </div>
       <div className="grid grid-cols-2 gap-4 mt-2">
@@ -155,7 +155,7 @@ function SetPlanModal({ open, onClose, periods, months, onSave, saving }) {
           <select
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
-            className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3 py-2 text-base text-ink outline-none"
+            className="w-full bg-surface border border-border focus:border-pine rounded-md px-3 py-2 text-base text-ink outline-none"
           >
             {periods.map((p, i) => (
               <option key={p} value={p}>
@@ -191,7 +191,7 @@ function SetPlanModal({ open, onClose, periods, months, onSave, saving }) {
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onOpenTab }) {
   const toast = useToast();
 
   const [summary, setSummary] = useState(null);
@@ -260,30 +260,14 @@ export default function Dashboard() {
   const insights = summary?.insights ?? [];
 
   return (
-    <div className="p-8 flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="font-ui font-bold text-lg text-ink">🌲 Обзор управления</h2>
-          <p className="text-muted text-base mt-0.5">
-            {new Date().toLocaleDateString("ru-RU")} — сводка по текущим показателям
-          </p>
-        </div>
-        <Button
-          variant="primary"
-          disabled
-          title="Экран «Делянки» ещё не переписан (Этап 4, следующий пункт по плану) — кнопка появится рабочей после него"
-        >
-          ＋ Новый аудит делянки
-        </Button>
-      </div>
-
+    <div className="p-[18px] flex flex-col gap-[14px]">
       {loadError && (
         <Card className="border-error/40">
           <p className="text-error text-base">{loadError}</p>
         </Card>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <StatCard icon="🌳" title="Делянки в работе" value={loading ? "…" : String(metrics?.delyanki_count ?? 0)} caption="Актуально на сегодня" />
         <StatCard icon="✅" title="Выполнено работ" value={loading ? "…" : String(metrics?.completed_count ?? 0)} caption="Все зафиксированные работы" />
         <StatCard icon="🪵" title="Заготовлено, м³" value={loading ? "…" : metrics?.volume_m3_fmt ?? "0"} caption="По журналу расхода" />
@@ -296,14 +280,14 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 flex flex-col gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-[14px]">
+        <div className="lg:col-span-2 flex flex-col gap-[14px]">
           <Card
             title="Обзор заготовки"
             subtitle={chart ? `План ${chart.total_plan.toFixed(1)} м³ · Факт ${chart.total_fact.toFixed(1)} м³` : "Последние 6 месяцев"}
             actions={
               <Button variant="ghost" size="sm" onClick={() => setPlanModalOpen(true)}>
-                ✏️ Задать план на месяц
+                Задать план на месяц
               </Button>
             }
           >
@@ -331,7 +315,7 @@ export default function Dashboard() {
           <Card
             title="Активные делянки"
             actions={
-              <Button variant="ghost" size="sm" disabled title="Экран «Делянки» ещё не переписан (Этап 4, следующий пункт)">
+              <Button variant="ghost" size="sm" onClick={() => onOpenTab?.("plots")}>
                 Смотреть все
               </Button>
             }
@@ -346,6 +330,7 @@ export default function Dashboard() {
                   { key: "created_at", header: "Создано", sortable: true },
                 ]}
                 rows={plots}
+                onRowClick={() => onOpenTab?.("plots")}
                 emptyTitle="Активных делянок нет"
                 emptyDescription="Создайте делянку на экране «Делянки», и она появится здесь."
               />
@@ -353,8 +338,8 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        <div className="flex flex-col gap-6">
-          <Card title="🧠 ИИ-аналитика">
+        <div className="flex flex-col gap-[14px]">
+          <Card title="ИИ-аналитика">
             {loading ? (
               <div className="flex flex-col gap-3">
                 {[0, 1].map((i) => (

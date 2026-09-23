@@ -11,17 +11,17 @@ const VARIANTS = {
   primary:
     "bg-pine text-white border border-pine hover:bg-pine-hover active:bg-pine-active disabled:bg-border disabled:text-muted-2 disabled:border-border",
   secondary:
-    "bg-surface text-pine border-2 border-pine hover:bg-mint-soft hover:border-pine-focus hover:text-pine-focus active:bg-mint disabled:bg-hover disabled:text-disabled disabled:border-border",
+    "bg-surface text-muted border border-border hover:border-pine hover:text-pine active:bg-mint-soft disabled:bg-hover disabled:text-disabled disabled:border-border",
   danger:
     "bg-transparent text-error border border-error hover:bg-error-soft disabled:border-border disabled:text-faint",
   ghost:
-    "bg-transparent text-pine border border-pine hover:bg-hover disabled:border-border disabled:text-faint",
+    "bg-surface text-pine border border-border hover:bg-hover disabled:border-border disabled:text-faint",
 };
 
 const SIZES = {
-  sm: "px-3 py-1.5 text-xs",
-  md: "px-3.5 py-2 text-base",
-  lg: "px-4.5 py-2.5 text-md",
+  sm: "h-7 px-2.5 text-xs",
+  md: "h-8 px-3 text-[12.5px]",
+  lg: "h-9 px-4 text-[13.5px]",
 };
 
 export default function Button({
@@ -39,7 +39,7 @@ export default function Button({
     <button
       disabled={disabled || loading}
       className={[
-        "inline-flex items-center justify-center gap-2 font-ui font-bold rounded-md",
+        "inline-flex items-center justify-center gap-2 font-ui font-semibold rounded-[9px] whitespace-nowrap",
         "transition-colors duration-150 disabled:cursor-not-allowed",
         VARIANTS[variant],
         SIZES[size],

@@ -24,10 +24,10 @@ import { useToast } from "../components/Toast.jsx";
  *   Сроки заготовки/вывозки (редактирование)                   → инлайн-поля + PATCH .../sroki
  *   Чек-лист подготовки (стандартный + свои пункты)             → чекбоксы + "Добавить пункт"
  *   Пресет комиссии/организационных полей акта                  → выпадающий список, заполняет форму
- *   "📋 Справка" (объёмы/недоруб)                                → модалка → POST .../documents/spravka
+ *   "Справка об объёмах" (объёмы/недоруб)                                → модалка → POST .../documents/spravka
  *   "📝 Акт освидетельствования" (полная форма, см. докстринг
  *     osvidetelstvovanie_generator.generate_akt_osvidetelstvovaniya) → модалка (все поля) → POST .../documents/akt-osvidetelstvovaniya
- *   "📄 Скачать пустой бланк акта"                               → кнопка в шапке → POST /documents/blank-template
+ *   "↓ Пустой бланк акта"                               → кнопка в шапке → POST /documents/blank-template
  *   История актов по делянке                                    → таблица, GET .../acts
  */
 
@@ -246,7 +246,7 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>Отмена</Button>
-          <Button variant="primary" onClick={handleSubmit} loading={submitting}>📝 Сформировать акт</Button>
+          <Button variant="primary" onClick={handleSubmit} loading={submitting}>Сформировать акт</Button>
         </>
       }
     >
@@ -273,7 +273,7 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
                   setSelectedPreset(e.target.value);
                   if (e.target.value) applyPreset(e.target.value);
                 }}
-                className="flex-1 bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none"
+                className="flex-1 bg-surface border border-border focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none"
               >
                 <option value="" disabled>Заполнить организационные поля из пресета…</option>
                 {presets.map((p) => (
@@ -311,7 +311,7 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
                   if (e.key === "Escape") setDraftPresetName(null);
                 }}
                 placeholder="Название пресета"
-                className="flex-1 bg-surface-alt border border-transparent focus:border-pine focus:bg-surface rounded-md px-3.5 py-2 text-sm text-ink outline-none transition-colors"
+                className="flex-1 bg-surface border border-border focus:border-pine focus:bg-surface rounded-md px-3.5 py-2 text-sm text-ink outline-none transition-colors"
               />
               <Button
                 size="sm"
@@ -578,19 +578,19 @@ function InspectionDetail({ row, onSrokiSaved }) {
 
   return (
     <Card>
-      <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <h2 className="font-ui font-extrabold text-lg text-ink">{row.nazvanie || `Делянка №${row.id}`}</h2>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="font-ui font-extrabold text-pine" style={{ fontSize: 16 }}>{row.nazvanie || `Делянка №${row.id}`}</h2>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setSpravkaModalOpen(true)}>📋 Справка</Button>
-            <Button variant="primary" size="sm" onClick={() => setActModalOpen(true)}>📝 Акт освидетельствования</Button>
+            <Button variant="secondary" size="sm" onClick={() => setSpravkaModalOpen(true)}>Справка об объёмах</Button>
+            <Button variant="primary" size="sm" onClick={() => setActModalOpen(true)}>Акт освидетельствования</Button>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 items-end">
+        <div className="grid gap-3.5 items-end grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
           <TextField label="Срок окончания заготовки" placeholder="ДД.ММ.ГГГГ" value={srokZagotovki} onChange={(e) => setSrokZagotovki(e.target.value)} />
           <TextField label="Срок окончания вывозки" placeholder="ДД.ММ.ГГГГ" value={srokVyvozki} onChange={(e) => setSrokVyvozki(e.target.value)} />
-          <Button variant="secondary" onClick={handleSaveSroki} loading={savingSroki}>💾 Сохранить сроки</Button>
+          <Button variant="secondary" onClick={handleSaveSroki} loading={savingSroki}>Сохранить сроки</Button>
         </div>
 
         <div>
@@ -598,7 +598,7 @@ function InspectionDetail({ row, onSrokiSaved }) {
             <h3 className="font-ui font-bold text-ink text-md">Чек-лист подготовки {checklist.length > 0 && `(${doneCount}/${checklist.length})`}</h3>
             {checklist.length === 0 && (
               <Button variant="ghost" size="sm" onClick={handleEnsureChecklist} loading={ensuring} title={CHECKLIST_STANDARD_HINT}>
-                ➕ Стандартный чек-лист
+                + Стандартный чек-лист
               </Button>
             )}
           </div>
@@ -627,7 +627,7 @@ function InspectionDetail({ row, onSrokiSaved }) {
         </div>
 
         <div>
-          <h3 className="font-ui font-bold text-ink text-md mb-2">История актов</h3>
+          <h3 className="font-mono text-[10.5px] uppercase tracking-[.1em] text-muted-2 mb-2">история актов</h3>
           <DataTable
             columns={[
               { key: "act_date", header: "Дата" },
@@ -726,60 +726,71 @@ export default function Inspection() {
   }, [rows, search]);
 
   return (
-    <div className="p-8 flex flex-col gap-6">
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-ui font-bold text-ink text-md">Делянки, ожидающие освидетельствования</h3>
-          <Button variant="ghost" size="sm" onClick={handleBlankTemplate} loading={blankLoading}>📄 Скачать пустой бланк акта</Button>
+    <div className="p-[18px] flex flex-wrap gap-[14px] items-start">
+      <Card padding={false} className="flex flex-col" style={{ flex: "1 1 280px", maxWidth: 420 }}>
+        <div className="p-3.5 flex flex-col gap-2.5 border-b border-border">
+          <Button variant="secondary" size="sm" onClick={handleBlankTemplate} loading={blankLoading} className="self-start">
+            ↓ Пустой бланк акта
+          </Button>
+          <TextField placeholder="Поиск по названию делянки…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <span className="font-mono text-[10.5px] text-faint">{visibleRows.length} · сначала просроченные</span>
         </div>
-        <TextField
-          placeholder="Поиск по названию делянки…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="mb-4"
-        />
-        <DataTable
-          loading={loading}
-          columns={[
-            { key: "nazvanie", header: "Делянка", render: (r) => r.nazvanie || `Делянка №${r.id}` },
-            { key: "srok_okonchaniya_zagotovki", header: "Срок заготовки", render: (r) => r.srok_okonchaniya_zagotovki || "—" },
-            { key: "srok_okonchaniya_vyvozki", header: "Срок вывозки", render: (r) => r.srok_okonchaniya_vyvozki || "—" },
-            {
-              key: "srok_osvidetelstvovaniya", header: "Срок освидетельствования",
-              render: (r) => {
-                if (!r.srok_osvidetelstvovaniya) return "—";
-                const { level, days } = inspectionUrgency(r);
-                if (level === "overdue") {
-                  return <StatusBadge tone="danger" label={`${r.srok_osvidetelstvovaniya} · просрочен на ${-days} дн.`} />;
-                }
-                if (level === "soon") {
-                  return <StatusBadge tone="warning" label={`${r.srok_osvidetelstvovaniya} · через ${days} дн.`} />;
-                }
-                return r.srok_osvidetelstvovaniya;
-              },
-            },
-            { key: "pct_osvoeniya_limita", header: "% освоения", render: (r) => (r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}%` : "—") },
-            {
-              key: "checklist", header: "Чек-лист",
-              render: (r) => (r.checklist?.length ? `${r.checklist.filter((c) => c.is_done).length}/${r.checklist.length}` : "—"),
-            },
-            { key: "acts", header: "Актов", render: (r) => r.acts?.length ?? 0 },
-            { key: "status", header: "Статус", render: (r) => <StatusBadge status={r.status} /> },
-          ]}
-          rows={visibleRows}
-          onRowClick={(r) => setSelectedId(r.id)}
-          emptyTitle="Делянок нет"
-          emptyDescription="Создайте делянки на экране «Делянки» — сюда они попадут автоматически."
-        />
+        <div className="p-2.5 flex flex-col gap-1.5">
+          {loading ? (
+            <div className="p-5 flex justify-center">
+              <div className="h-5 w-5 rounded-full border-2 border-pine border-t-transparent animate-spin" />
+            </div>
+          ) : visibleRows.length === 0 ? (
+            <EmptyState title="Делянок нет" description="Создайте делянки на экране «Делянки» — сюда они попадут автоматически." />
+          ) : (
+            visibleRows.map((r) => {
+              const u = r.srok_osvidetelstvovaniya ? inspectionUrgency(r) : null;
+              const srokLabel = !r.srok_osvidetelstvovaniya
+                ? "срок не задан"
+                : u?.level === "overdue"
+                  ? `просрочен на ${-u.days} дн.`
+                  : u?.level === "soon"
+                    ? `через ${u.days} дн.`
+                    : r.srok_osvidetelstvovaniya;
+              const tone = u?.level === "overdue" ? "danger" : u?.level === "soon" ? "warning" : "neutral";
+              const done = r.checklist?.filter((c) => c.is_done).length ?? 0;
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setSelectedId(r.id)}
+                  className={[
+                    "w-full text-left px-3 py-2.5 rounded-[10px] border flex flex-col gap-1 transition-colors",
+                    selectedId === r.id ? "bg-mint-soft border-pine" : "border-border bg-surface hover:bg-hover",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[13.5px] font-semibold text-ink">{r.nazvanie || `Делянка №${r.id}`}</span>
+                    <StatusBadge tone={tone} label={srokLabel} />
+                  </div>
+                  <span className="font-mono text-[10.5px] text-faint">
+                    заготовка {r.srok_okonchaniya_zagotovki || "—"} · вывозка {r.srok_okonchaniya_vyvozki || "—"}
+                  </span>
+                  <span className="font-mono text-[10.5px] text-muted-2">
+                    {r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% освоено` : "— % освоено"} · чек-лист{" "}
+                    {r.checklist?.length ? `${done}/${r.checklist.length}` : "—"} · актов {r.acts?.length ?? 0}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
       </Card>
 
+      <div className="min-w-0" style={{ flex: "2 1 420px" }}>
       {selected ? (
         <InspectionDetail row={selected} onSrokiSaved={load} />
       ) : (
         <Card>
-          <EmptyState icon="✅" title="Выберите делянку из таблицы выше" description="Сроки, чек-лист подготовки и акты освидетельствования — здесь." />
+          <EmptyState icon="✅" title="Выберите делянку из списка" description="Сроки, чек-лист подготовки и акты освидетельствования — здесь." />
         </Card>
       )}
+      </div>
     </div>
   );
 }

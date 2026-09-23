@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useReducer, useState } from "react";
 import Sidebar from "./components/Sidebar.jsx";
-import TopBar from "./components/TopBar.jsx";
+import TabWorkspace, { tabsReducer } from "./components/TabWorkspace.jsx";
 import Login from "./pages/Login.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Plots from "./pages/Plots.jsx";
@@ -20,7 +20,6 @@ import AiLog from "./pages/AiLog.jsx";
 import Settings from "./pages/Settings.jsx";
 import ComponentGallery from "./pages/ComponentGallery.jsx";
 import { ToastProvider } from "./components/Toast.jsx";
-import Button from "./components/Button.jsx";
 import { api } from "./api/client.js";
 
 // Этап 4: экраны переписываются по одному, от простого к сложному
@@ -80,8 +79,9 @@ const ROLE_LABELS = {
  *   MOCK_USER).
  */
 export default function App() {
-  const [active, setActive] = useState("settings");
-  const [search, setSearch] = useState("");
+  // Вкладки (дизайн «Вкладки - новый дизайн»): левая панель — activeId,
+  // необязательная правая — rightId.
+  const [tabState, dispatch] = useReducer(tabsReducer, { tabs: ["dashboard"], activeId: "dashboard", rightId: null });
 
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState(null);
@@ -129,38 +129,26 @@ export default function App() {
     return <Login onLoggedIn={setUser} />;
   }
 
-  const screen = READY_SCREENS[active];
   const sidebarUser = { fio: user.fio || user.login, role: ROLE_LABELS[user.role] || user.role };
 
   return (
     <ToastProvider>
       <div className="flex h-screen overflow-hidden">
-        <Sidebar active={active} onNavigate={setActive} user={sidebarUser} onLogout={handleLogout} />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <TopBar
-            title={screen?.title ?? active}
-            subtitle={screen?.subtitle}
-            search={screen?.search ? search : undefined}
-            onSearchChange={screen?.search ? setSearch : undefined}
-            hasNotifications
-            primaryAction={screen?.primaryAction ? { label: "+ Новая делянка", onClick: () => {} } : undefined}
-          />
-          <div className="flex-1 overflow-y-auto">
-            {screen ? (
-              <screen.Page currentUser={user} />
-            ) : (
-              <div className="p-8">
-                <div className="text-muted text-base mb-3">
-                  Экран «{active}» ещё не переписан (см. порядок в плане, Этап 4) — сейчас готовы
-                  «Настройки» и эталонный «Дашборд».
-                </div>
-                <Button variant="secondary" onClick={() => setActive("settings")}>
-                  Открыть «Настройки»
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
+        <Sidebar
+          openKeys={tabState.tabs}
+          activeKey={tabState.activeId}
+          onNavigate={(id) => dispatch({ type: "open", id })}
+          user={sidebarUser}
+          onLogout={handleLogout}
+        />
+        <TabWorkspace
+          screens={READY_SCREENS}
+          tabs={tabState.tabs}
+          activeId={tabState.activeId}
+          rightId={tabState.rightId}
+          dispatch={dispatch}
+          currentUser={user}
+        />
       </div>
     </ToastProvider>
   );

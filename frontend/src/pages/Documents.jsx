@@ -388,17 +388,17 @@ export default function Documents() {
   ];
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="p-[18px] flex flex-col gap-[14px]">
       <Card title="Документы" subtitle="Все документы, сгенерированные по делянкам">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div>
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">
               Тип документа
             </label>
             <select
               value={filters.doc_type}
               onChange={setFilter("doc_type")}
-              className="w-full bg-surface-alt border border-transparent rounded-md px-3.5 py-2.5 text-base text-ink outline-none focus:bg-surface focus:border-pine"
+              className="w-full bg-surface border border-border rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none focus:bg-surface focus:border-pine"
             >
               <option value="">Все типы</option>
               {Object.entries(DOC_TYPE_LABELS).map(([key, label]) => (
@@ -407,13 +407,13 @@ export default function Documents() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">
               Статус
             </label>
             <select
               value={filters.status}
               onChange={setFilter("status")}
-              className="w-full bg-surface-alt border border-transparent rounded-md px-3.5 py-2.5 text-base text-ink outline-none focus:bg-surface focus:border-pine"
+              className="w-full bg-surface border border-border rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none focus:bg-surface focus:border-pine"
             >
               <option value="">Любой</option>
               <option value="готов">Готов</option>
@@ -423,13 +423,13 @@ export default function Documents() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">
               Автор
             </label>
             <select
               value={filters.created_by}
               onChange={setFilter("created_by")}
-              className="w-full bg-surface-alt border border-transparent rounded-md px-3.5 py-2.5 text-base text-ink outline-none focus:bg-surface focus:border-pine"
+              className="w-full bg-surface border border-border rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none focus:bg-surface focus:border-pine"
             >
               <option value="">Все авторы</option>
               {authors.map((a) => (
@@ -446,20 +446,20 @@ export default function Documents() {
         <div className="sticky top-0 z-10 bg-pine text-white rounded-md px-4 py-3 flex items-center justify-between shadow-card">
           <span className="font-ui font-bold">Выбрано: {selection.length}</span>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" className="!text-white !border-white hover:!bg-white/10" onClick={handleBulkZip}>
+            <Button variant="ghost" className="!bg-transparent !text-white !border-white hover:!bg-white/10" onClick={handleBulkZip}>
               Скачать выбранное (.zip)
             </Button>
-            <Button variant="ghost" className="!text-white !border-white hover:!bg-white/10" onClick={handleBulkArchive}>
+            <Button variant="ghost" className="!bg-transparent !text-white !border-white hover:!bg-white/10" onClick={handleBulkArchive}>
               Архивировать
             </Button>
             <Button
               variant="ghost"
-              className="!text-white !border-white hover:!bg-white/10"
+              className="!bg-transparent !text-white !border-white hover:!bg-white/10"
               onClick={() => setDeleteConfirm({ ids: selection })}
             >
               Удалить
             </Button>
-            <Button variant="ghost" className="!text-white !border-white hover:!bg-white/10" onClick={() => setSelection([])}>
+            <Button variant="ghost" className="!bg-transparent !text-white !border-white hover:!bg-white/10" onClick={() => setSelection([])}>
               Снять выделение
             </Button>
           </div>

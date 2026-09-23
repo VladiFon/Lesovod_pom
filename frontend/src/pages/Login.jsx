@@ -41,7 +41,7 @@ export default function Login({ onLoggedIn }) {
     <div className="h-screen w-screen flex items-center justify-center bg-surface-alt">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm bg-surface border border-border rounded-lg shadow-card p-8"
+        className="w-full max-w-sm bg-surface border border-border rounded-lg shadow-card p-[18px]"
       >
         <div className="mb-6 text-center">
           <div className="font-ui font-extrabold text-2xl text-pine leading-tight">Лесовод</div>

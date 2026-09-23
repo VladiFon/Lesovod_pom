@@ -156,7 +156,7 @@ function UnmatchedDelyankaRow({ row, busy, delyanki, onLink, onIgnore }) {
         <select
           value={pick}
           onChange={(e) => setPick(e.target.value)}
-          className="bg-surface-alt border border-transparent focus:border-pine rounded-md px-2.5 py-1.5 text-sm text-ink outline-none max-w-[220px]"
+          className="bg-surface border border-border focus:border-pine rounded-md px-2.5 py-1.5 text-sm text-ink outline-none max-w-[220px]"
         >
           <option value="">Привязать к делянке…</option>
           {delyanki.map((d) => (
@@ -283,7 +283,7 @@ function EgaisReviewModal({ open, onClose, delyanki }) {
               onClick={() => setTab(t.key)}
               className={[
                 "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold transition-colors border",
-                active ? "bg-mint border-pine text-pine" : "bg-surface-alt border-transparent text-ink hover:bg-hover",
+                active ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted hover:bg-hover",
               ].join(" ")}
             >
               <span>{t.icon} {t.label}</span>
@@ -461,7 +461,7 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
                 <select
                   value={p.poroda}
                   onChange={setPozitsiyaField(idx, "poroda")}
-                  className="flex-1 bg-surface-alt border border-transparent focus:border-pine rounded-md px-3 py-2 text-sm text-ink outline-none"
+                  className="flex-1 bg-surface border border-border focus:border-pine rounded-md px-3 py-2 text-sm text-ink outline-none"
                 >
                   <option value="">Порода…</option>
                   {porody.map((pd) => (
@@ -471,7 +471,7 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
                 <select
                   value={p.sortiment}
                   onChange={setPozitsiyaField(idx, "sortiment")}
-                  className="w-40 bg-surface-alt border border-transparent focus:border-pine rounded-md px-3 py-2 text-sm text-ink outline-none"
+                  className="w-40 bg-surface border border-border focus:border-pine rounded-md px-3 py-2 text-sm text-ink outline-none"
                 >
                   {Object.entries(SORTIMENT_LABELS).map(([k, label]) => (
                     <option key={k} value={k}>{label}</option>
@@ -483,13 +483,13 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
                   placeholder="Объём, м³"
                   value={p.obyom}
                   onChange={setPozitsiyaField(idx, "obyom")}
-                  className="w-32 bg-surface-alt border border-transparent focus:border-pine rounded-md px-3 py-2 text-sm text-ink outline-none"
+                  className="w-32 bg-surface border border-border focus:border-pine rounded-md px-3 py-2 text-sm text-ink outline-none"
                 />
                 <button onClick={() => removeRow(idx)} className="text-error text-sm font-semibold px-2">✕</button>
               </div>
             ))}
           </div>
-          <Button variant="ghost" size="sm" onClick={addRow} className="mt-2">➕ Добавить позицию</Button>
+          <Button variant="ghost" size="sm" onClick={addRow} className="mt-2">+ Позиция</Button>
         </div>
       </div>
     </Modal>
@@ -656,8 +656,169 @@ function EgaisColumnsToggle({ checked, onChange }) {
   );
 }
 
+/** Режим "Карточки" баланса (дизайн «Вкладки»): по карточке на породу —
+ * два прогресс-бара (наряд / ЕГАИС относительно лимита) и мини-таблица
+ * по сортиментам. Данные те же, что и в таблице (rowsData). */
+const CARD_TONES = {
+  green: ["#eaf7ec", "#1a4331", "в лимите"],
+  oak: ["#fdf1e4", "#a8681f", "почти предел"],
+  error: ["#fbeaea", "#ba1a1a", "переруб"],
+};
+function usageTone(limit, fakt) {
+  const pct = limit > 0 ? (fakt / limit) * 100 : 0;
+  return pct > 100 ? "error" : pct >= 80 ? "oak" : "green";
+}
+const fmt1 = (v) => (v ?? 0).toLocaleString("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const MONO_STYLE = { fontFamily: "'JetBrains Mono', monospace" };
+
+function ProgressBar({ value, limit, color }) {
+  const w = limit > 0 ? Math.min(100, (value / limit) * 100) : 0;
+  return (
+    <div className="h-2.5 rounded-full bg-hover overflow-hidden">
+      <div className="h-full rounded-full" style={{ width: `${w}%`, background: color }} />
+    </div>
+  );
+}
+
+function PorodaCard({ title, cell, sorts, hvorost, selected, onClick, total }) {
+  const tone = usageTone(cell.limit, Math.max(cell.fakt, cell.fakt_egais));
+  const [bg, fg, chip] = CARD_TONES[tone];
+  const pct = cell.limit > 0 ? Math.round((cell.fakt / cell.limit) * 100) : 0;
+  const delta = cell.fakt_egais - cell.fakt;
+  const remainColor = (v) => (v <= 0 ? "#ba1a1a" : "#1a4331");
+  return (
+    <div
+      onClick={onClick}
+      className="flex flex-col gap-2.5 rounded-[14px] bg-surface px-4 py-3.5 min-w-0"
+      style={{
+        flex: "1 1 300px",
+        border: `1px solid ${tone === "error" ? "#ba1a1a" : selected ? "#1a4331" : "#e5e2db"}`,
+        cursor: onClick ? "pointer" : "default",
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[15px] font-extrabold text-pine">{title}</span>
+        {total ? (
+          <span className="text-[10.5px] text-pine" style={MONO_STYLE}>{pct}% лимита выбрано</span>
+        ) : (
+          <span
+            className="text-[10px] uppercase rounded-full px-2 py-[3px]"
+            style={{ ...MONO_STYLE, letterSpacing: ".06em", background: bg, color: fg }}
+          >
+            {chip}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-[5px]">
+        <div className="flex items-center justify-between text-[11px] text-muted-2" style={MONO_STYLE}>
+          <span>наряд {fmt1(cell.fakt)} / {fmt1(cell.limit)} м³</span>
+          {!total && <span>{pct}%</span>}
+        </div>
+        <ProgressBar value={cell.fakt} limit={cell.limit} color="#1a4331" />
+      </div>
+      {!total && (
+        <div className="flex flex-col gap-[5px]">
+          <div className="flex items-center justify-between text-[11px] text-muted-2" style={MONO_STYLE}>
+            <span>ЕГАИС {fmt1(cell.fakt_egais)} м³</span>
+            <span>расхождение {delta >= 0 ? "+" : "−"}{fmt1(Math.abs(delta))}</span>
+          </div>
+          <ProgressBar value={cell.fakt_egais} limit={cell.limit} color="#8fb79f" />
+        </div>
+      )}
+      {sorts && (
+        <div className="grid gap-x-2 gap-y-[3px] pt-2 border-t border-hover" style={{ gridTemplateColumns: "1.2fr .8fr .8fr .8fr" }}>
+          {["сортимент", "лимит", "факт", "остаток"].map((h, i) => (
+            <span key={h} className={["text-[10.5px] text-faint", i ? "text-right" : ""].join(" ")}>{h}</span>
+          ))}
+          {sorts.map(({ label, cell: c }) => {
+            const t = CARD_TONES[usageTone(c.limit, Math.max(c.fakt, c.fakt_egais))][1];
+            return (
+              <React.Fragment key={label}>
+                <span className="text-[12.5px] text-ink">{label}</span>
+                <span className="text-right text-[12px] text-muted-2" style={MONO_STYLE}>{fmt1(c.limit)}</span>
+                <span className="text-right text-[12px] text-muted-2" style={MONO_STYLE}>{fmt1(c.fakt)}</span>
+                <span className="text-right text-[12.5px] font-bold" style={{ ...MONO_STYLE, color: t }}>{fmt1(c.ostatok)}</span>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
+      {typeof hvorost === "number" && !total && (
+        <div className="text-[11px] text-faint" style={MONO_STYLE}>хворост, факт: {fmt1(hvorost)} м³</div>
+      )}
+      {total && (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {[
+            ["лимит", cell.limit, false],
+            ["факт, наряд", cell.fakt, false],
+            ["факт, ЕГАИС", cell.fakt_egais, false],
+            ["остаток, наряд", cell.ostatok, true],
+            ["остаток, ЕГАИС", cell.ostatok_egais, true],
+            ["остаток +10%", cell.ostatok_110, true],
+            ["остаток −10%", cell.ostatok_90, true],
+          ].map(([label, v, colored]) => (
+            <React.Fragment key={label}>
+              <span className="text-[12.5px] text-muted">{label}</span>
+              <span className="text-right text-[13px] font-bold" style={{ ...MONO_STYLE, color: colored ? remainColor(v) : "#414944" }}>
+                {fmt1(v)}
+              </span>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BalanceCards({ rowsData, totals, selectedPoroda, onSelectPoroda }) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      {rowsData.map(({ poroda, cellsByGroup, hvorostFakt }) => (
+        <PorodaCard
+          key={poroda}
+          title={poroda}
+          cell={cellsByGroup.itogo}
+          hvorost={hvorostFakt}
+          selected={selectedPoroda === poroda}
+          onClick={onSelectPoroda ? () => onSelectPoroda(poroda) : undefined}
+          sorts={[
+            { label: "Крупная", cell: cellsByGroup.KR },
+            { label: "Средняя", cell: cellsByGroup.SR },
+            { label: "Мелкая", cell: cellsByGroup.ML },
+            { label: "Дрова", cell: cellsByGroup.DROVA },
+          ]}
+        />
+      ))}
+      <PorodaCard title="Итого по породам" cell={totals} total />
+    </div>
+  );
+}
+
+function ModeButtons({ mode, onChange }) {
+  return (
+    <div className="flex gap-1.5">
+      {[["cards", "Карточки"], ["table", "Таблица"]].map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => onChange(k)}
+          className="h-[30px] px-3 rounded-lg text-[12.5px] font-semibold"
+          style={{
+            border: `1px solid ${mode === k ? "#1a4331" : "#e5e2db"}`,
+            background: mode === k ? "#1a4331" : "#fff",
+            color: mode === k ? "#fff" : "#414944",
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) {
   const [showDetail, setShowDetail] = useState(false);
+  const [mode, setMode] = useState("cards");
   const [showEgaisColumns, setShowEgaisColumns] = useState(true);
   const porody = Object.keys(balance).sort();
   if (porody.length === 0) {
@@ -704,12 +865,23 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
     <div>
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
       <PloshadSummary ploshadInfo={ploshadInfo} />
-      <EgaisColumnsToggle checked={showEgaisColumns} onChange={setShowEgaisColumns} />
+      <div className="flex items-center gap-3 flex-wrap">
+        {mode === "table" && <EgaisColumnsToggle checked={showEgaisColumns} onChange={setShowEgaisColumns} />}
+        <ModeButtons mode={mode} onChange={setMode} />
+      </div>
     </div>
-    <div className="border border-border rounded-md overflow-x-auto">
+    {mode === "cards" ? (
+      <BalanceCards
+        rowsData={rowsData}
+        totals={totalsByGroup.itogo}
+        selectedPoroda={selectedPoroda}
+        onSelectPoroda={onSelectPoroda}
+      />
+    ) : (
+    <div className="border border-border rounded-lg overflow-x-auto">
       <table className="text-sm whitespace-nowrap">
         <thead>
-          <tr className="bg-surface-alt border-b border-border text-left text-muted font-semibold">
+          <tr className="bg-surface-alt border-b border-border text-left text-pine font-bold text-[11.5px]">
             <th rowSpan={2} className="px-3 py-2 sticky left-0 bg-surface-alt align-bottom">Порода</th>
             {groupDefs.map((g) => (
               <th key={g.key} colSpan={metricColumns.length} className="px-3 py-1.5 text-center border-l border-border">
@@ -803,6 +975,7 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
         </tfoot>
       </table>
     </div>
+    )}
     </div>
   );
 }
@@ -828,15 +1001,15 @@ function NaryadyEgaisToggle({ view, onChange, egaisCount }) {
     <div className="flex items-center gap-2">
       <button
         onClick={() => onChange("naryady")}
-        className={["px-3 py-1.5 rounded-md text-sm font-semibold transition-colors border",
-          view === "naryady" ? "bg-mint border-pine text-pine" : "bg-surface-alt border-transparent text-ink hover:bg-hover"].join(" ")}
+        className={["h-8 px-3.5 rounded-[9px] text-[12.5px] font-semibold transition-colors border",
+          view === "naryady" ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted hover:bg-hover"].join(" ")}
       >
         Наряды-задания
       </button>
       <button
         onClick={() => onChange("egais")}
-        className={["px-3 py-1.5 rounded-md text-sm font-semibold transition-colors border",
-          view === "egais" ? "bg-mint border-pine text-pine" : "bg-surface-alt border-transparent text-ink hover:bg-hover"].join(" ")}
+        className={["h-8 px-3.5 rounded-[9px] text-[12.5px] font-semibold transition-colors border",
+          view === "egais" ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted hover:bg-hover"].join(" ")}
       >
         Расход по ЕГАИС
         {egaisCount > 0 && <StatusBadge tone="info" label={egaisCount} dot={false} className="ml-1.5" />}
@@ -1013,13 +1186,13 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
   const egaisPorodyCount = egais?.porody ? Object.keys(egais.porody).length : 0;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-[14px]">
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-ui font-extrabold text-lg text-ink">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-ui font-extrabold text-[14.5px] text-pine">
             Баланс — Кв. {item.kvartal || "—"} / Выд. {item.vydel || "—"}
           </h2>
-          <Button variant="secondary" onClick={handleExport} loading={exporting}>📤 Экспорт в Excel</Button>
+          <Button variant="secondary" onClick={handleExport} loading={exporting}>↓ Книга расхода .xlsx</Button>
         </div>
         <BalanceTable
           balance={balance}
@@ -1034,12 +1207,12 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
           <NaryadyEgaisToggle view={view} onChange={setView} egaisCount={egaisPorodyCount} />
           {view === "naryady" && (
             <Button variant="primary" size="sm" onClick={() => setNaryadModal({ open: true, editing: null })}>
-              ➕ Новый наряд
+              + Новый наряд
             </Button>
           )}
           {view === "egais" && egaisPorodyCount > 0 && (
             <Button variant="secondary" size="sm" onClick={handleDeleteEgais}>
-              🗑️ Удалить данные ЕГАИС
+              Удалить данные ЕГАИС
             </Button>
           )}
         </div>
@@ -1048,47 +1221,28 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
           naryady.length === 0 ? (
             <EmptyState icon="📋" title="Нарядов пока нет" description="Добавьте первый наряд-задание кнопкой выше." />
           ) : (
-            <div className="border border-border rounded-md overflow-hidden overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-surface-alt border-b border-border text-left text-muted font-semibold">
-                    <th className="px-3 py-2">Дата</th>
-                    <th className="px-3 py-2">№ наряда</th>
-                    <th className="px-3 py-2">Площадь</th>
-                    <th className="px-3 py-2">Позиции</th>
-                    <th className="px-3 py-2">Примечание</th>
-                    <th className="px-3 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {naryady.map((n) => (
-                    <tr key={n.id} className="border-b border-border last:border-b-0 align-top">
-                      <td className="px-3 py-2 text-ink whitespace-nowrap">{n.data || "—"}</td>
-                      <td className="px-3 py-2 text-ink">{n.nomer_naryada || "—"}</td>
-                      <td className="px-3 py-2 text-ink">{n.ploshad || "—"}</td>
-                      <td className="px-3 py-2 text-ink">
-                        {n.pozitsii?.length
-                          ? n.pozitsii.map((p, i) => (
-                              <div key={i}>{p.poroda} · {SORTIMENT_LABELS[p.sortiment] || p.sortiment} · {p.obyom} м³</div>
-                            ))
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-ink">{n.primechanie || "—"}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <button
-                          onClick={() => setNaryadModal({ open: true, editing: n })}
-                          className="text-pine font-semibold hover:text-pine-hover mr-3"
-                        >
-                          Изменить
-                        </button>
-                        <button onClick={() => handleDeleteNaryad(n.id)} className="text-error font-semibold hover:opacity-80">
-                          Удалить
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-col gap-2">
+              {naryady.map((n) => (
+                <div key={n.id} className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-surface px-3.5 py-3">
+                  <div className="min-w-0" style={{ flex: "1 1 220px" }}>
+                    <div className="flex items-center flex-wrap gap-2.5">
+                      <span className="text-[12px] text-muted-2" style={MONO_STYLE}>{n.data || "—"}</span>
+                      <span className="text-[13px] font-bold text-pine">№ {n.nomer_naryada || "—"}</span>
+                      <span className="text-[12px] text-muted-2" style={MONO_STYLE}>{n.ploshad ? `${n.ploshad} га` : "— га"}</span>
+                    </div>
+                    <div className="text-[13px] text-ink mt-[3px]">
+                      {n.pozitsii?.length
+                        ? n.pozitsii.map((p) => `${p.poroda} · ${SORTIMENT_LABELS[p.sortiment] || p.sortiment} · ${p.obyom} м³`).join("; ")
+                        : "—"}
+                    </div>
+                    {n.primechanie && <div className="text-[12px] text-faint mt-0.5">{n.primechanie}</div>}
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <Button variant="secondary" size="sm" onClick={() => setNaryadModal({ open: true, editing: n })}>Изменить</Button>
+                    <Button variant="danger" size="sm" onClick={() => handleDeleteNaryad(n.id)}>Удалить</Button>
+                  </div>
+                </div>
+              ))}
             </div>
           )
         ) : (
@@ -1139,7 +1293,7 @@ function SummaryModal({ open, onClose, delyankaId, delyankaLabel }) {
           <button
             onClick={() => setScope("all")}
             className={["px-3 py-1.5 rounded-md text-sm font-semibold transition-colors border",
-              scope === "all" ? "bg-mint border-pine text-pine" : "bg-surface-alt border-transparent text-ink hover:bg-hover"].join(" ")}
+              scope === "all" ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted hover:bg-hover"].join(" ")}
           >
             По всем делянкам
           </button>
@@ -1147,7 +1301,7 @@ function SummaryModal({ open, onClose, delyankaId, delyankaLabel }) {
             onClick={() => setScope("delyanka")}
             disabled={!delyankaId}
             className={["px-3 py-1.5 rounded-md text-sm font-semibold transition-colors border disabled:opacity-40 disabled:cursor-not-allowed",
-              scope === "delyanka" ? "bg-mint border-pine text-pine" : "bg-surface-alt border-transparent text-ink hover:bg-hover"].join(" ")}
+              scope === "delyanka" ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted hover:bg-hover"].join(" ")}
           >
             {delyankaLabel ? `По делянке «${delyankaLabel}»` : "По выбранной делянке"}
           </button>
@@ -1234,7 +1388,7 @@ export default function Raskhod() {
   };
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-[18px] flex flex-col gap-[14px]">
       <Card>
         <div className="flex items-end gap-4 flex-wrap">
           <div className="min-w-[220px]">
@@ -1250,7 +1404,7 @@ export default function Raskhod() {
             <select
               value={delyankaId}
               onChange={(e) => handleDelyankaChange(e.target.value)}
-              className="w-full bg-surface-alt border border-transparent focus:border-pine focus:bg-surface rounded-md px-3.5 py-2.5 text-base text-ink outline-none transition-colors"
+              className="w-full bg-surface border border-border focus:border-pine focus:bg-surface rounded-md px-3.5 py-2.5 text-base text-ink outline-none transition-colors"
             >
               <option value="">Выберите делянку…</option>
               {delyanki
@@ -1278,7 +1432,7 @@ export default function Raskhod() {
                     onClick={() => setSelectedItem(it)}
                     className={[
                       "px-3 py-2 rounded-md text-sm font-semibold transition-colors border",
-                      selectedItem?.id === it.id ? "bg-mint border-pine text-pine" : "bg-surface-alt border-transparent text-ink hover:bg-hover",
+                      selectedItem?.id === it.id ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted hover:bg-hover",
                     ].join(" ")}
                   >
                     Кв. {it.kvartal || "—"} / Выд. {it.vydel || "—"}

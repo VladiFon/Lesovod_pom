@@ -94,7 +94,7 @@ function SecretCard({ field, status, onSave, onClear, onTest, savingName, testin
 
       {testResult && (
         <p className={`text-sm mb-3 ${testResult.ok ? "text-pine" : "text-error"}`}>
-          {testResult.ok ? "✅ " : "⚠ "}
+          {testResult.ok ? "" : ""}
           {testResult.message}
         </p>
       )}
@@ -178,7 +178,7 @@ function LibreOfficeCard({ status, onSave, onReset, onTest, saving, testing, tes
 
       {testResult && (
         <p className={`text-sm mb-3 ${testResult.ok ? "text-pine" : "text-error"}`}>
-          {testResult.ok ? "✅ " : "⚠ "}
+          {testResult.ok ? "" : ""}
           {testResult.message}
         </p>
       )}
@@ -236,7 +236,7 @@ function MobileCard() {
   };
 
   return (
-    <Card title="📱 Подключение с телефона / другого компьютера">
+    <Card title="Подключение с телефона / другого компьютера">
       <p className="text-muted text-base mb-3">
         Веб-версия открывается по этому же адресу с любого устройства в локальной сети — отдельное
         мобильное приложение и сопряжение больше не нужны.
@@ -387,7 +387,7 @@ function UsersCard() {
         <select
           value={u.role}
           onChange={(e) => handleSetRole(u.id, e.target.value)}
-          className="bg-surface-alt border border-transparent focus:border-pine rounded-md px-2 py-1.5 text-sm text-ink outline-none"
+          className="bg-surface border border-border focus:border-pine rounded-md px-2 py-1.5 text-sm text-ink outline-none"
         >
           {ROLE_OPTIONS.map((r) => (
             <option key={r.value} value={r.value}>
@@ -469,13 +469,13 @@ function UsersCard() {
             onChange={(e) => setCreateForm((s) => ({ ...s, fio: e.target.value }))}
           />
           <div>
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">
               Роль
             </label>
             <select
               value={createForm.role}
               onChange={(e) => setCreateForm((s) => ({ ...s, role: e.target.value }))}
-              className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none"
+              className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none"
             >
               {ROLE_OPTIONS.map((r) => (
                 <option key={r.value} value={r.value}>
@@ -709,9 +709,9 @@ export default function Settings({ currentUser }) {
   };
 
   return (
-    <div className="p-8 max-w-3xl flex flex-col gap-6">
+    <div className="p-[18px] max-w-3xl flex flex-col gap-6">
       <div>
-        <h2 className="font-ui font-bold text-lg text-ink">Настройки</h2>
+        <h2 className="font-ui font-extrabold text-pine text-[16px]">Настройки</h2>
         <p className="text-muted text-base mt-1">
           Ключи доступа к ИИ и данные лесничего, которые сервер сам подставляет в документы и
           распознавание фото — общие для всех, кто заходит в веб-версию.

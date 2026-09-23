@@ -18,7 +18,7 @@ import { useToast } from "../components/Toast.jsx";
  * backend-эндпоинта под него не было. Остальное — 1:1.
  *
  * Перенесено 1:1 (см. screens/taxation/screen_core.py + screen_data.py):
- *   Панель поиска (лесничество/квартал/выдел + "🔍 Найти участок") → та же панель
+ *   Панель поиска (лесничество/квартал/выдел + "Найти участок") → та же панель
  *   Карточка-досье, скрыта до первого поиска                        → та же логика (dossier === null)
  *   Левая колонка (Площадь/Категория/Возраст/Класс-группа/Тип+ТЛУ/Запас) → те же подписи полей
  *   Правая колонка (Формула состава, чипы пород, индикатор доли,
@@ -122,7 +122,7 @@ function UploadModalInline({ onDone }) {
         Заменить справочник (снять — дополнить существующий)
       </label>
       <Button variant="secondary" size="sm" onClick={handleUpload} loading={submitting} disabled={files.length === 0}>
-        📤 Загрузить таксацию (.docx)
+        ↑ Загрузить описание (.docx)
       </Button>
     </div>
   );
@@ -174,18 +174,18 @@ export default function Taxation() {
   };
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-[18px] flex flex-col gap-[14px]">
       <Card>
         <div className="flex flex-col gap-4">
           <div className="flex items-end gap-4 flex-wrap">
             <div className="min-w-[200px]">
-              <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">
+              <label className="block text-[11.5px] font-semibold text-muted mb-1">
                 Лесничество
               </label>
               <select
                 value={lesnichestvo}
                 onChange={(e) => setLesnichestvo(e.target.value)}
-                className="w-full bg-surface-alt border border-transparent focus:border-pine focus:bg-surface rounded-md px-3.5 py-2.5 text-base text-ink outline-none transition-colors"
+                className="w-full bg-surface border border-border focus:border-pine focus:bg-surface rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors"
               >
                 <option value="">Все лесничества</option>
                 {lesnichestva.map((name) => (
@@ -210,7 +210,7 @@ export default function Taxation() {
               className="w-40"
             />
             <Button variant="primary" onClick={handleSearch} loading={searching}>
-              🔍 Найти участок
+              Найти участок
             </Button>
           </div>
           <UploadModalInline onDone={loadLesnichestva} />
@@ -230,91 +230,78 @@ export default function Taxation() {
       )}
 
       {card && (
-        <Card>
-          <div className="mb-5">
-            <h2 className="font-ui font-extrabold text-xl text-ink">
-              Квартал {card.kvartal_nomer} / Выдел {card.nomer}
-            </h2>
-            <p className="text-muted text-sm mt-0.5">Лесничество: {card.lesnichestvo || "—"}</p>
-          </div>
-
-          <div className="grid grid-cols-[2fr_3fr] gap-10">
-            <div>
-              <Field caption="Площадь, га" value={card.ploshad} />
-
-              <div className="bg-mint-soft rounded-md px-4 py-3.5 my-4">
-                <div className="flex items-center gap-2 text-pine font-bold text-sm">
-                  <span>⚠️</span>
-                  <span>Категория защитности</span>
+        <div className="flex flex-col gap-[14px]">
+          <div className="bg-surface border border-border rounded-lg px-4 py-3.5 flex flex-col gap-3.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-[14.5px] font-extrabold text-pine">
+                  кв. {card.kvartal_nomer} / выд. {card.nomer}
                 </div>
-                <p className="text-ink text-sm mt-1.5">{card.kategoriya_lesov || "—"}</p>
+                <div className="font-mono text-[10.5px] text-muted-2 mt-[3px]">лесничество {card.lesnichestvo || "—"}</div>
               </div>
+            </div>
 
-              <Field caption="Подкатегория лесов" value={card.podkategoriya_lesov} />
-
-              <Field caption="Возраст, лет" value={primaryAge(card)} />
-              <Field
-                caption="Класс / Группа возраста"
-                value={
+            <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
+              {[
+                ["Площадь, га", card.ploshad],
+                ["Категория лесов", card.kategoriya_lesov],
+                ["Подкатегория", card.podkategoriya_lesov],
+                ["Возраст, лет", primaryAge(card)],
+                [
+                  "Класс / группа возраста",
                   card.klass_vozrasta != null || card.gruppa_vozrasta != null
                     ? `${card.klass_vozrasta ?? "—"} / ${card.gruppa_vozrasta ?? "—"}`
-                    : null
-                }
-              />
-              <Field caption="Тип леса + ТЛУ" value={card.tip_tlu} />
-              <div className="grid grid-cols-2 gap-x-3">
-                <Field caption="Тип леса" value={card.tip_lesa} />
-                <Field caption="ТЛУ" value={card.tlu} />
-              </div>
-              <div className="grid grid-cols-2 gap-x-3">
-                <Field caption="Бонитет" value={card.bonitet} />
-                <Field caption="Полнота" value={card.polnota} />
-              </div>
-              <Field caption="Класс товарности" value={card.kl_tovarnosti} />
-              <Field caption="Запас на 1 га, м³" value={card.zapas_na_ga_display} />
-              <Field caption="Запас на выделе, м³" value={card.zapas_na_vydele} />
-              <Field caption="Особая земля" value={yesNo(card.osobaya_zemlya)} />
-              <Field caption="Покрыто лесом" value={yesNo(card.is_forested)} />
+                    : null,
+                ],
+                ["Тип леса", card.tip_lesa],
+                ["ТЛУ", card.tlu],
+                ["Бонитет", card.bonitet],
+                ["Полнота", card.polnota],
+                ["Класс товарности", card.kl_tovarnosti],
+                ["Запас, м³/га", card.zapas_na_ga_display],
+                ["Запас на выделе, м³", card.zapas_na_vydele],
+                ["Особая земля", yesNo(card.osobaya_zemlya)],
+                ["Покрыто лесом", yesNo(card.is_forested)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-[10px] bg-surface-alt px-3 py-2 min-w-0">
+                  <div className="text-[11.5px] text-muted-2">{label}</div>
+                  <div className="font-mono text-[13px] font-semibold text-ink mt-0.5 break-words">{value ?? "—"}</div>
+                </div>
+              ))}
             </div>
 
             <div>
-              <div className="text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Формула состава</div>
+              <div className="font-mono text-[10.5px] uppercase tracking-[.1em] text-muted-2 mb-1.5">формула состава</div>
               <div className="flex items-center gap-2">
-                <span className="font-ui font-extrabold text-3xl text-ink">{card.formula_sostava || "—"}</span>
-                <span className="text-xl">🌿</span>
+                <span className="font-mono text-[22px] font-bold text-pine">{card.formula_sostava || "—"}</span>
               </div>
               {card.formula_sostava_2_yarus && (
-                <div className="text-sm text-muted mt-1">2 ярус: {card.formula_sostava_2_yarus}</div>
+                <div className="text-[12.5px] text-muted mt-1">2 ярус: {card.formula_sostava_2_yarus}</div>
               )}
-
               {card.sostav?.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
+                <div className="flex flex-wrap gap-2 mt-2.5">
                   {card.sostav.map((s, i) => {
                     const p = percentFromDolya(s.dolya);
                     return (
-                      <div key={i} className="flex items-center gap-1.5 bg-surface-alt rounded-full px-3 py-1.5 text-sm text-ink">
-                        <span
-                          className="h-2 w-2 rounded-full shrink-0"
-                          style={{ backgroundColor: CHIP_COLORS[i % CHIP_COLORS.length] }}
-                        />
+                      <div key={i} className="flex items-center gap-1.5 bg-surface-alt rounded-full px-3 py-1 text-[12.5px] text-ink">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: CHIP_COLORS[i % CHIP_COLORS.length] }} />
                         {s.poroda || "—"} ({p && p >= 5 ? `${p}%` : "единично"})
                       </div>
                     );
                   })}
                 </div>
               )}
-
-              <div className="h-[7px] rounded-full bg-surface-alt mt-3 overflow-hidden">
+              <div className="h-2.5 rounded-full bg-hover mt-3 overflow-hidden">
                 <div className="h-full bg-pine rounded-full transition-all" style={{ width: `${dominantPercent(card)}%` }} />
               </div>
+            </div>
 
-              <div className="text-xs font-semibold tracking-wide text-muted-2 uppercase mt-5 mb-2">
-                Таксационные показатели по породам
-              </div>
-              <div className="border border-border rounded-md overflow-hidden overflow-x-auto">
-                <table className="w-full text-sm">
+            <div>
+              <div className="font-mono text-[10.5px] uppercase tracking-[.1em] text-muted-2 mb-1.5">состав по элементам леса</div>
+              <div className="border border-border rounded-[10px] overflow-hidden overflow-x-auto">
+                <table className="w-full text-[13px]">
                   <thead>
-                    <tr className="bg-surface-alt border-b border-border text-left text-muted font-semibold">
+                    <tr className="bg-surface-alt border-b border-border text-left text-muted-2 text-[11.5px] font-medium">
                       <th className="px-3 py-2">Порода</th>
                       <th className="px-3 py-2">Возраст, лет</th>
                       <th className="px-3 py-2">Высота, м</th>
@@ -323,42 +310,43 @@ export default function Taxation() {
                   </thead>
                   <tbody>
                     {(card.sostav || []).map((s, i) => (
-                      <tr key={i} className="border-b border-border last:border-b-0">
-                        <td className="px-3 py-2 text-ink">{s.poroda || "—"}</td>
-                        <td className="px-3 py-2 text-ink">{s.vozrast ?? "—"}</td>
-                        <td className="px-3 py-2 text-ink">{s.vysota ?? "—"}</td>
-                        <td className="px-3 py-2 text-ink">{s.diametr ?? "—"}</td>
+                      <tr key={i} className="border-b border-hover last:border-b-0">
+                        <td className="px-3 py-2 text-ink font-semibold">{s.poroda || "—"}</td>
+                        <td className="px-3 py-2 text-ink font-mono">{s.vozrast ?? "—"}</td>
+                        <td className="px-3 py-2 text-ink font-mono">{s.vysota ?? "—"}</td>
+                        <td className="px-3 py-2 text-ink font-mono">{s.diametr ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
+
+            {(card.lesnye_kultury || card.podlesok || card.podrost || card.tselevaya_poroda || card.ptg || card.povrezhdenie) && (
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
+                {[
+                  ["Лесные культуры", card.lesnye_kultury],
+                  ["Подлесок", card.podlesok],
+                  ["Подрост", card.podrost],
+                  ["Целевая порода", card.tselevaya_poroda],
+                  ["ПТГ", card.ptg],
+                  ["Повреждение", card.povrezhdenie],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-[10px] bg-surface-alt px-3 py-2 min-w-0">
+                    <div className="text-[11.5px] text-muted-2">{label}</div>
+                    <div className="font-mono text-[13px] font-semibold text-ink mt-0.5 break-words">{value ?? "—"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {card.primechaniya && (
+              <div className="rounded-[10px] bg-mint-soft px-3.5 py-3 text-[12.5px] text-ink leading-relaxed whitespace-pre-wrap">
+                {card.primechaniya}
+              </div>
+            )}
           </div>
-
-          {(card.lesnye_kultury || card.podlesok || card.podrost || card.tselevaya_poroda || card.ptg || card.povrezhdenie) && (
-            <div className="mt-6 pt-5 border-t border-border">
-              <div className="text-xs font-semibold tracking-wide text-muted-2 uppercase mb-3">
-                Дополнительные показатели
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
-                <FieldCompact caption="Лесные культуры" value={card.lesnye_kultury} />
-                <FieldCompact caption="Подлесок" value={card.podlesok} />
-                <FieldCompact caption="Подрост" value={card.podrost} />
-                <FieldCompact caption="Целевая порода" value={card.tselevaya_poroda} />
-                <FieldCompact caption="ПТГ" value={card.ptg} />
-                <FieldCompact caption="Повреждение" value={card.povrezhdenie} />
-              </div>
-            </div>
-          )}
-
-          {card.primechaniya && (
-            <div className="mt-5 bg-surface-alt rounded-md px-4 py-3.5">
-              <div className="text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1">Примечания</div>
-              <p className="text-sm text-ink whitespace-pre-wrap">{card.primechaniya}</p>
-            </div>
-          )}
-        </Card>
+        </div>
       )}
     </div>
   );

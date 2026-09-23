@@ -21,7 +21,7 @@ export default function TextField({
   return (
     <div className={className}>
       {label && (
-        <label htmlFor={id} className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">
+        <label htmlFor={id} className="block text-[11.5px] font-semibold text-muted mb-1">
           {label}
         </label>
       )}
@@ -30,9 +30,9 @@ export default function TextField({
           id={id}
           type={type}
           className={[
-            "w-full bg-surface-alt border rounded-md px-3.5 py-2.5 text-base text-ink placeholder:text-faint outline-none transition-colors",
+            "w-full bg-surface border rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink placeholder:text-faint outline-none transition-colors",
             "focus:bg-surface focus:border-pine",
-            error ? "border-error" : "border-transparent",
+            error ? "border-error" : "border-border",
             suffix ? "pr-11" : "",
             inputClassName,
           ].join(" ")}

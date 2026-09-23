@@ -116,12 +116,12 @@ function ReviewPanel({ report, onDone }) {
           <p className="text-base text-ink bg-surface-alt rounded-md p-3">{report.raw_text || "(пустой текст сообщения)"}</p>
         </div>
         {report.photo_path && <PhotoThumb path={report.photo_path} />}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
           <TextField label="Квартал" value={kvartal} onChange={(e) => setKvartal(e.target.value)} />
           <TextField label="Выдел" value={vydel} onChange={(e) => setVydel(e.target.value)} />
         </div>
         <TextField label="Тип работы" value={tipRaboty} onChange={(e) => setTipRaboty(e.target.value)} />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
           <TextField label="Исполнитель" value={ispolnitel} onChange={(e) => setIspolnitel(e.target.value)} />
           <TextField label="Лесничество" value={lesnichestvo} onChange={(e) => setLesnichestvo(e.target.value)} />
         </div>
@@ -252,22 +252,22 @@ function CompletedTab() {
           <TextField label="С" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
           <TextField label="По" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
           <div className="min-w-[180px]">
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Исполнитель</label>
-            <select value={executor} onChange={(e) => setExecutor(e.target.value)} className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none">
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">Исполнитель</label>
+            <select value={executor} onChange={(e) => setExecutor(e.target.value)} className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none">
               <option value="">Все</option>
               {filters.executors.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
           <div className="min-w-[180px]">
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Вид работы</label>
-            <select value={tipRaboty} onChange={(e) => setTipRaboty(e.target.value)} className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none">
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">Вид работы</label>
+            <select value={tipRaboty} onChange={(e) => setTipRaboty(e.target.value)} className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none">
               <option value="">Все</option>
               {filters.types.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
           <div className="min-w-[180px]">
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Должность</label>
-            <select value={dolzhnost} onChange={(e) => setDolzhnost(e.target.value)} className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none">
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">Должность</label>
+            <select value={dolzhnost} onChange={(e) => setDolzhnost(e.target.value)} className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none">
               <option value="">Все</option>
               {filters.dolzhnosti.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
@@ -305,7 +305,7 @@ export default function AiLog() {
   const [tab, setTab] = useState("raw");
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-[18px] flex flex-col gap-[14px]">
       <div className="flex gap-1 border-b border-border">
         {[
           { key: "raw", label: "Требуют проверки" },

@@ -7,11 +7,11 @@ import React from "react";
  * "neutral" = серый (архив/черновик).
  */
 const TONES = {
-  success: "bg-mint-soft text-green border border-mint",
-  warning: "bg-oak-soft text-oak border border-oak/40",
-  danger: "bg-error-soft text-error border border-error/30",
-  neutral: "bg-surface-alt text-muted border border-border",
-  info: "bg-mint-soft text-pine border border-mint",
+  success: "bg-mint-soft text-green border-0",
+  warning: "bg-oak-soft text-oak border-0",
+  danger: "bg-error-soft text-error border-0",
+  neutral: "bg-hover text-muted border-0",
+  info: "bg-mint-soft text-pine border-0",
 };
 
 const DOT_TONES = {
@@ -34,14 +34,14 @@ const STATUS_PRESETS = {
   "черновик": "neutral",
 };
 
-export default function StatusBadge({ tone, status, label, dot = true, className = "" }) {
+export default function StatusBadge({ tone, status, label, dot = false, className = "" }) {
   const resolvedTone = tone || STATUS_PRESETS[status?.toLowerCase()] || "neutral";
   const text = label ?? status ?? "";
 
   return (
     <span
       className={[
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap",
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold whitespace-nowrap",
         TONES[resolvedTone],
         className,
       ].join(" ")}

@@ -1,49 +1,34 @@
 import React from "react";
 
 /**
- * StatCard — карточка-метрика дашборда (↔ MetricCard + CardIcon/CardValue/
- * CardTitle/CardCaption в styles.py и widgets.py::MetricCard).
- * "alert" повторяет тревожный вид критичных показателей из десктопа
- * (переруб, просроченные наряды) — акцент уходит с pine на error.
+ * StatCard — карточка-метрика (дизайн «Вкладки»): подпись сверху, крупное
+ * моно-число, пояснение снизу. "alert" — тревожный вид (error).
+ * Проп icon оставлен для совместимости, но не рисуется.
  */
-export default function StatCard({ icon, title, value, caption, trend, alert = false, className = "" }) {
+export default function StatCard({ title, value, caption, trend, alert = false, className = "" }) {
   return (
     <div
       className={[
-        "bg-surface border rounded-lg shadow-card p-5 flex flex-col gap-3",
-        alert ? "border-error/40" : "border-border",
+        "bg-surface border rounded-lg flex flex-col gap-1 px-4 py-3.5 min-w-0",
+        alert ? "border-error/50" : "border-border",
         className,
       ].join(" ")}
     >
-      <div className="flex items-center justify-between">
-        {icon && (
-          <span
-            className={[
-              "h-11 w-11 rounded-full flex items-center justify-center shrink-0",
-              alert ? "bg-error-soft text-error" : "bg-hover text-pine",
-            ].join(" ")}
-          >
-            {icon}
-          </span>
-        )}
+      <div className="text-[12.5px] font-semibold text-muted leading-snug">{title}</div>
+      <div className="flex items-baseline gap-2">
+        <span
+          className={["font-mono text-2xl font-bold leading-none mt-1", alert ? "text-error" : "text-pine"].join(" ")}
+          style={{ fontSize: 24 }}
+        >
+          {value}
+        </span>
         {trend && (
-          <span
-            className={[
-              "text-xs font-semibold",
-              trend.direction === "down" ? "text-error" : "text-green",
-            ].join(" ")}
-          >
+          <span className={["text-xs font-semibold", trend.direction === "down" ? "text-error" : "text-green"].join(" ")}>
             {trend.direction === "down" ? "↓" : "↑"} {trend.value}
           </span>
         )}
       </div>
-      <div>
-        <div className={["font-ui font-extrabold text-2xl", alert ? "text-error" : "text-pine-deep"].join(" ")}>
-          {value}
-        </div>
-        <div className="text-muted text-base font-medium mt-1">{title}</div>
-        {caption && <div className="text-faint text-xs mt-0.5">{caption}</div>}
-      </div>
+      {caption && <div className="text-[11.5px] text-faint">{caption}</div>}
     </div>
   );
 }

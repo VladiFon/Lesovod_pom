@@ -66,7 +66,7 @@ export default function DataTable({
   }
 
   return (
-    <div className="bg-surface border border-border rounded-md overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden">
       <table className="w-full text-base border-collapse">
         <thead>
           <tr className="bg-surface-alt border-b border-border">
@@ -88,7 +88,7 @@ export default function DataTable({
                 style={col.width ? { width: col.width } : undefined}
                 onClick={() => toggleSort(col.key, col.sortable)}
                 className={[
-                  "px-3 py-2.5 text-left text-sm font-semibold text-muted select-none",
+                  "px-4 py-[9px] text-left text-[11.5px] font-medium text-muted-2 select-none",
                   col.sortable ? "cursor-pointer hover:text-pine" : "",
                 ].join(" ")}
               >
@@ -122,9 +122,9 @@ export default function DataTable({
                     key={id}
                     onClick={() => onRowClick?.(row)}
                     className={[
-                      "border-b border-border last:border-b-0 transition-colors",
+                      "border-b border-hover last:border-b-0 transition-colors",
                       onRowClick ? "cursor-pointer" : "",
-                      isSelected ? "bg-mint/40" : "hover:bg-surface-alt",
+                      isSelected ? "bg-mint-soft" : "hover:bg-[#faf8f2]",
                     ].join(" ")}
                   >
                     {selectable && (
@@ -139,7 +139,7 @@ export default function DataTable({
                       </td>
                     )}
                     {columns.map((col) => (
-                      <td key={col.key} className="px-3 py-2.5 text-ink">
+                      <td key={col.key} className="px-4 py-2.5 text-ink text-[13.5px]">
                         {col.render ? col.render(row) : row[col.key]}
                       </td>
                     ))}

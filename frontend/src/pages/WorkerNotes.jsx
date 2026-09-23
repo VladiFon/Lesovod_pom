@@ -26,7 +26,7 @@ function NoteCard({ note, onMarkRead }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             {unread && <span className="h-2 w-2 rounded-full bg-pine shrink-0" aria-hidden="true" />}
-            <span className="font-ui font-bold text-ink">{note.sotrudnik_fio}</span>
+            <span className="font-ui font-bold text-[13.5px] text-ink">{note.sotrudnik_fio}</span>
             <span className="text-muted-2 text-xs">{note.sotrudnik_dolzhnost}</span>
           </div>
           <p className="text-muted text-xs mt-0.5">{formatDateTime(note.created_at)}</p>
@@ -37,7 +37,7 @@ function NoteCard({ note, onMarkRead }) {
           </Button>
         )}
       </div>
-      <p className="text-ink text-base mt-3 whitespace-pre-line">{note.text}</p>
+      <p className="text-ink text-[13px] leading-[1.45] mt-2.5 whitespace-pre-line">{note.text}</p>
     </Card>
   );
 }
@@ -70,7 +70,7 @@ export default function WorkerNotes() {
   const unreadCount = (notes ?? []).filter((n) => !n.is_read).length;
 
   return (
-    <div className="p-8 flex flex-col gap-4">
+    <div className="p-[18px] flex flex-col gap-4">
       {notes !== null && notes.length > 0 && (
         <p className="text-muted text-base">
           {unreadCount > 0 ? `Непрочитанных: ${unreadCount} из ${notes.length}` : `Все ${notes.length} заметок прочитаны`}

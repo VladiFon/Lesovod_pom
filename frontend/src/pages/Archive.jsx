@@ -102,28 +102,28 @@ function UploadModal({ open, onClose, docTypes, onUploaded }) {
       footer={
         <>
           <Button variant="ghost" onClick={handleClose} disabled={submitting}>Отмена</Button>
-          <Button variant="primary" onClick={handleSubmit} loading={submitting}>💾 Сохранить в архив</Button>
+          <Button variant="primary" onClick={handleSubmit} loading={submitting}>Сохранить в архив</Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
         <div>
-          <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Файл</label>
+          <label className="block text-[11.5px] font-semibold text-muted mb-1">Файл</label>
           <input
             type="file"
             onChange={handleFileChange}
             className="w-full text-base text-ink file:mr-3 file:px-3.5 file:py-2 file:rounded-md file:border-0 file:bg-mint-soft file:text-pine file:font-semibold file:cursor-pointer"
           />
-          {file && <p className="text-faint text-xs mt-1.5">📄 Выбран файл: {file.name}</p>}
+          {file && <p className="text-faint text-xs mt-1.5">Выбран файл: {file.name}</p>}
         </div>
         <TextField label="Название документа" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
           <div>
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Тип документа</label>
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">Тип документа</label>
             <select
               value={docType}
               onChange={(e) => setDocType(e.target.value)}
-              className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none"
+              className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none"
             >
               {docTypes.map((t) => (
                 <option key={t} value={t}>{t}</option>
@@ -179,7 +179,7 @@ export default function Archive() {
   };
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-[18px] flex flex-col gap-[14px]">
       <Card>
         <div className="flex items-end gap-4 flex-wrap">
           <TextField
@@ -190,11 +190,11 @@ export default function Archive() {
             className="flex-1 min-w-[240px]"
           />
           <div className="min-w-[200px]">
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Тип документа</label>
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">Тип документа</label>
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              className="w-full bg-surface-alt border border-transparent focus:border-pine focus:bg-surface rounded-md px-3.5 py-2.5 text-base text-ink outline-none transition-colors"
+              className="w-full bg-surface border border-border focus:border-pine focus:bg-surface rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors"
             >
               <option value="">Все типы</option>
               {docTypes.map((t) => (
@@ -202,7 +202,7 @@ export default function Archive() {
               ))}
             </select>
           </div>
-          <Button variant="primary" onClick={() => setUploadOpen(true)}>➕ Добавить документ</Button>
+          <Button variant="primary" onClick={() => setUploadOpen(true)}>Добавить документ</Button>
         </div>
       </Card>
 

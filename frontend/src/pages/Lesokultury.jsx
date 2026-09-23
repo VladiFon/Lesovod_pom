@@ -78,25 +78,25 @@ function UchastokFormFields({ form, setForm }) {
   const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Лесничество" value={form.lesnichestvo} onChange={setField("lesnichestvo")} />
         <TextField label="Квартал" value={form.kvartal} onChange={setField("kvartal")} />
         <TextField label="Выдел" value={form.vydel} onChange={setField("vydel")} />
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Площадь, га" type="number" step="0.01" value={form.ploshad} onChange={setField("ploshad")} />
         <TextField label="Категория площади" value={form.kategoriya_ploshadi} onChange={setField("kategoriya_ploshadi")} />
         <TextField label="ТЛУ" value={form.tlu} onChange={setField("tlu")} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Год создания" value={form.god_sozdaniya} onChange={setField("god_sozdaniya")} />
         <TextField label="Метод создания" value={form.metod_sozdaniya} onChange={setField("metod_sozdaniya")} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Главная порода" value={form.glavnaya_poroda} onChange={setField("glavnaya_poroda")} />
         <TextField label="Формула состава" value={form.sostav_formula} onChange={setField("sostav_formula")} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Густота посадки, шт/га" type="number" step="1" value={form.gustota_posadki} onChange={setField("gustota_posadki")} />
         <TextField label="Норматив перевода, шт/га" type="number" step="1" value={form.normativ_perevoda} onChange={setField("normativ_perevoda")} />
       </div>
@@ -198,13 +198,13 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
 
   return (
     <div className="flex flex-col gap-3 bg-surface-alt rounded-md p-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <div>
-          <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Тип мероприятия</label>
+          <label className="block text-[11.5px] font-semibold text-muted mb-1">Тип мероприятия</label>
           <select
             value={tip}
             onChange={(e) => setTip(e.target.value)}
-            className="w-full bg-surface border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none transition-colors"
+            className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors"
           >
             {MEROPRIYATIE_TYPES.map((t) => (
               <option key={t} value={t}>{t}</option>
@@ -220,7 +220,7 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
           disabled={!isInventory}
         />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField
           label="Кол-во на 1 га, шт"
           type="number"
@@ -237,7 +237,7 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
       </div>
       <TextAreaField label="Примечания" rows={2} value={primechaniya} onChange={(e) => setPrimechaniya(e.target.value)} />
       <div>
-        <Button variant="secondary" size="sm" onClick={handleAdd} loading={submitting}>➕ Добавить запись</Button>
+        <Button variant="secondary" size="sm" onClick={handleAdd} loading={submitting}>Добавить запись</Button>
       </div>
     </div>
   );
@@ -339,7 +339,7 @@ function UchastokDetail({ uchastokId, onListChanged }) {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-ui font-extrabold text-lg text-ink">
+              <h2 className="font-ui font-extrabold text-pine text-[16px]">
                 Кв. {uchastok.kvartal || "—"} / Выд. {uchastok.vydel || "—"}
               </h2>
               <StatusBadge status={uchastok.status} />
@@ -357,18 +357,18 @@ function UchastokDetail({ uchastokId, onListChanged }) {
                 🗄️ Списать
               </Button>
             )}
-            <Button variant="danger" size="sm" onClick={handleDelete} loading={deleting}>🗑️ Удалить</Button>
+            <Button variant="danger" size="sm" onClick={handleDelete} loading={deleting}>Удалить</Button>
           </div>
         </div>
 
         <UchastokFormFields form={form} setForm={setForm} />
 
         <div>
-          <Button variant="primary" onClick={handleSave} loading={saving}>💾 Сохранить изменения</Button>
+          <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
         </div>
 
         <div>
-          <h3 className="font-ui font-bold text-ink text-md mb-3">Журнал мероприятий</h3>
+          <h3 className="font-ui font-extrabold text-pine text-[14px] mb-3">Журнал мероприятий</h3>
           <AddMeropriyatieForm
             uchastokId={uchastokId}
             onAdded={loadLog}
@@ -444,10 +444,10 @@ export default function Lesokultury() {
   };
 
   return (
-    <div className="p-8 flex gap-6 items-start">
-      <Card padding={false} className="w-[340px] shrink-0 flex flex-col">
+    <div className="p-[18px] flex flex-wrap gap-[14px] items-start">
+      <Card padding={false} className="flex flex-col" style={{ flex: "1 1 260px", maxWidth: 380 }}>
         <div className="p-5 pb-3 flex flex-col gap-3 border-b border-border">
-          <Button variant="primary" onClick={() => setCreateOpen(true)}>➕ Новый участок</Button>
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>Новый участок</Button>
           <TextField
             placeholder="Поиск: квартал, выдел, лесничество, порода, делянка"
             value={search}
@@ -456,7 +456,7 @@ export default function Lesokultury() {
           <select
             value={god}
             onChange={(e) => setGod(e.target.value)}
-            className="w-full bg-surface border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-sm text-ink outline-none transition-colors"
+            className="w-full bg-surface border border-border focus:border-pine rounded-md px-3.5 py-2.5 text-sm text-ink outline-none transition-colors"
           >
             <option value="">Все годы</option>
             {gody.map((g) => (

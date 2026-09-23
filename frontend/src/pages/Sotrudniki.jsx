@@ -149,7 +149,7 @@ export default function Sotrudniki() {
   }, [workers, search, dolzhnostFilter]);
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-[18px] flex flex-col gap-[14px]">
       <Card>
         <div className="flex items-center gap-3 flex-wrap justify-between">
           <div className="flex items-center gap-3 flex-wrap flex-1">
@@ -162,7 +162,7 @@ export default function Sotrudniki() {
             <select
               value={dolzhnostFilter}
               onChange={(e) => setDolzhnostFilter(e.target.value)}
-              className="bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none min-w-[220px]"
+              className="bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none min-w-[220px]"
             >
               <option value="">Все должности</option>
               {DOLZHNOST_OPTIONS.map((d) => (
@@ -181,7 +181,7 @@ export default function Sotrudniki() {
       {loadError && <p className="text-error text-base">{loadError}</p>}
 
       {workers === null ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
           {Array.from({ length: 6 }).map((_, i) => (
             <Card key={i}>
               <div className="h-11 w-11 rounded-full bg-hover animate-pulse" />
@@ -200,7 +200,7 @@ export default function Sotrudniki() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
           {visibleWorkers.map((w) => (
             <WorkerCard key={w.id} worker={w} onSetActive={handleSetActive} />
           ))}
@@ -227,13 +227,13 @@ export default function Sotrudniki() {
             onChange={(e) => setCreateForm((s) => ({ ...s, fio: e.target.value }))}
           />
           <div>
-            <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">
               Должность
             </label>
             <select
               value={createForm.dolzhnost}
               onChange={(e) => setCreateForm((s) => ({ ...s, dolzhnost: e.target.value }))}
-              className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none"
+              className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none"
             >
               {DOLZHNOST_OPTIONS.map((d) => (
                 <option key={d} value={d}>

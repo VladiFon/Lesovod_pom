@@ -43,11 +43,11 @@ const RECURRENCE_LABELS = {
 const CATEGORY_SUGGESTIONS = ["Отчётность", "Проверки/инспекции", "Сезонная работа", "Кадры/охрана труда", "Хозяйственное", "Прочее"];
 
 const STATE_STYLE = {
-  overdue: { tone: "danger", label: "🔴 Просрочено" },
-  due_today: { tone: "warning", label: "🟡 Сегодня" },
-  due_soon: { tone: "success", label: "🟢 Скоро" },
-  upcoming: { tone: "neutral", label: "⚪ Позже" },
-  done: { tone: "success", label: "✅ Выполнено" },
+  overdue: { tone: "danger", label: "Просрочено" },
+  due_today: { tone: "warning", label: "Сегодня" },
+  due_soon: { tone: "success", label: "Скоро" },
+  upcoming: { tone: "neutral", label: "Позже" },
+  done: { tone: "success", label: "Выполнено" },
 };
 
 const STATE_ORDER = ["overdue", "due_today", "due_soon", "upcoming", "done"];
@@ -102,7 +102,7 @@ function RecurrenceConfigFields({ recurrence, config, setConfig }) {
                 key={m}
                 type="button"
                 onClick={() => toggleMonth(m)}
-                className={["px-2.5 py-1.5 rounded-md text-sm font-semibold border", active ? "bg-mint border-pine text-pine" : "bg-surface-alt border-transparent text-muted"].join(" ")}
+                className={["px-2.5 py-1.5 rounded-md text-sm font-semibold border", active ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted"].join(" ")}
               >
                 {name}
               </button>
@@ -115,10 +115,10 @@ function RecurrenceConfigFields({ recurrence, config, setConfig }) {
   }
   if (recurrence === "annual") {
     return (
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <div>
-          <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Месяц</label>
-          <select value={config.month ?? 1} onChange={setNum("month")} className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none">
+          <label className="block text-[11.5px] font-semibold text-muted mb-1">Месяц</label>
+          <select value={config.month ?? 1} onChange={setNum("month")} className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none">
             {MONTH_NAMES_SHORT.slice(1).map((name, idx) => (
               <option key={idx + 1} value={idx + 1}>{name}</option>
             ))}
@@ -130,10 +130,10 @@ function RecurrenceConfigFields({ recurrence, config, setConfig }) {
   }
   if (recurrence === "seasonal") {
     return (
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <div>
-          <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Начало сезона, месяц</label>
-          <select value={config.start_month ?? 4} onChange={setNum("start_month")} className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none">
+          <label className="block text-[11.5px] font-semibold text-muted mb-1">Начало сезона, месяц</label>
+          <select value={config.start_month ?? 4} onChange={setNum("start_month")} className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none">
             {MONTH_NAMES_SHORT.slice(1).map((name, idx) => (
               <option key={idx + 1} value={idx + 1}>{name}</option>
             ))}
@@ -141,8 +141,8 @@ function RecurrenceConfigFields({ recurrence, config, setConfig }) {
         </div>
         <TextField label="Начало сезона, число" type="number" min={1} max={31} value={config.start_day ?? 1} onChange={setNum("start_day")} />
         <div>
-          <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Конец сезона (срок), месяц</label>
-          <select value={config.end_month ?? 5} onChange={setNum("end_month")} className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none">
+          <label className="block text-[11.5px] font-semibold text-muted mb-1">Конец сезона (срок), месяц</label>
+          <select value={config.end_month ?? 5} onChange={setNum("end_month")} className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none">
             {MONTH_NAMES_SHORT.slice(1).map((name, idx) => (
               <option key={idx + 1} value={idx + 1}>{name}</option>
             ))}
@@ -235,8 +235,8 @@ function TaskModal({ open, onClose, editing, onSaved }) {
           {CATEGORY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
         </datalist>
         <div>
-          <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Периодичность</label>
-          <select value={recurrence} onChange={handleRecurrenceChange} className="w-full bg-surface-alt border border-transparent focus:border-pine rounded-md px-3.5 py-2.5 text-base text-ink outline-none">
+          <label className="block text-[11.5px] font-semibold text-muted mb-1">Периодичность</label>
+          <select value={recurrence} onChange={handleRecurrenceChange} className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none">
             {Object.entries(RECURRENCE_LABELS).map(([k, label]) => (
               <option key={k} value={k}>{label}</option>
             ))}
@@ -293,7 +293,7 @@ function TaskRow({ task, onChanged }) {
   };
 
   return (
-    <div className="flex items-center gap-4 py-3 border-b border-border last:border-b-0">
+    <div className="flex items-center gap-4 py-3 border-b border-hover last:border-b-0">
       <StatusBadge tone={style.tone} label={style.label} />
       <div className="flex-1 min-w-0">
         <div className="text-base font-semibold text-ink truncate">{task.title}</div>
@@ -307,11 +307,11 @@ function TaskRow({ task, onChanged }) {
       <div className="flex items-center gap-2 shrink-0">
         {task.period_key && (
           <Button variant={task.is_done ? "ghost" : "secondary"} size="sm" onClick={handleToggleDone} loading={busy}>
-            {task.is_done ? "Снять отметку" : "✅ Выполнено"}
+            {task.is_done ? "Снять отметку" : "Выполнено"}
           </Button>
         )}
         <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>Изменить</Button>
-        <Button variant="ghost" size="sm" onClick={handleToggleActive} loading={busy}>{task.active ? "⏸ Пауза" : "▶ Возобновить"}</Button>
+        <Button variant="ghost" size="sm" onClick={handleToggleActive} loading={busy}>{task.active ? "Пауза" : "▶ Возобновить"}</Button>
         <button onClick={handleDelete} className="text-error text-sm font-semibold px-1">Удалить</button>
       </div>
 
@@ -346,7 +346,7 @@ export default function CalendarScreen() {
   const sorted = [...tasks].sort((a, b) => STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state) || (a.due_date || "").localeCompare(b.due_date || ""));
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-[18px] flex flex-col gap-[14px]">
       <Card>
         <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
@@ -358,7 +358,7 @@ export default function CalendarScreen() {
             />
             Показывать задачи на паузе
           </label>
-          <Button variant="primary" onClick={() => setCreateOpen(true)}>➕ Новая задача</Button>
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>Новая задача</Button>
         </div>
       </Card>
 

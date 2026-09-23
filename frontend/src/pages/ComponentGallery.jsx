@@ -19,7 +19,7 @@ export default function ComponentGallery() {
   const toast = useToast();
 
   return (
-    <div className="p-8 flex flex-col gap-6 max-w-4xl">
+    <div className="p-[18px] flex flex-col gap-6 max-w-4xl">
       <Section title="Button">
         <Button variant="primary">Сохранить</Button>
         <Button variant="secondary">Отмена</Button>

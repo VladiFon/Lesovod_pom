@@ -19,6 +19,7 @@ import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
+import AuthImage from "../components/AuthImage.jsx";
 import { useToast } from "../components/Toast.jsx";
 
 /**
@@ -66,14 +67,14 @@ function SelectField({ label, value, onChange, options, placeholder = "—", cla
   return (
     <div className={className}>
       {label && (
-        <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">
+        <label className="block text-[11.5px] font-semibold text-muted mb-1">
           {label}
         </label>
       )}
       <select
         value={value}
         onChange={onChange}
-        className="w-full bg-surface-alt border border-transparent focus:border-pine focus:bg-surface rounded-md px-3.5 py-2.5 text-base text-ink outline-none transition-colors"
+        className="w-full bg-surface border border-border focus:border-pine focus:bg-surface rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors"
       >
         <option value="">{placeholder}</option>
         {options.map((opt) => (
@@ -118,7 +119,7 @@ function PresetRow({ label, options, onApply, onDelete, onSaveNew }) {
               setSelected(e.target.value);
               if (e.target.value) onApply(e.target.value);
             }}
-            className="flex-1 bg-surface-alt border border-transparent focus:border-pine focus:bg-surface rounded-md px-3.5 py-2.5 text-base text-ink outline-none transition-colors"
+            className="flex-1 bg-surface border border-border focus:border-pine focus:bg-surface rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors"
           >
             <option value="" disabled>
               Выбрать пресет…
@@ -153,7 +154,7 @@ function PresetRow({ label, options, onApply, onDelete, onSaveNew }) {
             placeholder="Название пресета…"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            className="flex-1 bg-surface-alt border border-transparent focus:border-pine focus:bg-surface rounded-md px-3 py-2 text-sm text-ink outline-none transition-colors"
+            className="flex-1 bg-surface border border-border focus:border-pine focus:bg-surface rounded-md px-3 py-2 text-sm text-ink outline-none transition-colors"
           />
           <button
             onClick={() => {
@@ -231,6 +232,9 @@ export default function RubkiUhoda() {
   // Участки лесных культур, на которых проведена эта проба — при отметке
   // "выполнено" на каждом автоматически заводится запись "уход выполнен"
   // (см. db.mark_uhody_proba_completed). Выбираются при сохранении пробы.
+  // Какие фото приложил рабочий из мобильного приложения (сами файлы —
+  // GET /uhody/proby/{id}/photo/{kind}, см. AuthImage).
+  const [photos, setPhotos] = useState({ stolb_delyanki: false, stolb_proby: false });
   const [lesokulturyUchastokIds, setLesokulturyUchastokIds] = useState([]);
   const [lesokulturySelectedInfo, setLesokulturySelectedInfo] = useState([]);
   const [lesokulturyOptions, setLesokulturyOptions] = useState([]);
@@ -347,6 +351,7 @@ export default function RubkiUhoda() {
     setIspolniteli([]);
     setLesokulturyUchastokIds([]);
     setLesokulturySelectedInfo([]);
+    setPhotos({ stolb_delyanki: false, stolb_proby: false });
   };
 
   const openProba = async (id) => {
@@ -397,6 +402,7 @@ export default function RubkiUhoda() {
       setIspolniteli(record.ispolniteli || []);
       setLesokulturyUchastokIds(record.lesokultury_uchastok_ids || []);
       setLesokulturySelectedInfo(record.lesokultury_uchastki || []);
+      setPhotos(record.photos || { stolb_delyanki: false, stolb_proby: false });
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось открыть пробу", description: e.message });
     }
@@ -591,9 +597,9 @@ export default function RubkiUhoda() {
   //   Рендер
   // ------------------------------------------------------------------- //
   return (
-    <div className="p-8 flex gap-6 items-start">
+    <div className="p-[18px] flex flex-wrap gap-[14px] items-start">
       {/* ---------- Левая колонка: список своих проб ---------- */}
-      <Card padding={false} className="w-[360px] shrink-0 flex flex-col">
+      <Card padding={false} className="flex flex-col" style={{ flex: "1 1 260px", maxWidth: 380 }}>
         <div className="p-5 pb-3 flex flex-col gap-3 border-b border-border">
           <Button variant="primary" onClick={resetForm}>
             + Новая проба
@@ -664,7 +670,7 @@ export default function RubkiUhoda() {
             </Button>
           </div>
           {vydelCard && (
-            <div className="grid grid-cols-4 gap-4 mt-5 pt-5 border-t border-border">
+            <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))] mt-5 pt-5 border-t border-border">
               <Field caption="Лесничество" value={vydelCard.lesnichestvo} />
               <Field caption="Площадь выдела, га" value={vydelCard.ploshad} />
               <Field caption="Категория лесов" value={vydelCard.kategoriya_lesov} />
@@ -678,7 +684,7 @@ export default function RubkiUhoda() {
           title={isEditing ? `Ведомость перечёта — проба №${selectedId}` : "Ведомость перечёта — новая проба"}
           subtitle="Ведомость перечёта и обмера древесины на пробных площадях"
         >
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
             <TextField label="Квартал" value={kvartal} onChange={(e) => setKvartal(e.target.value)} />
             <TextField label="Выдел" value={vydel} onChange={(e) => setVydel(e.target.value)} />
             <TextField
@@ -774,8 +780,37 @@ export default function RubkiUhoda() {
         </Card>
 
         {/* Обмер укладок хвороста */}
+        {/* Фото пробы — приложены рабочим в мобильном приложении */}
+        {isEditing && (
+          <Card
+            title="Фото пробы"
+            subtitle="Столб границы делянки, где идёт уход, и столб пробной площадки — снимает рабочий в мобильном приложении"
+          >
+            <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+              {[
+                ["stolb_delyanki", "Столб делянки"],
+                ["stolb_proby", "Столб пробной площадки"],
+              ].map(([kind, label]) =>
+                photos[kind] ? (
+                  <AuthImage key={`${selectedId}-${kind}`} path={`/uhody/proby/${selectedId}/photo/${kind}`} caption={label} />
+                ) : (
+                  <div key={kind} className="flex flex-col gap-1.5">
+                    <div
+                      className="rounded-md border border-dashed border-border bg-surface-alt flex items-center justify-center text-[12.5px] text-muted"
+                      style={{ height: 160 }}
+                    >
+                      Фото не приложено
+                    </div>
+                    <div className="text-[12.5px] font-semibold text-muted">{label}</div>
+                  </div>
+                )
+              )}
+            </div>
+          </Card>
+        )}
+
         <Card title="Обмер укладок хвороста" subtitle="Фронт не считает сам — расчёт делает сервер по нажатию «Рассчитать»">
-          <div className="bg-surface border border-border rounded-md overflow-hidden">
+          <div className="bg-surface border border-border rounded-[10px] overflow-hidden">
             <table className="w-full text-base border-collapse">
               <thead>
                 <tr className="bg-surface-alt border-b border-border">
@@ -788,7 +823,7 @@ export default function RubkiUhoda() {
               </thead>
               <tbody>
                 {rows.map((row, idx) => (
-                  <tr key={idx} className="border-b border-border last:border-b-0">
+                  <tr key={idx} className="border-b border-hover last:border-b-0">
                     <td className="px-2 py-1.5">
                       <input
                         list="uhody-porody-list"
@@ -839,7 +874,7 @@ export default function RubkiUhoda() {
 
           {calcResult && (
             <div className="mt-5 pt-5 border-t border-border">
-              <div className="bg-surface border border-border rounded-md overflow-hidden mb-4">
+              <div className="bg-surface border border-border rounded-[10px] overflow-hidden mb-4">
                 <table className="w-full text-base border-collapse">
                   <thead>
                     <tr className="bg-surface-alt border-b border-border">
@@ -854,7 +889,7 @@ export default function RubkiUhoda() {
                   </thead>
                   <tbody>
                     {calcResult.rows.map((r) => (
-                      <tr key={r.nomer} className="border-b border-border last:border-b-0">
+                      <tr key={r.nomer} className="border-b border-hover last:border-b-0">
                         <td className="px-3 py-2 text-ink">{r.nomer}</td>
                         <td className="px-3 py-2 text-ink">{r.poroda}</td>
                         <td className="px-3 py-2 text-ink">{r.shirina}</td>
@@ -868,7 +903,7 @@ export default function RubkiUhoda() {
                   </tbody>
                 </table>
               </div>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
                 <Field caption="Объём складочной массы, всего" value={calcResult.obyom_sklad_total} />
                 <Field caption="Запас на пробе, м³" value={calcResult.zapas_proby_total} />
                 <Field caption="Запас на 1 га, м³" value={calcResult.zapas_na_1ga} />
@@ -890,7 +925,7 @@ export default function RubkiUhoda() {
               onDelete={removePreset}
               onSaveNew={saveCurrentAsPreset}
             />
-            <div className="col-span-2 grid grid-cols-3 gap-4">
+            <div className="col-span-2 grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
               <TextField
                 label="Перечётчик 1"
                 value={form.komissiya.perechet1}
@@ -963,7 +998,7 @@ export default function RubkiUhoda() {
               lesokulturyOptions.map((u) => (
                 <label
                   key={u.id}
-                  className="flex items-center gap-3 px-3 py-2 hover:bg-hover cursor-pointer border-b border-border last:border-b-0"
+                  className="flex items-center gap-3 px-3 py-2 hover:bg-hover cursor-pointer border-b border-hover last:border-b-0"
                 >
                   <input
                     type="checkbox"
