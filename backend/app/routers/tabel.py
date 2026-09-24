@@ -14,8 +14,22 @@
 которую можно поправить, а не лог отметок) и разные поля (место/вид
 работы/комментарий, которых в мобильной ленте физически нет).
 
-Права: tabel.edit (admin/lesovod), тот же круг ролей, что у "Плана
-работ"."""
+Права: изначально было tabel.edit (admin/lesovod) — тот же круг ролей,
+что у "Плана работ". Расширено (просьба пользователя, 24.09.2026 —
+"табель ручного ввода также через моб.устройство"): лесничий заполняет
+табель не только с компьютера, но и с телефона через уже существующий
+мобильный PIN-вход (role="worker"), тем же способом, каким он уже
+получает "руководящее" меню в приложении (остатки/баланс — см.
+GET /api/bot/remaining в app/routers/bot.py). Поэтому здесь используется
+не require_permission("tabel.edit") (жёстко admin/lesovod), а
+require_office_writer_or_master (app/auth.py) — тот же принцип, что и у
+GET /api/attendance/ (require_office_or_master): admin/lesovod ИЛИ
+рабочий с руководящей должностью (мастер леса/помощник лесничего/
+лесничий, config.DOLZHNOSTI_MASTER_URODNYA). Запись PERMISSIONS["tabel.edit"]
+в webext.py оставлена как есть (уже не используется этим роутером
+напрямую, но has_permission() ей всё ещё может пользоваться в других
+местах/на будущее) — не переименовывалась, чтобы не ломать что-то по
+имени права вникуда."""
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,14 +38,14 @@ from pydantic import BaseModel
 from app import legacy_bridge  # noqa: F401 — обязателен до import webext
 import webext
 
-from app.auth import require_permission
+from app.auth import require_office_writer_or_master
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/tabel", tags=["tabel"])
 
 
 @router.get("/vidy-rabot")
-def list_vidy_rabot(user=Depends(require_permission("tabel.edit")), conn=Depends(get_conn)) -> list[dict]:
+def list_vidy_rabot(user=Depends(require_office_writer_or_master), conn=Depends(get_conn)) -> list[dict]:
     return webext.list_vidy_rabot(conn)
 
 
@@ -42,7 +56,7 @@ class VidRabotyCreateIn(BaseModel):
 @router.post("/vidy-rabot")
 def create_vid_raboty(
     body: VidRabotyCreateIn,
-    user=Depends(require_permission("tabel.edit")),
+    user=Depends(require_office_writer_or_master),
     conn=Depends(get_conn),
 ) -> dict:
     """Возвращает существующий вид работы, если название уже есть в
@@ -58,7 +72,7 @@ def create_vid_raboty(
 @router.get("/lesokultury-uchastki")
 def list_lesokultury_uchastki_for_picker(
     search: Optional[str] = None,
-    user=Depends(require_permission("tabel.edit")), conn=Depends(get_conn),
+    user=Depends(require_office_writer_or_master), conn=Depends(get_conn),
 ) -> list[dict]:
     """Тот же принцип и источник, что GET /api/work-plan/lesokultury-uchastki
     (см. докстринг там же) — не переиспользуем тот эндпоинт напрямую,
@@ -71,7 +85,7 @@ def list_lesokultury_uchastki_for_picker(
 @router.get("/day")
 def get_tabel_day(
     data: str,
-    user=Depends(require_permission("tabel.edit")),
+    user=Depends(require_office_writer_or_master),
     conn=Depends(get_conn),
 ) -> list[dict]:
     """Табель на один день — строка на КАЖДОГО активного сотрудника (не
@@ -96,7 +110,7 @@ class TabelDaySaveIn(BaseModel):
 @router.post("/day")
 def save_tabel_day(
     body: TabelDaySaveIn,
-    user=Depends(require_permission("tabel.edit")),
+    user=Depends(require_office_writer_or_master),
     conn=Depends(get_conn),
 ) -> list[dict]:
     """Пакетное сохранение табеля на один день — см. webext.save_tabel_day
