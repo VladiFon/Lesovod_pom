@@ -199,12 +199,8 @@ def download_act(act_id: int, conn=Depends(get_conn)):
 # --------------------------------------------------------------------------- #
 class SpravkaIn(BaseModel):
     ploshad_proydennaya: Optional[float] = None
-    nedorub_ploshad: float = 0
-    nedorub_obyom: Optional[float] = None
     likvid_such_krony: float = 0
-    pererabotano_drovyanoy: float = 0
-    poluchemo_delovyh: float = 0
-    rukovoditel_dolzhnost: str = "Руководитель"
+    lesopolzovatel: str = ""
     rukovoditel_fio: str = ""
 
 

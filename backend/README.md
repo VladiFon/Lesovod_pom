@@ -15,8 +15,11 @@ backend/
 │   ├── akt_generator.py             # ВАША КОПИЯ — как есть, не менялась
 │   ├── listok_generator.py          # ВАША КОПИЯ — как есть, не менялась
 │   ├── tehkarta_generator.py        # ВАША КОПИЯ — как есть, не менялась
-│   ├── spravka_generator.py         # ВАША КОПИЯ — как есть, не менялась
-│   ├── osvidetelstvovanie_generator.py  # ВАША КОПИЯ — как есть, не менялась
+│   ├── spravka_generator.py         # ИЗМЕНЁН — теперь заполняет официальный бланк
+│   │                                 #   templates/spravka_shablon.docx (см. spravka_template_fill.py)
+│   ├── spravka_template_fill.py     # НОВЫЙ — точечное заполнение ячеек spravka_shablon.docx
+│   ├── osvidetelstvovanie_generator.py  # ИЗМЕНЁН — координаты ячеек под новый официальный
+│   │                                 #   бланк akt_osvidetelstvovaniya_shablon.docx
 │   ├── raskhod.py                   # ВАША КОПИЯ — как есть, не менялась (использует telegram_bot.py)
 │   ├── raskhod_v2.py                 # НОВЫЙ — единый источник истины, см. "Второй этап" ниже
 │   ├── secrets_store.py              # НОВЫЙ — секреты (Gemini/OpenRouter/Telegram), см. "Второй этап" ниже
@@ -29,6 +32,8 @@ backend/
 │   └── templates/                   # УЖЕ СОДЕРЖИТ реальные бланки и geojson из вашего проекта
 │       ├── akt_expl_shablon.xlsx
 │       ├── akt_zash_shablon.xlsx
+│       ├── akt_osvidetelstvovaniya_shablon.docx  # официальный бланк акта
+│       ├── spravka_shablon.docx     # НОВЫЙ — официальный бланк справки
 │       ├── listok_shablon.xlsx
 │       ├── raskhod_shablon.xlsx
 │       ├── tehkarta_shablon.docx

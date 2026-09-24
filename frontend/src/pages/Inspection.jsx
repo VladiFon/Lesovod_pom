@@ -14,9 +14,10 @@ import { useToast } from "../components/Toast.jsx";
 /**
  * Экран "Акты освидетельствования" (screens/inspection/) — Этап 10 плана.
  *
- * Backend не переписывался — app/routers/inspection.py уже полностью
- * оборачивает db.py (чек-лист/сроки/пресеты/история актов) +
- * spravka_generator.py/osvidetelstvovanie_generator.py без изменений.
+ * app/routers/inspection.py оборачивает db.py (чек-лист/сроки/пресеты/
+ * история актов) + spravka_generator.py/osvidetelstvovanie_generator.py
+ * (генерация теперь идёт по официальным бланкам templates/*_shablon.docx —
+ * SpravkaIn обновлён под новый набор полей spravka_generator.generate_spravka).
  * STANDARD_CHECKLIST_ITEMS и все поля act_data — как в самом роутере.
  *
  * Перенесено 1:1:
@@ -24,7 +25,7 @@ import { useToast } from "../components/Toast.jsx";
  *   Сроки заготовки/вывозки (редактирование)                   → инлайн-поля + PATCH .../sroki
  *   Чек-лист подготовки (стандартный + свои пункты)             → чекбоксы + "Добавить пункт"
  *   Пресет комиссии/организационных полей акта                  → выпадающий список, заполняет форму
- *   "Справка об объёмах" (объёмы/недоруб)                                → модалка → POST .../documents/spravka
+ *   "Справка об объёмах" (по официальному бланку spravka_shablon.docx)   → модалка → POST .../documents/spravka
  *   "📝 Акт освидетельствования" (полная форма, см. докстринг
  *     osvidetelstvovanie_generator.generate_akt_osvidetelstvovaniya) → модалка (все поля) → POST .../documents/akt-osvidetelstvovaniya
  *   "↓ Пустой бланк акта"                               → кнопка в шапке → POST /documents/blank-template
@@ -425,9 +426,8 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
 function SpravkaModal({ open, onClose, delyankaId, onGenerated }) {
   const toast = useToast();
   const [form, setForm] = useState({
-    ploshad_proydennaya: "", nedorub_ploshad: "0", nedorub_obyom: "",
-    likvid_such_krony: "0", pererabotano_drovyanoy: "0", poluchemo_delovyh: "0",
-    rukovoditel_dolzhnost: "Руководитель", rukovoditel_fio: "",
+    ploshad_proydennaya: "", likvid_such_krony: "0",
+    lesopolzovatel: "", rukovoditel_fio: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -436,7 +436,7 @@ function SpravkaModal({ open, onClose, delyankaId, onGenerated }) {
     setSubmitting(true);
     try {
       const body = Object.fromEntries(
-        Object.entries(form).map(([k, v]) => [k, ["rukovoditel_dolzhnost", "rukovoditel_fio"].includes(k) ? v : (v === "" ? undefined : Number(v))])
+        Object.entries(form).map(([k, v]) => [k, ["lesopolzovatel", "rukovoditel_fio"].includes(k) ? v : (v === "" ? undefined : Number(v))])
       );
       const { task_id } = await api.post(`/inspection/${delyankaId}/documents/spravka`, body);
       const result = await pollTask(task_id, { timeoutMs: 5 * 60 * 1000 });
@@ -467,20 +467,10 @@ function SpravkaModal({ open, onClose, delyankaId, onGenerated }) {
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <TextField label="Площадь пройденная, га" type="number" step="0.01" value={form.ploshad_proydennaya} onChange={setField("ploshad_proydennaya")} />
-          <TextField label="Недоруб, площадь, га" type="number" step="0.01" value={form.nedorub_ploshad} onChange={setField("nedorub_ploshad")} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <TextField label="Недоруб, объём, м³" type="number" step="0.01" value={form.nedorub_obyom} onChange={setField("nedorub_obyom")} />
           <TextField label="Ликвид сучьев и кроны, м³" type="number" step="0.01" value={form.likvid_such_krony} onChange={setField("likvid_such_krony")} />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <TextField label="Переработано на дровяную, м³" type="number" step="0.01" value={form.pererabotano_drovyanoy} onChange={setField("pererabotano_drovyanoy")} />
-          <TextField label="Получено деловых, м³" type="number" step="0.01" value={form.poluchemo_delovyh} onChange={setField("poluchemo_delovyh")} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <TextField label="Руководитель, должность" value={form.rukovoditel_dolzhnost} onChange={setField("rukovoditel_dolzhnost")} />
-          <TextField label="Руководитель, ФИО" value={form.rukovoditel_fio} onChange={setField("rukovoditel_fio")} />
-        </div>
+        <TextField label="Лесопользователь" value={form.lesopolzovatel} onChange={setField("lesopolzovatel")} />
+        <TextField label="Руководитель, ФИО" value={form.rukovoditel_fio} onChange={setField("rukovoditel_fio")} />
       </div>
     </Modal>
   );
