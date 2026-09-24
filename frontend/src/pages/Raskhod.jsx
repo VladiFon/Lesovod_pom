@@ -1176,15 +1176,20 @@ function EgaisRaskhodTable({ egais }) {
 // журналу источников не объясняет дефицит — скорее всего "холодный
 // старт": делянка начала отгружаться раньше, чем в приложение стали
 // загружать выгрузки ЕГАИС).
-function EgaisBalanceBanner({ check }) {
+function EgaisBalanceBanner({ check, onOpenReview }) {
   if (!check?.has_history || !(check.deficit > 0.01)) return null;
   if (check.explained) {
     return (
-      <div className="rounded-lg border border-oak/40 bg-oak-soft px-3.5 py-2.5 text-sm text-ink">
-        <span className="font-semibold text-oak">Расход по ЕГАИС временно больше прихода на {check.deficit.toFixed(2)} м³.</span>{" "}
-        Это покрывается ещё не разобранными записями (приход на ФЛС: {check.fls_unresolved.toFixed(2)} м³
-        {check.korrektirovki_unresolved > 0 && <>, корректировки остатков: {check.korrektirovki_unresolved.toFixed(2)} м³</>}) —
-        разберите их на экране «Разбор ЕГАИС», и баланс сойдётся.
+      <div className="rounded-lg border border-oak/40 bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <span className="font-semibold text-oak">Расход по ЕГАИС временно больше прихода на {check.deficit.toFixed(2)} м³.</span>{" "}
+          Это покрывается ещё не разобранными записями (приход на ФЛС: {check.fls_unresolved.toFixed(2)} м³
+          {check.korrektirovki_unresolved > 0 && <>, корректировки остатков: {check.korrektirovki_unresolved.toFixed(2)} м³</>}) —
+          разберите их, и баланс сойдётся.
+        </div>
+        {onOpenReview && (
+          <Button variant="secondary" size="sm" onClick={onOpenReview} className="shrink-0">🔎 Разбор ЕГАИС</Button>
+        )}
       </div>
     );
   }
@@ -1200,7 +1205,36 @@ function EgaisBalanceBanner({ check }) {
   );
 }
 
-function ItemWorkspace({ item, delyankaId, egaisVersion }) {
+// Компактная сводка по ВСЕЙ делянке (может быть несколько выделов) —
+// видна сразу после выбора делянки, ещё до того, как открыт конкретный
+// выдел (иначе проблему на "непопулярном" выделе легко не заметить, если
+// в него не заходить). Детали — тот же EgaisBalanceBanner ниже, на уровне
+// конкретного выдела.
+function DelyankaEgaisSummary({ check, onOpenReview }) {
+  if (!check?.items?.length) return null;
+  const withDeficit = check.items.filter((it) => it.has_history && it.deficit > 0.01);
+  if (withDeficit.length === 0) return null;
+  const unexplained = withDeficit.filter((it) => !it.explained);
+  const tone = unexplained.length > 0 ? "danger" : "warning";
+  return (
+    <div className={["rounded-lg border px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap",
+      tone === "danger" ? "border-error/40 bg-error-soft" : "border-oak/40 bg-oak-soft"].join(" ")}>
+      <div>
+        <span className={["font-semibold", tone === "danger" ? "text-error" : "text-oak"].join(" ")}>
+          Расход по ЕГАИС не сходится с приходом на {withDeficit.length} из {check.items.length} {check.items.length === 1 ? "выделе" : "выделов"} делянки
+        </span>{" "}
+        (Кв./Выд.: {withDeficit.map((it) => `${it.kvartal}/${it.vydel}`).join(", ")}){unexplained.length > 0
+          ? <> — {unexplained.length} без объяснения в журнале, откройте выдел для подробностей.</>
+          : <> — объясняется неразобранным приходом на ФЛС/корректировками.</>}
+      </div>
+      {onOpenReview && (
+        <Button variant="secondary" size="sm" onClick={onOpenReview} className="shrink-0">🔎 Разбор ЕГАИС</Button>
+      )}
+    </div>
+  );
+}
+
+function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
   const toast = useToast();
   const [balance, setBalance] = useState(null);
   const [naryady, setNaryady] = useState([]);
@@ -1349,7 +1383,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
         />
       </Card>
 
-      <EgaisBalanceBanner check={balanceCheck} />
+      <EgaisBalanceBanner check={balanceCheck} onOpenReview={onOpenEgaisReview} />
 
       <Card>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -1481,11 +1515,19 @@ export default function Raskhod() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [egaisReviewOpen, setEgaisReviewOpen] = useState(false);
   const [egaisReviewCount, setEgaisReviewCount] = useState(0);
+  const [delyankaEgaisCheck, setDelyankaEgaisCheck] = useState(null);
   // Растёт при каждом закрытии "Импорт ЕГАИС"/"Разбор ЕГАИС" — единственная
   // цель это значения - быть новым числом в deps у ItemWorkspace, чтобы
   // заставить его перечитать /balance и /egais, даже если выбранный выдел
   // (selectedItem) не менялся и компонент не перемонтировался.
   const [egaisVersion, setEgaisVersion] = useState(0);
+
+  const loadDelyankaEgaisCheck = useCallback((id) => {
+    if (!id) { setDelyankaEgaisCheck(null); return; }
+    api.get(`/raskhod/delyanki/${id}/egais/balance-check`)
+      .then(setDelyankaEgaisCheck)
+      .catch(() => setDelyankaEgaisCheck(null));
+  }, []);
 
   const loadEgaisReviewSummary = useCallback(() => {
     api
@@ -1518,6 +1560,15 @@ export default function Raskhod() {
       setItemsLoading(false);
     }
   };
+
+  useEffect(() => {
+    // Тот же счётчик egaisVersion, что форсирует перезагрузку
+    // ItemWorkspace — импорт ЕГАИС/разбор очереди могли поменять картину
+    // по делянке в целом, не только по открытому сейчас выделу.
+    // loadDelyankaEgaisCheck сама чистит состояние в null при пустом id
+    // (делянка не выбрана/сброшена).
+    loadDelyankaEgaisCheck(delyankaId);
+  }, [egaisVersion, delyankaId, loadDelyankaEgaisCheck]);
 
   const handleDeleteDelyankaEgais = async () => {
     const label = delyanki.find((d) => String(d.id) === String(delyankaId))?.nazvanie || `Делянка №${delyankaId}`;
@@ -1613,8 +1664,15 @@ export default function Raskhod() {
         </div>
       </Card>
 
+      <DelyankaEgaisSummary check={delyankaEgaisCheck} onOpenReview={() => setEgaisReviewOpen(true)} />
+
       {selectedItem ? (
-        <ItemWorkspace item={selectedItem} delyankaId={delyankaId} egaisVersion={egaisVersion} />
+        <ItemWorkspace
+          item={selectedItem}
+          delyankaId={delyankaId}
+          egaisVersion={egaisVersion}
+          onOpenEgaisReview={() => setEgaisReviewOpen(true)}
+        />
       ) : (
         <Card>
           <EmptyState

@@ -231,6 +231,23 @@ def import_egais(background_tasks: BackgroundTasks, file: UploadFile = File(...)
     return {"task_id": task_id}
 
 
+@router.get("/delyanki/{delyanka_id}/egais/balance-check")
+def get_delyanka_egais_balance_check(delyanka_id: int, conn=Depends(get_conn)):
+    """То же, что /items/{item_id}/egais/balance-check, но сразу по ВСЕМ
+    выделам делянки — чтобы проблему было видно, даже не открывая по
+    очереди каждый выдел (делянка может состоять из нескольких)."""
+    items = legacy_raskhod.get_delyanka_items(conn, delyanka_id)
+    results = []
+    for item in items:
+        check = legacy_raskhod.compute_egais_balance_check(conn, item)
+        results.append({
+            "item_id": item["id"], "kvartal": item.get("kvartal"), "vydel": item.get("vydel"),
+            "has_history": check is not None,
+            **(check or {}),
+        })
+    return {"items": results}
+
+
 @router.get("/egais/journal")
 def get_egais_journal(kvartal: Optional[str] = None, vydel: Optional[str] = None,
                        tip_dokumenta: Optional[str] = None, limit: int = 500,
