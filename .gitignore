@@ -15,6 +15,12 @@ frontend/dist/
 *.env.local
 secrets.json
 
+# Мобильное приложение — собранный APK и его живой version.json
+# (см. deploy/README.md п.8); версионируется только пример
+# deploy/version.json.example, реальные файлы — нет.
+*.apk
+deploy/app-release/
+
 # OS
 .DS_Store
 Thumbs.db

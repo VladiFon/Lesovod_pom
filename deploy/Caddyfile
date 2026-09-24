@@ -3,7 +3,10 @@
 # Что делает:
 #   - отдаёт собранный фронтенд (frontend/dist) статикой;
 #   - всё, что начинается с /api/, проксирует на uvicorn (127.0.0.1:8000);
-#   - для путей без расширения (React Router) отдаёт index.html, а не 404.
+#   - для путей без расширения (React Router) отдаёт index.html, а не 404;
+#   - /app/* — version.json и .apk мобильного приложения, статикой из
+#     отдельной папки app-release/ (обновления сайдлоуд-приложения, не
+#     через Google Play — см. README.md п.8).
 #
 # Установка Caddy (Windows): https://caddyserver.com/docs/install#windows
 # скачать caddy.exe, положить, например, в C:\lesovod\caddy\caddy.exe.
@@ -38,6 +41,17 @@ lesovod.local, localhost, 192.168.100.6, http://lesovodapipom.store {
 	}
 	handle /openapi.json {
     		reverse_proxy 127.0.0.1:8000
+	}
+	# Обновления мобильного приложения (сайдлоуд APK, не Google Play,
+	# см. deploy/README.md п.8) — version.json + сам .apk, статикой, без
+	# какого-либо backend-кода. Отдельная папка ВНЕ frontend/dist: она не
+	# должна затираться каждым `npm run build`. handle_path (а не handle)
+	# — срезает префикс /app/ перед поиском файла на диске, поэтому
+	# запрос /app/version.json ищет файл C:/lesovod/app-release/version.json,
+	# а не .../app-release/app/version.json.
+	handle_path /app/* {
+		root * C:/lesovod/app-release
+		file_server
 	}
 	# Всё остальное — статика; для путей без файла (client-side роуты
 	# React Router, например /raskhod или /map) отдаём index.html, а не
