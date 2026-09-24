@@ -69,97 +69,85 @@ def fill_akt(template_path, data, output_path):
     t1 = doc.tables[1]
     d = data
 
-    # --- дата акта (день / месяц словом / год) ---
-    set_cell_text(t0, 2, 32, d.get("act_day", ""))
-    set_cell_text(t0, 2, 35, d.get("act_month", ""))
-    set_cell_text(t0, 2, 38, (d.get("act_year", "") + " г.") if d.get("act_year") else "",
+    # --- дата акта (день / месяц словом / год) — короткая строка справа
+    # от заголовка ---
+    set_cell_text(t0, 2, 24, d.get("act_day", ""))
+    set_cell_text(t0, 2, 26, d.get("act_month", ""))
+    set_cell_text(t0, 2, 29, (d.get("act_year", "") + " г.") if d.get("act_year") else "",
                   align=WD_ALIGN_PARAGRAPH.LEFT)
 
-    # --- область/район, лесхоз/лесничество ---
-    set_cell_text(t0, 3, 0, "область, административный район", bold=True,
-                  align=WD_ALIGN_PARAGRAPH.LEFT, base_size=BASE_SIZE)
-    set_cell_text(t0, 3, 20, d.get("oblast_rayon", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    # --- область / район (два отдельных поля), лесхоз/лесничество
+    # (структурное подразделение) ---
+    set_cell_text(t0, 3, 2, d.get("oblast", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell_text(t0, 3, 14, d.get("rayon", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell_text(t0, 4, 0, d.get("lesxoz", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell_text(t0, 6, 0, d.get("lesnichestvo", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
 
-    set_cell_text(t0, 4, 0, f"{d.get('lesxoz','')}, лесничество".strip(", "),
-                  bold=True, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(t0, 4, 18, d.get("lesnichestvo", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
-
-    # --- "Мы, нижеподписавшиеся" — представитель лесхоза ---
-    set_cell_text(t0, 5, 10, d.get("predstavitel_lesxoza", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    # --- "Мы, нижеподписавшиеся" — представитель лесхоза (руководитель
+    # освидетельствования) ---
+    set_cell_text(t0, 8, 7, d.get("predstavitel_lesxoza", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
 
     # --- в присутствии представителя лесопользователя ---
-    set_cell_text(t0, 8, 12, d.get("predstavitel_lesopolz_organizatsiya", ""),
+    set_cell_text(t0, 14, 9, d.get("predstavitel_lesopolz_organizatsiya", ""),
                   align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(t0, 10, 0, d.get("predstavitel_lesopolz_dolzhnost_fio", ""),
+    set_cell_text(t0, 16, 0, d.get("predstavitel_lesopolz_dolzhnost_fio", ""),
                   align=WD_ALIGN_PARAGRAPH.LEFT)
 
     # --- основание / извещение ---
-    set_cell_text(t0, 13, 1, d.get("osnovanie_nomer", ""))
-    set_cell_text(t0, 13, 3, f"«{d.get('osnovanie_day','')}»" if d.get("osnovanie_day") else "")
-    set_cell_text(t0, 13, 4, d.get("osnovanie_month", ""))
-    set_cell_text(t0, 13, 7, (d.get("osnovanie_year", "") + " г.") if d.get("osnovanie_year") else "")
-    set_cell_text(t0, 13, 27, f"«{d.get('izveshchenie_day','')}»" if d.get("izveshchenie_day") else "")
-    set_cell_text(t0, 13, 29, d.get("izveshchenie_month", ""))
-    set_cell_text(t0, 13, 33, (d.get("izveshchenie_year", "") + " г.") if d.get("izveshchenie_year") else "")
+    set_cell_text(t0, 21, 11, d.get("osnovanie_nomer", ""))
+    set_cell_text(t0, 21, 18, f"«{d.get('osnovanie_day','')}»" if d.get("osnovanie_day") else "")
+    set_cell_text(t0, 21, 22, d.get("osnovanie_month", ""))
+    set_cell_text(t0, 21, 27, (d.get("osnovanie_year", "") + " г.") if d.get("osnovanie_year") else "")
+    set_cell_text(t0, 22, 18, f"«{d.get('izveshchenie_day','')}»" if d.get("izveshchenie_day") else "")
+    set_cell_text(t0, 22, 22, d.get("izveshchenie_month", ""))
+    set_cell_text(t0, 22, 27, (d.get("izveshchenie_year", "") + " г.") if d.get("izveshchenie_year") else "")
 
-    # --- председатель / члены комиссии (верхний блок) ---
-    set_cell_text(t0, 16, 5, d.get("predsedatel_dolzhnost_fio", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    # --- уполномоченные представители лесхоза (до 3 строк; председатель —
+    # это predstavitel_lesxoza выше, "руководитель освидетельствования") ---
     chleny = d.get("chleny") or []
-    if len(chleny) > 0:
-        set_cell_text(t0, 18, 3, chleny[0], align=WD_ALIGN_PARAGRAPH.LEFT)
-    if len(chleny) > 1:
-        set_cell_text(t0, 20, 0, chleny[1], align=WD_ALIGN_PARAGRAPH.LEFT)
-    # больше 2 членов верхний блок бланка физически не вмещает
+    for row, idx in ((27, 0), (29, 1), (31, 2)):
+        if idx < len(chleny):
+            set_cell_text(t0, row, 1, chleny[idx], align=WD_ALIGN_PARAGRAPH.LEFT)
 
-    # --- вид освидетельствования / вид лесосеки (ГП/ССР/ВСР) ---
-    set_cell_text(t0, 23, 14, d.get("vid_osvidetelstvovaniya", "лесосеки"))
-    set_cell_text(t0, 23, 21, d.get("vid_lesoseki", ""))
+    # --- вид лесосеки (ГП/ССР/ВСР) — слово "лесосеки" уже напечатано в бланке ---
+    set_cell_text(t0, 34, 21, d.get("vid_lesoseki", ""))
 
-    # --- квартал / выдел / билет ---
-    set_cell_text(t0, 25, 8, d.get("kvartal", ""))
-    set_cell_text(t0, 25, 22, d.get("vydel", ""))
-    set_cell_text(t0, 25, 31, d.get("bilet_nomer", ""))
-    set_cell_text(t0, 26, 4, f"«{d.get('bilet_day','')}»" if d.get("bilet_day") else "")
-    set_cell_text(t0, 26, 6, d.get("bilet_month", ""))
-    set_cell_text(t0, 26, 13, (d.get("bilet_year", "") + " г.") if d.get("bilet_year") else "")
+    # --- квартал / выдел / билет / кому выдан ---
+    set_cell_text(t0, 36, 5, d.get("kvartal", ""))
+    set_cell_text(t0, 36, 23, d.get("vydel", ""))
+    set_cell_text(t0, 37, 3, d.get("bilet_nomer", ""))
+    set_cell_text(t0, 37, 15, d.get("predstavitel_lesopolz_organizatsiya", ""),
+                  align=WD_ALIGN_PARAGRAPH.LEFT)
 
-    # --- способы ---
-    set_cell_text(t0, 27, 9, d.get("sposob_rubki", "сплошной"))
-    set_cell_text(t0, 27, 23, d.get("sposob_ucheta", "по площади"))
-    set_cell_text(t0, 28, 0, d.get("sposob_ochistki",
+    # --- способы (в бланке уже напечатаны значения по умолчанию —
+    # перезаписываем, если в данных указано другое) ---
+    set_cell_text(t0, 40, 7, d.get("sposob_rubki", "сплошной"))
+    set_cell_text(t0, 40, 21, d.get("sposob_ucheta", "по площади"))
+    set_cell_text(t0, 41, 4, d.get("sposob_ochistki",
                   "измельчение и разбрасывание порубочных остатков на лесосеке"),
                   align=WD_ALIGN_PARAGRAPH.LEFT)
 
-    # --- сроки ---
-    set_cell_text(t0, 29, 11, f"«{d.get('srok_zag_day','')}»" if d.get("srok_zag_day") else "")
-    set_cell_text(t0, 29, 15, d.get("srok_zag_month", ""))
-    set_cell_text(t0, 29, 19, (d.get("srok_zag_year", "") + " г.") if d.get("srok_zag_year") else "")
-    set_cell_text(t0, 29, 28, f"«{d.get('srok_vyv_day','')}»" if d.get("srok_vyv_day") else "")
-    set_cell_text(t0, 29, 30, d.get("srok_vyv_month", ""))
-    set_cell_text(t0, 29, 32, (d.get("srok_vyv_year", "") + " г.") if d.get("srok_vyv_year") else "")
+    # --- сроки окончания заготовки/вывозки — в бланке нет линии для
+    # заполнения (только надпись), поэтому не печатаем поверх неё ---
 
     # --- таблица объёмов ---
     st = d.get("sortiment_totals") or {}
     def sv(key, field):
         return (st.get(key) or {}).get(field, "")
-    total_limit = d.get("ploshad_razresheno", "")
-    total_fakt = d.get("ploshad_fakt", "")
-    set_cell_text(t0, 33, 19, d.get("ploshad_razresheno", ""))
-    set_cell_text(t0, 33, 25, d.get("ploshad_fakt", ""))
-    set_cell_text(t0, 34, 19, d.get("obyom_vsego_limit", ""))
-    set_cell_text(t0, 34, 25, d.get("obyom_vsego_fakt", ""))
-    set_cell_text(t0, 35, 19, d.get("v_tom_chisle_limit", ""))
-    set_cell_text(t0, 35, 25, d.get("v_tom_chisle_fakt", ""))
-    for row, key in ((36, "KR"), (37, "SR"), (38, "ML"), (39, "DROVA")):
-        set_cell_text(t0, row, 19, sv(key, "limit"))
-        set_cell_text(t0, row, 25, sv(key, "fakt"))
-    set_cell_text(t0, 40, 19, sv("HVOROST", "limit"))
-    set_cell_text(t0, 40, 25, sv("HVOROST", "fakt"))
+    set_cell_text(t0, 45, 13, d.get("ploshad_razresheno", ""))
+    set_cell_text(t0, 45, 20, d.get("ploshad_fakt", ""))
+    set_cell_text(t0, 46, 13, d.get("obyom_vsego_limit", ""))
+    set_cell_text(t0, 46, 20, d.get("obyom_vsego_fakt", ""))
+    for row, key in ((48, "KR"), (49, "SR"), (50, "ML"), (51, "DROVA")):
+        set_cell_text(t0, row, 13, sv(key, "limit"))
+        set_cell_text(t0, row, 20, sv(key, "fakt"))
+    set_cell_text(t0, 52, 13, sv("HVOROST", "limit"))
+    set_cell_text(t0, 52, 20, sv("HVOROST", "fakt"))
 
-    set_cell_text(t0, 43, 19, d.get("podrost_ploshad_ga", ""))
-    set_cell_text(t0, 43, 25, d.get("podrost_ploshad_protsent", ""))
-    set_cell_text(t0, 44, 19, d.get("podrost_kolichestvo_tys", ""))
-    set_cell_text(t0, 44, 25, d.get("podrost_kolichestvo_protsent", ""))
+    set_cell_text(t0, 55, 13, d.get("podrost_ploshad_ga", ""))
+    set_cell_text(t0, 55, 20, d.get("podrost_ploshad_protsent", ""))
+    set_cell_text(t0, 56, 13, d.get("podrost_kolichestvo_tys", ""))
+    set_cell_text(t0, 56, 20, d.get("podrost_kolichestvo_protsent", ""))
 
     # ===================== страница 2 =====================
     narusheniya = d.get("narusheniya") or []

@@ -41,6 +41,7 @@ get_remaining_volumes_for_bot`). Веб-backend (этот файл) и бот т
 временно используют два разных, хоть и почти идентичных модуля — см.
 README_RASKHOD_REFACTOR.md для рекомендации по дальнейшей консолидации.
 """
+import hashlib
 import json
 import os
 import re
@@ -1074,6 +1075,25 @@ _EGAIS_COL_GODNOST = _normalize_egais_header("Техническая годно�
 
 _EGAIS_COL_DATA_DOK = _normalize_egais_header("Дата документа")
 _EGAIS_COL_SOTRUDNIK = _normalize_egais_header("Сотрудник")
+_EGAIS_COL_SKLAD_KONTRAGENT = _normalize_egais_header("Склад контрагент")
+_EGAIS_COL_KOLVO = _normalize_egais_header("Кол-во")
+
+# Служебные/технические колонки выгрузки — не участвуют в ключе
+# дедупликации журнала (см. compute_egais_operation_key) - это метаданные
+# ОБРАБОТКИ строки в ЕГАИС (кто/когда её создал или изменил), а не её
+# содержание, и практика показала (реальная выгрузка, проверено
+# 2026-09-24), что "Дата и время обработки на сервере" у буквально
+# идентичного дубля строки (см. ниже) может даже совпадать, так что это
+# не проблема - но исключаем на случай, если ЕГАИС когда-нибудь пересчитает
+# эту метку при повторной выгрузке того же периода, а остальное содержимое
+# строки не изменится.
+_EGAIS_AUDIT_COLUMNS = {
+    _normalize_egais_header("Дата и время обработки на сервере"),
+    _normalize_egais_header("Пользователь создания"),
+    _normalize_egais_header("Дата изменения"),
+    _normalize_egais_header("Пользователь изменения"),
+    _normalize_egais_header("Статус"),
+}
 
 # Крупность (KR/SR/ML) деловой древесины в выгрузке ЕГАИС НЕ хранится
 # отдельной колонкой - её нужно доставать из диаметра, который лежит в
@@ -1104,6 +1124,15 @@ _EGAIS_DOC_TYPE_REALIZATSIYA = "Расход при реализации пот�
 # факт молча, а собираются отдельным списком на каждой делянке
 # (entry["korrektirovki"]) - дата/сотрудник/объём видны на экране.
 _EGAIS_DOC_TYPE_KORREKTIROVKA = "Корректировка остатков"
+# "Перевод" - переклассификация УЖЕ учтённой древесины между сортами/
+# номенклатурой на том же складе (по Приказу), НЕ новое поступление на
+# склад - подтверждено пользователем на реальном примере выгрузки
+# (24.09.2026: кв.21, 16.09.2026, порода Ель - Расход при внутр.
+# перемещении -13.304 + Приход +3 + Перевод +10.304 = 0 день в день).
+# Объём нейтрален - не идёт ни в приход, ни в расход (см.
+# compute_egais_balance_check), но и не должен шуметь в "неизвестных
+# операциях" при каждом импорте, раз тип документа опознан и осмыслен.
+_EGAIS_DOC_TYPE_PEREVOD = "Перевод"
 
 # Любой "Тип документа", который встретится в выгрузке и не входит в этот
 # список - раньше молча игнорировался. Теперь такие строки не пропадают:
@@ -1115,6 +1144,7 @@ _EGAIS_KNOWN_DOC_TYPES = {
     _EGAIS_DOC_TYPE_VNUTR_PEREMESHENIE,
     _EGAIS_DOC_TYPE_REALIZATSIYA,
     _EGAIS_DOC_TYPE_KORREKTIROVKA,
+    _EGAIS_DOC_TYPE_PEREVOD,
 }
 
 # Автосгенерировано разбиением screens/raskhod.py на модули по экрану.
@@ -1310,6 +1340,289 @@ def find_egais_entry_for_item(loaded_egais_data, item):
     return merged
 
 
+def _egais_date_sort_key(value):
+    """"ДД.ММ.ГГГГ" -> "ГГГГ-ММ-ДД" для корректной сортировки ORDER BY
+    (сама колонка хранится в исходном виде ЕГАИС для отображения). Если
+    формат не распознан - пустая строка (такие записи уйдут в начало при
+    сортировке по убыванию, не потеряются)."""
+    text = str(value or "").strip()
+    for sep in (".", "/", "-"):
+        parts = text.split(sep)
+        if len(parts) == 3:
+            d, m, y = parts
+            if len(y) == 4 and d.isdigit() and m.isdigit():
+                return f"{y}-{m.zfill(2)}-{d.zfill(2)}"
+    return ""
+
+
+def compute_egais_operation_key(row):
+    """Стабильный ключ дедупликации ОДНОЙ строки выгрузки ЕГАИС для журнала
+    (см. CREATE TABLE egais_operation в db.py) - хэш от ВСЕХ содержательных
+    колонок строки, кроме служебных (_EGAIS_AUDIT_COLUMNS). row - сырой
+    dict {нормализованный_заголовок: значение}, как отдаёт _read_egais_rows().
+
+    Почему нельзя просто взять "id Склад операции" или "Номер документа" -
+    на реальной выгрузке (проверено 2026-09-24, см. переписку с
+    пользователем) "id Склад операции" оказалась ID СКЛАДА, а не строки
+    (66 уникальных значений на 5409 строк) - для дедупликации бесполезна.
+    "Номер документа" одного документа может содержать НЕСКОЛЬКО строк
+    (разные породы/брёвна поштучного учёта) - их нельзя схлопывать в одну.
+    Хэш от всех содержательных колонок различает оба случая правильно:
+    буквальный дубль строки в самой выгрузке ЕГАИС (все колонки совпадают)
+    схлопывается, а разные брёвна одного документа (отличаются
+    "Номенклатурой"/"Кол-во") - нет."""
+    items = sorted(
+        (k, "" if v is None else str(v))
+        for k, v in row.items()
+        if k not in _EGAIS_AUDIT_COLUMNS
+    )
+    raw = "\x1f".join(f"{k}\x1e{v}" for k, v in items)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def extract_egais_operations(excel_path):
+    """Построчный разбор выгрузки ЕГАИС для ЖУРНАЛА (egais_operation) -
+    в отличие от parse_egais_reestr (который только суммирует "чистый"
+    приход по делянкам, с исключением задвоений и откладыванием ФЛС на
+    разбор) здесь сохраняется КАЖДАЯ содержательная строка любого типа
+    документа как есть, без интерпретации - сырой аудиторский след,
+    который лесничий видит на экране "Журнал ЕГАИС". Пропускается только
+    служебный "футер" отчёта (см. _operations_from_raw_rows - строка с
+    одновременно пустыми "Тип документа" и "Склад операции")."""
+    return _operations_from_raw_rows(_read_egais_rows(excel_path))
+
+
+def _operations_from_raw_rows(rows):
+    """Общая часть extract_egais_operations/_parse_egais_reestr_impl -
+    сырые строки Excel (см. _read_egais_rows) -> нормализованные
+    dict-операции (тот же формат, что хранится построчно в
+    egais_operation, см. _EGAIS_OPERATION_COLUMNS)."""
+    operations = []
+    for row in rows:
+        doc_type = row.get(_EGAIS_COL_DOC_TYPE)
+        sklad_name = row.get(_EGAIS_COL_SKLAD_NAME)
+        if not _egais_not_empty(doc_type) and not _egais_not_empty(sklad_name):
+            continue
+        data_dok = _egais_str(row.get(_EGAIS_COL_DATA_DOK))
+        operations.append({
+            "natural_key": compute_egais_operation_key(row),
+            "data_dokumenta": data_dok,
+            "data_dokumenta_sort": _egais_date_sort_key(data_dok),
+            "tip_dokumenta": _egais_str(doc_type),
+            "nomer_dokumenta": _egais_str(row.get(_EGAIS_COL_DOC_NUM)),
+            "nomer_svyazannogo_dokumenta": _egais_str(row.get(_EGAIS_COL_LINKED_DOC)),
+            "kvartal": _egais_clean_number(row.get(_EGAIS_COL_KVARTAL)),
+            "vydel": _egais_clean_number(row.get(_EGAIS_COL_VYDEL)),
+            "sklad": _egais_str(sklad_name),
+            "sklad_kontragent": _egais_str(row.get(_EGAIS_COL_SKLAD_KONTRAGENT)),
+            "poroda": _egais_str(row.get(_EGAIS_COL_PORODA)),
+            "sort": _egais_str(row.get(_EGAIS_COL_SORT)),
+            "tehnicheskaya_godnost": _egais_str(row.get(_EGAIS_COL_GODNOST)),
+            "nomenklatura": _egais_str(row.get(_EGAIS_COL_NOMENKLATURA)),
+            "gruppa_diametrov": _egais_str(row.get(_EGAIS_COL_GRUPPA_DIAMETROV)),
+            "kolvo": _egais_str(row.get(_EGAIS_COL_KOLVO)),
+            "obyom": _egais_to_float(row.get(_EGAIS_COL_OBYOM)),
+            "osnovanie": _egais_str(row.get(_EGAIS_COL_OSNOVANIE)),
+            "nomer_osnovaniya": _egais_str(row.get(_EGAIS_COL_OSNOVANIE_NUM)),
+            "sotrudnik": _egais_str(row.get(_EGAIS_COL_SOTRUDNIK)),
+        })
+    return operations
+
+
+def save_egais_operations(conn, operations):
+    """Сохраняет строки журнала ЕГАИС (см. extract_egais_operations) -
+    INSERT OR IGNORE по UNIQUE(natural_key), поэтому повторный импорт того
+    же файла или пересекающихся по датам выгрузок НИЧЕГО не задваивает - в
+    отличие от save_egais_snapshot (которая замещает данные по затронутым
+    делянкам), эта таблица только растёт, что и требуется для ежедневных
+    выгрузок-"дельт" по всем кварталам (см. обсуждение с пользователем,
+    24.09.2026). Возвращает число РЕАЛЬНО добавленных (новых) строк - чтобы
+    после импорта показать лесничему "добавлено N новых записей в журнал",
+    а не молча повторить то, что уже было."""
+    if not operations:
+        return 0
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cur = conn.executemany(
+        "INSERT OR IGNORE INTO egais_operation "
+        "(natural_key, data_dokumenta, data_dokumenta_sort, tip_dokumenta, nomer_dokumenta, "
+        "nomer_svyazannogo_dokumenta, kvartal, vydel, sklad, sklad_kontragent, "
+        "poroda, sort, tehnicheskaya_godnost, nomenklatura, gruppa_diametrov, "
+        "kolvo, obyom, osnovanie, nomer_osnovaniya, sotrudnik, imported_at) "
+        "VALUES (:natural_key, :data_dokumenta, :data_dokumenta_sort, :tip_dokumenta, "
+        ":nomer_dokumenta, :nomer_svyazannogo_dokumenta, :kvartal, :vydel, :sklad, "
+        ":sklad_kontragent, :poroda, :sort, :tehnicheskaya_godnost, :nomenklatura, "
+        ":gruppa_diametrov, :kolvo, :obyom, :osnovanie, :nomer_osnovaniya, :sotrudnik, "
+        ":imported_at)",
+        [dict(op, imported_at=now) for op in operations],
+    )
+    conn.commit()
+    # rowcount по executemany с INSERT OR IGNORE в sqlite3 считает и
+    # проигнорированные попытки - поэтому реальное число новых строк
+    # считаем отдельным запросом, а не полагаемся на cur.rowcount.
+    keys = [op["natural_key"] for op in operations]
+    placeholders = ",".join("?" * len(keys))
+    added = conn.execute(
+        f"SELECT COUNT(*) FROM egais_operation WHERE natural_key IN ({placeholders}) "
+        "AND imported_at = ?",
+        (*keys, now),
+    ).fetchone()[0]
+    return added
+
+
+_EGAIS_OPERATION_COLUMNS = (
+    "id", "data_dokumenta", "data_dokumenta_sort", "tip_dokumenta", "nomer_dokumenta",
+    "nomer_svyazannogo_dokumenta", "kvartal", "vydel", "sklad", "sklad_kontragent",
+    "poroda", "sort", "tehnicheskaya_godnost", "nomenklatura", "gruppa_diametrov",
+    "kolvo", "obyom", "osnovanie", "nomer_osnovaniya", "sotrudnik", "imported_at",
+)
+
+
+def list_egais_operations_for_item(conn, item, limit=1000):
+    """Журнал ЕГАИС (сырые строки egais_operation) по ОДНОМУ выделу делянки,
+    для видимого экрана "Журнал ЕГАИС" - та же "умная" привязка по
+    пересечению чисел выдела, что и find_egais_entry_for_item
+    (delyanka_item.vydel может быть составным: "6,10,12,18"). Сортировка -
+    по дате документа по убыванию (сначала свежее)."""
+    kvartal_clean = _egais_clean_number(item.get("kvartal"))
+    wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
+    if not kvartal_clean or not wanted_vydel_numbers:
+        return []
+    rows = conn.execute(
+        f"SELECT {', '.join(_EGAIS_OPERATION_COLUMNS)} FROM egais_operation "
+        "WHERE kvartal=? ORDER BY data_dokumenta_sort DESC, id DESC",
+        (kvartal_clean,),
+    ).fetchall()
+    result = []
+    for row in rows:
+        d = dict(zip(_EGAIS_OPERATION_COLUMNS, row))
+        if wanted_vydel_numbers & _extract_vydel_numbers(d["vydel"]):
+            result.append(d)
+            if len(result) >= limit:
+                break
+    return result
+
+
+def list_egais_operations(conn, kvartal=None, vydel=None, tip_dokumenta=None, limit=500):
+    """Журнал ЕГАИС без привязки к конкретной делянке - для общего
+    просмотра/поиска (например "все операции за такой-то квартал")."""
+    where = []
+    params = []
+    if kvartal:
+        where.append("kvartal=?")
+        params.append(_egais_clean_number(kvartal))
+    if vydel:
+        where.append("vydel=?")
+        params.append(_egais_clean_number(vydel))
+    if tip_dokumenta:
+        where.append("tip_dokumenta=?")
+        params.append(tip_dokumenta)
+    sql = f"SELECT {', '.join(_EGAIS_OPERATION_COLUMNS)} FROM egais_operation"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY data_dokumenta_sort DESC, id DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(zip(_EGAIS_OPERATION_COLUMNS, row)) for row in rows]
+
+
+def _egais_linked_doc_numbers(conn):
+    """Множество номеров документов-приходов, которые являются "вторичным"
+    (парным) приходом к "Расходу при внутреннем перемещении" - см.
+    докстринг parse_egais_reestr про задвоение. Строится по ВСЕМУ журналу
+    (всем накопленным импортам), а не по одному файлу, как в
+    _parse_egais_reestr_impl - при ежедневных выгрузках-дельтах пара
+    приход/расход может обнаружиться в РАЗНЫХ импортах."""
+    rows = conn.execute(
+        "SELECT DISTINCT nomer_svyazannogo_dokumenta FROM egais_operation "
+        "WHERE tip_dokumenta=? AND nomer_svyazannogo_dokumenta != ''",
+        (_EGAIS_DOC_TYPE_VNUTR_PEREMESHENIE,),
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+def compute_egais_balance_check(conn, item):
+    """Сверка "расход не может быть больше прихода" по журналу ЕГАИС
+    (egais_operation) для ОДНОГО выдела делянки - НАКОПИТЕЛЬНО по всей
+    сохранённой истории, а не по одному импорту (специально для
+    ежедневных выгрузок-дельт по всем кварталам, см. обсуждение с
+    пользователем 24.09.2026).
+
+    Логика склада: приход не может быть меньше расхода-реализации (продали
+    больше, чем приняли на склад, без корректировки остатков - физически
+    невозможно). Если это всё же произошло в данных - значит либо
+    неразобранный приход на ФЛС ещё не подтверждён (см.
+    egais_fls_prihod_review), либо была корректировка остатков, либо у
+    делянки есть более ранняя история движения, не попавшая в текущий
+    журнал ("холодный старт" - делянка начала отгружаться раньше, чем в
+    приложение стали загружать выгрузки ЕГАИС).
+
+    "Перевод" и "Расход при внутреннем перемещении" в приход/расход не
+    идут - оба нейтральны (см. _EGAIS_DOC_TYPE_PEREVOD, докстринг
+    parse_egais_reestr).
+
+    Возвращает None, если по этому выделу в журнале вообще нет строк
+    (значит, выгрузку по нему ещё не загружали - это не дефицит, а просто
+    отсутствие данных). Иначе dict:
+        prihod_chisty, rashod_realizatsii, deficit (>=0),
+        fls_unresolved, korrektirovki_unresolved,
+        explained (bool - дефицит покрывается неразобранными ФЛС/
+        корректировками, ничего дополнительно делать не нужно, кроме как
+        разобрать именно их)."""
+    kvartal_clean = _egais_clean_number(item.get("kvartal"))
+    wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
+    if not kvartal_clean or not wanted_vydel_numbers:
+        return None
+
+    rows = conn.execute(
+        "SELECT tip_dokumenta, nomer_dokumenta, osnovanie, nomer_osnovaniya, sklad, vydel, obyom "
+        "FROM egais_operation WHERE kvartal=?",
+        (kvartal_clean,),
+    ).fetchall()
+    matched = [r for r in rows if wanted_vydel_numbers & _extract_vydel_numbers(r[5])]
+    if not matched:
+        return None
+
+    linked = _egais_linked_doc_numbers(conn)
+    prihod_chisty = 0.0
+    rashod_realizatsii = 0.0
+    for tip, nomer, osnovanie, osnovanie_num, sklad, vydel, obyom in matched:
+        obyom = obyom or 0.0
+        if tip == _EGAIS_DOC_TYPE_PRIHOD:
+            is_linked_pair = bool(nomer) and nomer in linked
+            has_osnovanie = bool(osnovanie) or bool(osnovanie_num)
+            is_fls = (sklad or "").startswith("ФЛС")
+            if is_linked_pair or (has_osnovanie and not is_fls):
+                continue  # вторичный приход (задвоение) - не считаем
+            if is_fls:
+                continue  # ФЛС-приход - отдельно, через fls_unresolved ниже
+            prihod_chisty += obyom
+        elif tip == _EGAIS_DOC_TYPE_REALIZATSIYA:
+            rashod_realizatsii += abs(obyom)
+        # "Расход при внутреннем перемещении", "Перевод" - нейтральны.
+
+    def _sum_unresolved(table):
+        rows = conn.execute(
+            f"SELECT vydel, obyom FROM {table} WHERE kvartal=? AND status='new'",
+            (kvartal_clean,),
+        ).fetchall()
+        return sum(o or 0.0 for vd, o in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd))
+
+    fls_unresolved = _sum_unresolved("egais_fls_prihod_review")
+    korrektirovki_unresolved = _sum_unresolved("egais_korrektirovka_review")
+
+    deficit = max(0.0, rashod_realizatsii - prihod_chisty)
+    explained = deficit <= 0.01 or (fls_unresolved + korrektirovki_unresolved) >= deficit - 0.5
+
+    return {
+        "prihod_chisty": round(prihod_chisty, 3),
+        "rashod_realizatsii": round(rashod_realizatsii, 3),
+        "deficit": round(deficit, 3),
+        "fls_unresolved": round(fls_unresolved, 3),
+        "korrektirovki_unresolved": round(korrektirovki_unresolved, 3),
+        "explained": explained,
+    }
+
+
 def add_fls_prihod_to_egais_snapshot(conn, kvartal, vydel, poroda, sortiment, obyom, sklad="",
                                       review_row_id=None):
     """Добавляет ОДИН объём — результат разбора одной строки очереди
@@ -1398,19 +1711,55 @@ def add_fls_prihod_to_egais_snapshot(conn, kvartal, vydel, poroda, sortiment, ob
         conn.commit()
 
 
-def delete_egais_snapshot_for_item(conn, item):
-    """Удаляет данные последней выгрузки ЕГАИС, относящиеся к ОДНОМУ выделу
-    делянки (kvartal/vydel из delyanka_item), не трогая записи остальных
-    выделов из того же снапшота. Ключи (kvartal, vydel) ищутся тем же
-    "умным" пересечением чисел выдела, что и в find_egais_entry_for_item -
-    иначе для составных выделов ничего бы не удалилось.
+def _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers):
+    """Ключи (kvartal, vydel), реально встречающиеся в данных ЕГАИС для
+    этого выдела - объединяет egais_operation (журнал, Этап 1 - основной,
+    полный источник) И egais_snapshot_detail (старый снимок - на случай
+    БД, где журнал ещё пуст, см. load_egais_snapshot/_load_egais_snapshot_legacy),
+    иначе для делянок с пустым "чистым" приходом (весь приход отложен на
+    ФЛС/задвоен - в старый снимок такие вообще не попадали, см.
+    save_egais_snapshot) найденных ключей не было бы вовсе, и удалить их
+    данные из журнала не получилось бы."""
+    keys = set()
+    for table in ("egais_operation", "egais_snapshot_detail"):
+        try:
+            rows = conn.execute(
+                f"SELECT DISTINCT kvartal, vydel FROM {table} WHERE kvartal=?",
+                (kvartal_clean,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        keys.update(
+            (kv, vd) for kv, vd in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd)
+        )
+    return keys
 
-    Чистит обе таблицы снапшота (egais_snapshot и egais_snapshot_detail) -
-    иначе после удаления детальной записи бот продолжал бы видеть старые
-    суммы через egais_snapshot, либо наоборот. Очереди ручного разбора
-    (egais_*_review) не трогаются - это история, а не снимок, удаление
-    выгрузки по одной делянке не должно "забывать", что корректировка или
-    неизвестная делянка когда-то были замечены.
+
+def _delete_egais_data_for_keys(conn, matched_keys):
+    for kv, vd in matched_keys:
+        conn.execute("DELETE FROM egais_operation WHERE kvartal=? AND vydel=?", (kv, vd))
+        conn.execute("DELETE FROM egais_snapshot_detail WHERE kvartal=? AND vydel=?", (kv, vd))
+        conn.execute("DELETE FROM egais_snapshot WHERE kvartal=? AND vydel=?", (kv, vd))
+
+
+def delete_egais_snapshot_for_item(conn, item):
+    """Удаляет данные выгрузки ЕГАИС, относящиеся к ОДНОМУ выделу делянки
+    (kvartal/vydel из delyanka_item), не трогая записи остальных выделов.
+    Ключи (kvartal, vydel) ищутся тем же "умным" пересечением чисел
+    выдела, что и в find_egais_entry_for_item - иначе для составных
+    выделов ничего бы не удалилось.
+
+    Чистит ВСЕ три таблицы данных ЕГАИС: журнал (egais_operation, Этап 1 -
+    основной источник, из которого теперь читает баланс, см.
+    load_egais_snapshot) и обе таблицы старого снимка (egais_snapshot,
+    egais_snapshot_detail) - раньше (до перевода баланса на журнал) чистка
+    только снимка была достаточна; теперь без удаления из журнала кнопка
+    "удалить данные ЕГАИС" молча переставала бы работать (данные
+    оставались бы видны, потому что баланс их всё равно читает из
+    нетронутого журнала). Очереди ручного разбора (egais_*_review) не
+    трогаются - это история, а не снимок, удаление выгрузки по одной
+    делянке не должно "забывать", что корректировка или неизвестная
+    делянка когда-то были замечены.
 
     Возвращает True, если что-то было удалено, иначе False (нечего
     удалять - выгрузка ЕГАИС не загружена вовсе, либо в ней нет данных по
@@ -1420,19 +1769,11 @@ def delete_egais_snapshot_for_item(conn, item):
     if not wanted_vydel_numbers:
         return False
 
-    rows = conn.execute(
-        "SELECT DISTINCT kvartal, vydel FROM egais_snapshot_detail WHERE kvartal=?",
-        (kvartal_clean,),
-    ).fetchall()
-    matched_keys = [
-        (kv, vd) for kv, vd in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd)
-    ]
+    matched_keys = _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers)
     if not matched_keys:
         return False
 
-    for kv, vd in matched_keys:
-        conn.execute("DELETE FROM egais_snapshot_detail WHERE kvartal=? AND vydel=?", (kv, vd))
-        conn.execute("DELETE FROM egais_snapshot WHERE kvartal=? AND vydel=?", (kv, vd))
+    _delete_egais_data_for_keys(conn, matched_keys)
     conn.commit()
     return True
 
@@ -1440,10 +1781,11 @@ def delete_egais_snapshot_for_item(conn, item):
 def delete_egais_snapshot_for_delyanka(conn, items):
     """Массовое удаление данных выгрузки ЕГАИС сразу по всем выделам ОДНОЙ
     делянки — та же "умная" логика сопоставления kvartal/vydel, что и в
-    delete_egais_snapshot_for_item (см. её докстринг), но одним проходом по
-    списку items делянки (см. get_delyanka_items) и одним commit в конце,
-    а не по одному выделу за раз - иначе пользователю пришлось бы заходить
-    в каждый выдел делянки по очереди, чтобы почистить ошибочную выгрузку.
+    delete_egais_snapshot_for_item (см. её докстринг, включая журнал), но
+    одним проходом по списку items делянки (см. get_delyanka_items) и
+    одним commit в конце, а не по одному выделу за раз - иначе
+    пользователю пришлось бы заходить в каждый выдел делянки по очереди,
+    чтобы почистить ошибочную выгрузку.
 
     Очереди ручного разбора (egais_*_review) не трогаются по тем же
     причинам, что и в delete_egais_snapshot_for_item.
@@ -1457,18 +1799,10 @@ def delete_egais_snapshot_for_delyanka(conn, items):
         wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
         if not wanted_vydel_numbers:
             continue
-        rows = conn.execute(
-            "SELECT DISTINCT kvartal, vydel FROM egais_snapshot_detail WHERE kvartal=?",
-            (kvartal_clean,),
-        ).fetchall()
-        matched_keys = [
-            (kv, vd) for kv, vd in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd)
-        ]
+        matched_keys = _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers)
         if not matched_keys:
             continue
-        for kv, vd in matched_keys:
-            conn.execute("DELETE FROM egais_snapshot_detail WHERE kvartal=? AND vydel=?", (kv, vd))
-            conn.execute("DELETE FROM egais_snapshot WHERE kvartal=? AND vydel=?", (kv, vd))
+        _delete_egais_data_for_keys(conn, matched_keys)
         touched.append(item)
     if touched:
         conn.commit()
@@ -1582,13 +1916,28 @@ def _parse_egais_reestr_impl(excel_path):
                 "с полным набором колонок."
             )
 
+    operations = _operations_from_raw_rows(rows)
+    return _aggregate_egais_operations(operations)
+
+
+def _aggregate_egais_operations(operations):
+    """Общая логика агрегации нормализованных операций ЕГАИС (формат
+    extract_egais_operations/egais_operation, см. _EGAIS_OPERATION_COLUMNS)
+    в {(kvartal, vydel): {...}} + stats — раньше это был единственный
+    проход по СЫРЫМ строкам Excel внутри _parse_egais_reestr_impl (см.
+    _operations_from_raw_rows выше — та же логика колонок, просто
+    вынесенная в отдельный шаг); теперь эта же проверенная логика (дедуп
+    задвоений, классификация крупности, отсрочка ФЛС, корректировки,
+    неизвестные типы) используется ЕЩЁ и load_egais_snapshot() для
+    агрегации НАКОПЛЕННОГО журнала (egais_operation) - и на одном свежем
+    файле, и на всей истории объёмы считаются идентично, одним кодом."""
     # 1) множество номеров документов, которые являются "вторичным приходом"
     #    (парой к "Расходу при внутреннем перемещении")
     linked_doc_numbers = set()
-    for row in rows:
-        if row.get(_EGAIS_COL_DOC_TYPE) == _EGAIS_DOC_TYPE_VNUTR_PEREMESHENIE:
-            linked = row.get(_EGAIS_COL_LINKED_DOC)
-            if _egais_not_empty(linked):
+    for op in operations:
+        if op["tip_dokumenta"] == _EGAIS_DOC_TYPE_VNUTR_PEREMESHENIE:
+            linked = op.get("nomer_svyazannogo_dokumenta")
+            if linked:
                 linked_doc_numbers.add(str(linked).strip())
 
     result = {}
@@ -1612,19 +1961,8 @@ def _parse_egais_reestr_impl(excel_path):
     neizvestnye_tipy = []  # строки с незнакомым "Тип документа" - см. _EGAIS_KNOWN_DOC_TYPES
     krupnost_ne_opredelena = []  # деловая древесина, у которой не вышло определить KR/SR/ML - см. _egais_krupnost_for_row
 
-    for row in rows:
-        doc_type = row.get(_EGAIS_COL_DOC_TYPE)
-
-        if not _egais_not_empty(doc_type) and not _egais_not_empty(row.get(_EGAIS_COL_SKLAD_NAME)):
-            # Не настоящая строка операции, а служебный "футер" отчёта ЕГАИС
-            # (последняя строка выгрузки вида "Записей: 832" / "Количество:
-            # 32" с итоговой суммой в "Объем") - у неё пуст и тип документа,
-            # и склад одновременно. Настоящих операций с пустым складом не
-            # бывает, поэтому такое сочетание однозначно отличает футер от
-            # реально незнакомого типа документа - без этой проверки футер
-            # каждый раз попадал бы в "неизвестные операции" и создавал
-            # ложную тревогу при любом импорте.
-            continue
+    for op in operations:
+        doc_type = op["tip_dokumenta"]
 
         if doc_type not in _EGAIS_KNOWN_DOC_TYPES:
             # Ничего не выбрасываем молча - собираем "как есть", чтобы
@@ -1632,19 +1970,19 @@ def _parse_egais_reestr_impl(excel_path):
             # это за тип документа (в т.ч. пустые/битые строки выгрузки).
             neizvestnye_tipy.append({
                 "tip_dokumenta": doc_type,
-                "kvartal": _egais_clean_number(row.get(_EGAIS_COL_KVARTAL)),
-                "vydel": _egais_clean_number(row.get(_EGAIS_COL_VYDEL)),
-                "sklad": str(row.get(_EGAIS_COL_SKLAD_NAME) or "").strip(),
-                "obyom": _egais_to_float(row.get(_EGAIS_COL_OBYOM)),
-                "data": str(row.get(_EGAIS_COL_DATA_DOK) or "").strip(),
-                "sotrudnik": str(row.get(_EGAIS_COL_SOTRUDNIK) or "").strip(),
-                "nomer_dokumenta": str(row.get(_EGAIS_COL_DOC_NUM) or "").strip(),
+                "kvartal": op.get("kvartal") or "",
+                "vydel": op.get("vydel") or "",
+                "sklad": op.get("sklad") or "",
+                "obyom": op.get("obyom") or 0.0,
+                "data": op.get("data_dokumenta") or "",
+                "sotrudnik": op.get("sotrudnik") or "",
+                "nomer_dokumenta": op.get("nomer_dokumenta") or "",
             })
             continue
 
         if doc_type == _EGAIS_DOC_TYPE_KORREKTIROVKA:
-            kvartal_str = _egais_clean_number(row.get(_EGAIS_COL_KVARTAL))
-            vydel_str = _egais_clean_number(row.get(_EGAIS_COL_VYDEL))
+            kvartal_str = op.get("kvartal") or ""
+            vydel_str = op.get("vydel") or ""
             if not kvartal_str and not vydel_str:
                 continue
             delyanka_key = (kvartal_str, vydel_str)
@@ -1657,30 +1995,33 @@ def _parse_egais_reestr_impl(excel_path):
                 "fls_prihod": [],
             })
             entry.setdefault("korrektirovki", []).append({
-                "data": str(row.get(_EGAIS_COL_DATA_DOK) or "").strip(),
-                "sklad": str(row.get(_EGAIS_COL_SKLAD_NAME) or "").strip(),
-                "poroda": str(row.get(_EGAIS_COL_PORODA) or "").strip(),
-                "obyom": _egais_to_float(row.get(_EGAIS_COL_OBYOM)),
-                "sotrudnik": str(row.get(_EGAIS_COL_SOTRUDNIK) or "").strip(),
-                "nomer_dokumenta": str(row.get(_EGAIS_COL_DOC_NUM) or "").strip(),
+                "data": op.get("data_dokumenta") or "",
+                "sklad": op.get("sklad") or "",
+                "poroda": op.get("poroda") or "",
+                "obyom": op.get("obyom") or 0.0,
+                "sotrudnik": op.get("sotrudnik") or "",
+                "nomer_dokumenta": op.get("nomer_dokumenta") or "",
             })
             continue
 
         if doc_type != _EGAIS_DOC_TYPE_PRIHOD:
             # "Расход при внутреннем перемещении" (уже разобран выше на
-            # linked_doc_numbers) и "Расход при реализации потребителю"
-            # (продажа - объём не прибавляет) - в факт не идут.
+            # linked_doc_numbers), "Расход при реализации потребителю"
+            # (продажа - объём не прибавляет) и "Перевод" (переклассификация
+            # уже учтённой древесины, не новое поступление) - в факт этой
+            # функции (только приход) не идут. Расход-реализация и
+            # накопительная сверка приход/расход считаются отдельно, по
+            # журналу - см. compute_egais_balance_check.
             continue
         prihod_total += 1
 
-        doc_num_raw = row.get(_EGAIS_COL_DOC_NUM)
-        doc_num = str(doc_num_raw).strip() if _egais_not_empty(doc_num_raw) else ""
-        osnovanie = row.get(_EGAIS_COL_OSNOVANIE)
-        osnovanie_num = row.get(_EGAIS_COL_OSNOVANIE_NUM)
-        sklad_name_check = str(row.get(_EGAIS_COL_SKLAD_NAME) or "").strip()
+        doc_num = str(op.get("nomer_dokumenta") or "").strip()
+        osnovanie = op.get("osnovanie")
+        osnovanie_num = op.get("nomer_osnovaniya")
+        sklad_name_check = str(op.get("sklad") or "").strip()
 
         is_linked_pair = bool(doc_num) and doc_num in linked_doc_numbers
-        has_osnovanie = _egais_not_empty(osnovanie) or _egais_not_empty(osnovanie_num)
+        has_osnovanie = bool(osnovanie) or bool(osnovanie_num)
         is_fls_sklad = sklad_name_check.startswith("ФЛС")
 
         # "Основание"/"Номер основания" заполнены - надёжный признак
@@ -1703,13 +2044,13 @@ def _parse_egais_reestr_impl(excel_path):
         # исключение.
         if is_linked_pair or (has_osnovanie and not is_fls_sklad):
             prihod_excluded += 1
-            obyom_excluded += _egais_to_float(row.get(_EGAIS_COL_OBYOM))
+            obyom_excluded += op.get("obyom") or 0.0
             continue
 
         prihod_used += 1
 
-        kvartal_str = _egais_clean_number(row.get(_EGAIS_COL_KVARTAL))
-        vydel_str = _egais_clean_number(row.get(_EGAIS_COL_VYDEL))
+        kvartal_str = op.get("kvartal") or ""
+        vydel_str = op.get("vydel") or ""
         if not kvartal_str and not vydel_str:
             # совсем без привязки к участку - пропускаем строку, чтобы не
             # собрать мусорный ключ ("", "")
@@ -1731,18 +2072,16 @@ def _parse_egais_reestr_impl(excel_path):
                 seen.append(sklad_name)
                 entry["nazvanie_sklada"] = "; ".join(seen)
 
-        poroda = str(row.get(_EGAIS_COL_PORODA) or "").strip()
+        poroda = str(op.get("poroda") or "").strip()
         if not poroda:
             continue
 
-        godnost = str(row.get(_EGAIS_COL_GODNOST) or "").strip()
+        godnost = str(op.get("tehnicheskaya_godnost") or "").strip()
         if godnost == "Дровяная древесина":
             sortiment = "дрова"
         else:
             krupnost = _egais_krupnost_for_row(
-                poroda,
-                row.get(_EGAIS_COL_NOMENKLATURA),
-                row.get(_EGAIS_COL_GRUPPA_DIAMETROV),
+                poroda, op.get("nomenklatura"), op.get("gruppa_diametrov"),
             )
             if krupnost is None:
                 # Не смогли достать диаметр/группу ни из "Номенклатуры",
@@ -1752,18 +2091,18 @@ def _parse_egais_reestr_impl(excel_path):
                 # в статистике, чтобы это было видно на экране импорта.
                 sortiment = "б/р"
                 krupnost_ne_opredelena.append({
-                    "kvartal": _egais_clean_number(row.get(_EGAIS_COL_KVARTAL)),
-                    "vydel": _egais_clean_number(row.get(_EGAIS_COL_VYDEL)),
+                    "kvartal": kvartal_str,
+                    "vydel": vydel_str,
                     "poroda": poroda,
-                    "nomenklatura": str(row.get(_EGAIS_COL_NOMENKLATURA) or "").strip(),
-                    "gruppa_diametrov": str(row.get(_EGAIS_COL_GRUPPA_DIAMETROV) or "").strip(),
-                    "obyom": _egais_to_float(row.get(_EGAIS_COL_OBYOM)),
+                    "nomenklatura": str(op.get("nomenklatura") or "").strip(),
+                    "gruppa_diametrov": str(op.get("gruppa_diametrov") or "").strip(),
+                    "obyom": op.get("obyom") or 0.0,
                     "nomer_dokumenta": doc_num,
                 })
             else:
                 sortiment = krupnost
 
-        obyom = _egais_to_float(row.get(_EGAIS_COL_OBYOM))
+        obyom = op.get("obyom") or 0.0
 
         # Приход на склад ФЛС (верхний склад делянки) - редкий, но
         # легальный случай полной цепочки складов: Приход-ФЛС →
@@ -1779,7 +2118,7 @@ def _parse_egais_reestr_impl(excel_path):
         if sklad_name.startswith("ФЛС"):
             fls_total += 1
             entry.setdefault("fls_prihod", []).append({
-                "data": str(row.get(_EGAIS_COL_DATA_DOK) or "").strip(),
+                "data": op.get("data_dokumenta") or "",
                 "sklad": sklad_name,
                 "poroda": poroda,
                 "sortiment": sortiment,
@@ -1858,6 +2197,24 @@ def _egais_not_empty(value):
         return value == value  # False для NaN
     text = str(value).strip()
     return bool(text) and text.lower() != "nan"
+
+
+def _egais_str(value):
+    """Приводит сырую ячейку выгрузки к строке, НЕ теряя пустоту на NaN —
+    в отличие от наивного str(value or "").strip(), которое на NaN молча
+    портит данные. _read_egais_rows (через pandas df.where(df.notna(),
+    None)) подменяет NaN на None не во всех колонках — на практике живой
+    float('nan') всё же встречается (проверено 24.09.2026 на реальной
+    выгрузке, колонка "Основание"), а float('nan') в Python ИСТИНЕН как
+    bool (не равен нулю) — поэтому "value or ''" возвращает сам nan, и
+    str(nan) даёт буквальную строку "nan", которая дальше читается как
+    непустое значение (например, ошибочно включает дедуп задвоений
+    приходов — см. регрессию 24.09.2026: без этой функции почти весь
+    приход в выгрузке ошибочно считался "вторичным"). _egais_not_empty
+    уже умеет отличать такой NaN (в обеих формах — float и уже ставшую
+    строку "nan") от настоящего значения — переиспользуем её вместо
+    повторения той же проверки."""
+    return str(value).strip() if _egais_not_empty(value) else ""
 
 
 def _egais_clean_number(value):
@@ -2068,8 +2425,7 @@ def _save_egais_review_queues(conn, loaded_egais_data, now):
 
 
 def load_egais_snapshot(conn):
-    """Обратная операция к save_egais_snapshot(): восстанавливает из
-    egais_snapshot_detail данные ТОЧНО в том формате, что возвращает
+    """Данные ЕГАИС ТОЧНО в том формате, что возвращает
     parse_egais_reestr()/parse_egais_reestr_with_stats() —
     {(kvartal, vydel): {"nazvanie_sklada", "kvartal", "vydel", "porody",
     "korrektirovki"}} — без потери детализации (сорта ЕГАИС, корректировки
@@ -2078,11 +2434,46 @@ def load_egais_snapshot(conn):
     screens/raskhod/screen.py), а не только сумму, которой довольствуется
     Telegram-бот через egais_snapshot/_load_egais_grouped_for_vydel.
 
+    С появлением журнала (egais_operation, Этап 1) источник —
+    НАКОПЛЕННЫЙ журнал, агрегированный через _aggregate_egais_operations
+    (та же логика, что и в parse_egais_reestr на свежем файле) - а не
+    egais_snapshot_detail (снимок ПОСЛЕДНЕГО импорта, который при
+    ежедневных выгрузках-дельтах по всем кварталам заменял бы данные по
+    затронутым делянкам и терял накопленную историю, см. обсуждение с
+    пользователем 24.09.2026). Если журнал ещё пуст (например, все
+    имеющиеся импорты были СДЕЛАНЫ до появления этой таблицы, Этап 1, и
+    файл с тех пор не переимпортировали) — подстраховка старым снимком
+    (_load_egais_snapshot_legacy), чтобы уже загруженные данные не
+    "исчезли" из интерфейса до следующего импорта.
+
     Возвращает (data, imported_at):
-        data: dict в формате loaded_egais_data, {} если снапшот пуст;
+        data: dict в формате loaded_egais_data, {} если данных нет;
         imported_at: str | None — время последнего импорта из БД (как
-        сохранено save_egais_snapshot, "%Y-%m-%d %H:%M:%S"), либо None,
-        если снапшота ещё не было."""
+        сохранено save_egais_operations/save_egais_snapshot,
+        "%Y-%m-%d %H:%M:%S"), либо None, если импортов ещё не было."""
+    try:
+        rows = conn.execute(
+            f"SELECT {', '.join(_EGAIS_OPERATION_COLUMNS)} FROM egais_operation"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+
+    if not rows:
+        return _load_egais_snapshot_legacy(conn)
+
+    operations = [dict(zip(_EGAIS_OPERATION_COLUMNS, row)) for row in rows]
+    data, _stats = _aggregate_egais_operations(operations)
+    imported_at = max(
+        (op["imported_at"] for op in operations if op.get("imported_at")),
+        default=None,
+    )
+    return data, imported_at
+
+
+def _load_egais_snapshot_legacy(conn):
+    """Старый путь load_egais_snapshot — читает egais_snapshot_detail
+    (снимок ПОСЛЕДНЕГО импорта) напрямую. Подстраховка на случай, если
+    журнал (egais_operation) ещё пуст — см. докстринг load_egais_snapshot."""
     try:
         rows = conn.execute(
             "SELECT kvartal, vydel, imported_at, nazvanie_sklada, porody_json, korrektirovki_json "

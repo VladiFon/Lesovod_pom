@@ -1,28 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-Генератор "Акта освидетельствования лесосеки" — v2 (Этап "шаблон
-пользователя").
+Генератор "Акта освидетельствования лесосеки" — v3 (официальный бланк).
 
-В отличие от прошлой версии, документ больше НЕ строится с нуля через
-doc.add_paragraph()/add_table() — вместо этого берётся реальный бланк
-пользователя (templates/akt_osvidetelstvovaniya_shablon.docx, табличная
-вёрстка с рамками-подчёркиваниями на уровне ячеек) и в него точечно
-вписывается текст в заранее определённые ячейки (см. akt_template_fill.py).
-Всё остальное — жирные подписи, рамки, объединения ячеек — берётся из
-шаблона без изменений.
+Документ строится не с нуля, а на основе реального официального бланка
+(templates/akt_osvidetelstvovaniya_shablon.docx, табличная вёрстка с
+рамками-подчёркиваниями на уровне ячеек) — в него точечно вписывается
+текст в заранее определённые ячейки (см. akt_template_fill.py). Всё
+остальное — жирные подписи, рамки, объединения ячеек — берётся из шаблона
+без изменений, поэтому внешний вид документа не меняется от заполнения.
 
 Публичный интерфейс (generate_akt_osvidetelstvovaniya /
 generate_blank_akt_template) СОХРАНЁН как в предыдущей версии — роутер
 (app/routers/inspection.py) менять не нужно.
 
-Новое поле act_data (по сравнению с прошлой версией):
-  - vid_lesoseki — вид лесосеки (ГП/ССР/ВСР и т.п.), второе поле в строке
-    "произвели освидетельствование ___лесосеки___ ___ГП___" бланка.
-
-Ограничение бланка (физическое, из вёрстки таблицы): в верхнем блоке
-"комиссия" помещается максимум 2 члена комиссии (d["chleny"][:2]) — если
-нужно больше, придётся редактировать сам файл-шаблон (добавить строку в
-таблицу), это не вопрос кода.
+Отличия официального бланка от прежнего пользовательского шаблона:
+  - слово "лесосеки" в строке "произвели освидетельствование ___лесосеки"
+    теперь напечатано в самом бланке — заполняется только вид лесосеки
+    (ГП/ССР/ВСР и т.п.), vid_lesoseki, сразу после него;
+  - верхний блок "уполномоченные представители" вмещает до 3 членов
+    комиссии (d["chleny"][:3]) вместо прежних 2 — если нужно больше,
+    придётся редактировать сам файл-шаблон (добавить строку в таблицу);
+  - в бланке нет отдельных линий для даты выдачи лесорубочного билета и
+    для сроков окончания заготовки/вывозки — эти даты в документе не
+    печатаются (данные при этом остаются в карточке делянки).
 """
 import os
 from pathlib import Path
@@ -97,9 +97,6 @@ def generate_akt_osvidetelstvovaniya(delyanka: dict, items: list, sortiment_tota
     act_day, act_month, act_year = _split_date(d.get("act_date"))
     osn_day, osn_month, osn_year = _split_date(d.get("osnovanie_data"))
     izv_day, izv_month, izv_year = _split_date(d.get("izveshchenie_data"))
-    bilet_day, bilet_month, bilet_year = _split_date(delyanka.get("data_lesorubochnogo_bileta"))
-    zag_day, zag_month, zag_year = _split_date(delyanka.get("srok_okonchaniya_zagotovki"))
-    vyv_day, vyv_month, vyv_year = _split_date(delyanka.get("srok_okonchaniya_vyvozki"))
 
     st = sortiment_totals or {}
     has_sortiment_data = bool(st)
@@ -112,17 +109,15 @@ def generate_akt_osvidetelstvovaniya(delyanka: dict, items: list, sortiment_tota
     if has_sortiment_data:
         total_limit = sum((st.get(k) or {}).get("limit", 0) for k in ("KR", "SR", "ML", "DROVA"))
         total_fakt = sum((st.get(k) or {}).get("fakt", 0) for k in ("KR", "SR", "ML", "DROVA"))
-        v_tom_chisle_limit = sum((st.get(k) or {}).get("limit", 0) for k in ("KR", "SR", "ML"))
-        v_tom_chisle_fakt = sum((st.get(k) or {}).get("fakt", 0) for k in ("KR", "SR", "ML"))
     else:
-        total_limit = total_fakt = v_tom_chisle_limit = v_tom_chisle_fakt = ""
+        total_limit = total_fakt = ""
 
     chleny_raw = d.get("chleny") or []
     chleny_lines = [_dolzhnost_fio(c.get("dolzhnost"), c.get("fio")) for c in chleny_raw]
 
     fill_data = {
         "act_day": act_day, "act_month": act_month, "act_year": act_year,
-        "oblast_rayon": d.get("oblast_rayon", ""),
+        "oblast": d.get("oblast", ""), "rayon": d.get("rayon", ""),
         "lesxoz": lesxoz, "lesnichestvo": lesnichestvo,
         "predstavitel_lesxoza": d.get("predstavitel_lesxoza_dolzhnost_fio") or _dolzhnost_fio(
             d.get("predstavitel_lesxoza_dolzhnost"), d.get("predstavitel_lesxoza_fio")),
@@ -132,24 +127,17 @@ def generate_akt_osvidetelstvovaniya(delyanka: dict, items: list, sortiment_tota
         "osnovanie_nomer": d.get("osnovanie_nomer", ""),
         "osnovanie_day": osn_day, "osnovanie_month": osn_month, "osnovanie_year": osn_year,
         "izveshchenie_day": izv_day, "izveshchenie_month": izv_month, "izveshchenie_year": izv_year,
-        "predsedatel_dolzhnost_fio": _dolzhnost_fio(
-            d.get("predsedatel_dolzhnost"), d.get("predsedatel_fio")),
         "chleny": chleny_lines,
-        "vid_osvidetelstvovaniya": d.get("vid_osvidetelstvovaniya") or "лесосеки",
         "vid_lesoseki": d.get("vid_lesoseki", ""),
         "kvartal": kv_text, "vydel": vyd_text,
         "bilet_nomer": delyanka.get("nomer_lesorubochnogo_bileta", ""),
-        "bilet_day": bilet_day, "bilet_month": bilet_month, "bilet_year": bilet_year,
         "sposob_rubki": d.get("sposob_rubki") or "сплошной",
         "sposob_ucheta": d.get("sposob_ucheta") or "по площади",
         "sposob_ochistki": d.get("sposob_ochistki") or
             "измельчение и разбрасывание порубочных остатков на лесосеке",
-        "srok_zag_day": zag_day, "srok_zag_month": zag_month, "srok_zag_year": zag_year,
-        "srok_vyv_day": vyv_day, "srok_vyv_month": vyv_month, "srok_vyv_year": vyv_year,
         "ploshad_razresheno": _fmt_num(d.get("ploshad_razresheno")),
         "ploshad_fakt": _fmt_num(d.get("ploshad_fakt")),
         "obyom_vsego_limit": _fmt_num(total_limit), "obyom_vsego_fakt": _fmt_num(total_fakt),
-        "v_tom_chisle_limit": _fmt_num(v_tom_chisle_limit), "v_tom_chisle_fakt": _fmt_num(v_tom_chisle_fakt),
         "sortiment_totals": {
             k: {"limit": sv(k, "limit"), "fakt": sv(k, "fakt")}
             for k in ("KR", "SR", "ML", "DROVA", "HVOROST")
