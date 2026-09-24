@@ -1169,6 +1169,37 @@ function EgaisRaskhodTable({ egais }) {
   );
 }
 
+// Баннер "расход по ЕГАИС не сходится с приходом" — см. raskhod_v2.
+// compute_egais_balance_check. Два состояния: "explained" (дефицит
+// покрывается неразобранным приходом на ФЛС/корректировками — просто
+// напоминание, где разобрать) и настоящая тревога (ни один из известных
+// журналу источников не объясняет дефицит — скорее всего "холодный
+// старт": делянка начала отгружаться раньше, чем в приложение стали
+// загружать выгрузки ЕГАИС).
+function EgaisBalanceBanner({ check }) {
+  if (!check?.has_history || !(check.deficit > 0.01)) return null;
+  if (check.explained) {
+    return (
+      <div className="rounded-lg border border-oak/40 bg-oak-soft px-3.5 py-2.5 text-sm text-ink">
+        <span className="font-semibold text-oak">Расход по ЕГАИС временно больше прихода на {check.deficit.toFixed(2)} м³.</span>{" "}
+        Это покрывается ещё не разобранными записями (приход на ФЛС: {check.fls_unresolved.toFixed(2)} м³
+        {check.korrektirovki_unresolved > 0 && <>, корректировки остатков: {check.korrektirovki_unresolved.toFixed(2)} м³</>}) —
+        разберите их на экране «Разбор ЕГАИС», и баланс сойдётся.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-error/40 bg-error-soft px-3.5 py-2.5 text-sm text-ink">
+      <span className="font-semibold text-error">
+        Расход по ЕГАИС больше прихода на {check.deficit.toFixed(2)} м³, и это не объясняется данными в журнале.
+      </span>{" "}
+      Похоже, делянка начала отгружаться раньше, чем в приложение стали загружать выгрузки ЕГАИС («холодный старт» —
+      история движения до этого момента в журнале не накопилась). Сделайте отдельную полную выгрузку «Реестр движения
+      по складам» именно по этой делянке с самого начала заготовки и импортируйте её — баланс досчитается сам.
+    </div>
+  );
+}
+
 function ItemWorkspace({ item, delyankaId, egaisVersion }) {
   const toast = useToast();
   const [balance, setBalance] = useState(null);
@@ -1182,6 +1213,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
   const [selectedPoroda, setSelectedPoroda] = useState(null);
   const [journal, setJournal] = useState(null);
   const [journalLoading, setJournalLoading] = useState(false);
+  const [balanceCheck, setBalanceCheck] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1206,6 +1238,14 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
       setEgais(egaisRes);
     } catch (e) {
       setEgais(null);
+    }
+    // Сверка "расход не больше прихода" по журналу — та же логика:
+    // отсутствие данных не должно мешать остальному экрану.
+    try {
+      const checkRes = await api.get(`/raskhod/items/${item.id}/egais/balance-check`);
+      setBalanceCheck(checkRes);
+    } catch (e) {
+      setBalanceCheck(null);
     }
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1308,6 +1348,8 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
           onSelectPoroda={setSelectedPoroda}
         />
       </Card>
+
+      <EgaisBalanceBanner check={balanceCheck} />
 
       <Card>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">

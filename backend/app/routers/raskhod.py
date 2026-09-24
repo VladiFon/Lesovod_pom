@@ -100,6 +100,19 @@ def get_item_egais_journal(item_id: int, conn=Depends(get_conn)):
     return {"rows": legacy_raskhod.list_egais_operations_for_item(conn, item)}
 
 
+@router.get("/items/{item_id}/egais/balance-check")
+def get_item_egais_balance_check(item_id: int, conn=Depends(get_conn)):
+    """Сверка "расход не может быть больше прихода" по накопленному
+    журналу ЕГАИС для этого выдела (см. raskhod_v2.compute_egais_balance_check).
+    None (has_history=False), если по выделу в журнале вообще нет строк -
+    это не дефицит, а просто отсутствие загруженных данных."""
+    item = _get_item(conn, item_id)
+    check = legacy_raskhod.compute_egais_balance_check(conn, item)
+    if check is None:
+        return {"has_history": False}
+    return {"has_history": True, **check}
+
+
 @router.delete("/items/{item_id}/egais")
 def delete_item_egais(item_id: int, user=Depends(require_permission("raskhod.edit")),
                        conn=Depends(get_conn)):

@@ -1124,6 +1124,15 @@ _EGAIS_DOC_TYPE_REALIZATSIYA = "Расход при реализации пот�
 # факт молча, а собираются отдельным списком на каждой делянке
 # (entry["korrektirovki"]) - дата/сотрудник/объём видны на экране.
 _EGAIS_DOC_TYPE_KORREKTIROVKA = "Корректировка остатков"
+# "Перевод" - переклассификация УЖЕ учтённой древесины между сортами/
+# номенклатурой на том же складе (по Приказу), НЕ новое поступление на
+# склад - подтверждено пользователем на реальном примере выгрузки
+# (24.09.2026: кв.21, 16.09.2026, порода Ель - Расход при внутр.
+# перемещении -13.304 + Приход +3 + Перевод +10.304 = 0 день в день).
+# Объём нейтрален - не идёт ни в приход, ни в расход (см.
+# compute_egais_balance_check), но и не должен шуметь в "неизвестных
+# операциях" при каждом импорте, раз тип документа опознан и осмыслен.
+_EGAIS_DOC_TYPE_PEREVOD = "Перевод"
 
 # Любой "Тип документа", который встретится в выгрузке и не входит в этот
 # список - раньше молча игнорировался. Теперь такие строки не пропадают:
@@ -1135,6 +1144,7 @@ _EGAIS_KNOWN_DOC_TYPES = {
     _EGAIS_DOC_TYPE_VNUTR_PEREMESHENIE,
     _EGAIS_DOC_TYPE_REALIZATSIYA,
     _EGAIS_DOC_TYPE_KORREKTIROVKA,
+    _EGAIS_DOC_TYPE_PEREVOD,
 }
 
 # Автосгенерировано разбиением screens/raskhod.py на модули по экрану.
@@ -1508,6 +1518,104 @@ def list_egais_operations(conn, kvartal=None, vydel=None, tip_dokumenta=None, li
     return [dict(zip(_EGAIS_OPERATION_COLUMNS, row)) for row in rows]
 
 
+def _egais_linked_doc_numbers(conn):
+    """Множество номеров документов-приходов, которые являются "вторичным"
+    (парным) приходом к "Расходу при внутреннем перемещении" - см.
+    докстринг parse_egais_reestr про задвоение. Строится по ВСЕМУ журналу
+    (всем накопленным импортам), а не по одному файлу, как в
+    _parse_egais_reestr_impl - при ежедневных выгрузках-дельтах пара
+    приход/расход может обнаружиться в РАЗНЫХ импортах."""
+    rows = conn.execute(
+        "SELECT DISTINCT nomer_svyazannogo_dokumenta FROM egais_operation "
+        "WHERE tip_dokumenta=? AND nomer_svyazannogo_dokumenta != ''",
+        (_EGAIS_DOC_TYPE_VNUTR_PEREMESHENIE,),
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+def compute_egais_balance_check(conn, item):
+    """Сверка "расход не может быть больше прихода" по журналу ЕГАИС
+    (egais_operation) для ОДНОГО выдела делянки - НАКОПИТЕЛЬНО по всей
+    сохранённой истории, а не по одному импорту (специально для
+    ежедневных выгрузок-дельт по всем кварталам, см. обсуждение с
+    пользователем 24.09.2026).
+
+    Логика склада: приход не может быть меньше расхода-реализации (продали
+    больше, чем приняли на склад, без корректировки остатков - физически
+    невозможно). Если это всё же произошло в данных - значит либо
+    неразобранный приход на ФЛС ещё не подтверждён (см.
+    egais_fls_prihod_review), либо была корректировка остатков, либо у
+    делянки есть более ранняя история движения, не попавшая в текущий
+    журнал ("холодный старт" - делянка начала отгружаться раньше, чем в
+    приложение стали загружать выгрузки ЕГАИС).
+
+    "Перевод" и "Расход при внутреннем перемещении" в приход/расход не
+    идут - оба нейтральны (см. _EGAIS_DOC_TYPE_PEREVOD, докстринг
+    parse_egais_reestr).
+
+    Возвращает None, если по этому выделу в журнале вообще нет строк
+    (значит, выгрузку по нему ещё не загружали - это не дефицит, а просто
+    отсутствие данных). Иначе dict:
+        prihod_chisty, rashod_realizatsii, deficit (>=0),
+        fls_unresolved, korrektirovki_unresolved,
+        explained (bool - дефицит покрывается неразобранными ФЛС/
+        корректировками, ничего дополнительно делать не нужно, кроме как
+        разобрать именно их)."""
+    kvartal_clean = _egais_clean_number(item.get("kvartal"))
+    wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
+    if not kvartal_clean or not wanted_vydel_numbers:
+        return None
+
+    rows = conn.execute(
+        "SELECT tip_dokumenta, nomer_dokumenta, osnovanie, nomer_osnovaniya, sklad, vydel, obyom "
+        "FROM egais_operation WHERE kvartal=?",
+        (kvartal_clean,),
+    ).fetchall()
+    matched = [r for r in rows if wanted_vydel_numbers & _extract_vydel_numbers(r[5])]
+    if not matched:
+        return None
+
+    linked = _egais_linked_doc_numbers(conn)
+    prihod_chisty = 0.0
+    rashod_realizatsii = 0.0
+    for tip, nomer, osnovanie, osnovanie_num, sklad, vydel, obyom in matched:
+        obyom = obyom or 0.0
+        if tip == _EGAIS_DOC_TYPE_PRIHOD:
+            is_linked_pair = bool(nomer) and nomer in linked
+            has_osnovanie = bool(osnovanie) or bool(osnovanie_num)
+            is_fls = (sklad or "").startswith("ФЛС")
+            if is_linked_pair or (has_osnovanie and not is_fls):
+                continue  # вторичный приход (задвоение) - не считаем
+            if is_fls:
+                continue  # ФЛС-приход - отдельно, через fls_unresolved ниже
+            prihod_chisty += obyom
+        elif tip == _EGAIS_DOC_TYPE_REALIZATSIYA:
+            rashod_realizatsii += abs(obyom)
+        # "Расход при внутреннем перемещении", "Перевод" - нейтральны.
+
+    def _sum_unresolved(table):
+        rows = conn.execute(
+            f"SELECT vydel, obyom FROM {table} WHERE kvartal=? AND status='new'",
+            (kvartal_clean,),
+        ).fetchall()
+        return sum(o or 0.0 for vd, o in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd))
+
+    fls_unresolved = _sum_unresolved("egais_fls_prihod_review")
+    korrektirovki_unresolved = _sum_unresolved("egais_korrektirovka_review")
+
+    deficit = max(0.0, rashod_realizatsii - prihod_chisty)
+    explained = deficit <= 0.01 or (fls_unresolved + korrektirovki_unresolved) >= deficit - 0.5
+
+    return {
+        "prihod_chisty": round(prihod_chisty, 3),
+        "rashod_realizatsii": round(rashod_realizatsii, 3),
+        "deficit": round(deficit, 3),
+        "fls_unresolved": round(fls_unresolved, 3),
+        "korrektirovki_unresolved": round(korrektirovki_unresolved, 3),
+        "explained": explained,
+    }
+
+
 def add_fls_prihod_to_egais_snapshot(conn, kvartal, vydel, poroda, sortiment, obyom, sklad="",
                                       review_row_id=None):
     """Добавляет ОДИН объём — результат разбора одной строки очереди
@@ -1866,8 +1974,12 @@ def _parse_egais_reestr_impl(excel_path):
 
         if doc_type != _EGAIS_DOC_TYPE_PRIHOD:
             # "Расход при внутреннем перемещении" (уже разобран выше на
-            # linked_doc_numbers) и "Расход при реализации потребителю"
-            # (продажа - объём не прибавляет) - в факт не идут.
+            # linked_doc_numbers), "Расход при реализации потребителю"
+            # (продажа - объём не прибавляет) и "Перевод" (переклассификация
+            # уже учтённой древесины, не новое поступление) - в факт этой
+            # функции (только приход) не идут. Расход-реализация и
+            # накопительная сверка приход/расход считаются отдельно, по
+            # журналу - см. compute_egais_balance_check.
             continue
         prihod_total += 1
 
