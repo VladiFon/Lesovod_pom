@@ -89,6 +89,17 @@ def get_item_egais(item_id: int, conn=Depends(get_conn)):
     }
 
 
+@router.get("/items/{item_id}/egais/journal")
+def get_item_egais_journal(item_id: int, conn=Depends(get_conn)):
+    """Журнал ЕГАИС (сырые строки, накопительно) по этому выделу — в
+    отличие от /items/{item_id}/egais (суммы из ПОСЛЕДНЕГО снимка), это
+    полная история всех импортированных строк выгрузки за всё время, см.
+    raskhod_v2.list_egais_operations_for_item. Для видимого экрана
+    "Журнал ЕГАИС"."""
+    item = _get_item(conn, item_id)
+    return {"rows": legacy_raskhod.list_egais_operations_for_item(conn, item)}
+
+
 @router.delete("/items/{item_id}/egais")
 def delete_item_egais(item_id: int, user=Depends(require_permission("raskhod.edit")),
                        conn=Depends(get_conn)):
@@ -176,7 +187,19 @@ def _run_import_egais(task_id: str, xlsx_path: str):
         webext.set_task_running(conn, task_id)
         loaded = legacy_raskhod.parse_egais_reestr(xlsx_path)
         legacy_raskhod.save_egais_snapshot(conn, loaded)
-        webext.set_task_done(conn, task_id, result={"imported": True})
+        # Журнал (egais_operation) — копится отдельно от снимка выше и
+        # НИКОГДА не перезаписывается: каждая строка выгрузки сохраняется
+        # построчно с дедупликацией по естественному ключу (см. докстринг
+        # save_egais_operations), поэтому подходит для ежедневных
+        # выгрузок-"дельт" по всем кварталам, в отличие от снимка, который
+        # рассчитан на выгрузку "с начала" за один раз.
+        operations = legacy_raskhod.extract_egais_operations(xlsx_path)
+        added = legacy_raskhod.save_egais_operations(conn, operations)
+        webext.set_task_done(conn, task_id, result={
+            "imported": True,
+            "journal_rows_total": len(operations),
+            "journal_rows_added": added,
+        })
     except Exception as e:  # noqa: BLE001
         webext.set_task_error(conn, task_id, str(e))
     finally:
@@ -193,6 +216,17 @@ def import_egais(background_tasks: BackgroundTasks, file: UploadFile = File(...)
     task_id = webext.create_task(conn, "import_egais")
     background_tasks.add_task(_run_import_egais, task_id, str(dest))
     return {"task_id": task_id}
+
+
+@router.get("/egais/journal")
+def get_egais_journal(kvartal: Optional[str] = None, vydel: Optional[str] = None,
+                       tip_dokumenta: Optional[str] = None, limit: int = 500,
+                       user=Depends(require_permission("raskhod.edit")), conn=Depends(get_conn)):
+    """Журнал ЕГАИС без привязки к конкретному выделу — общий просмотр/
+    поиск по накопленной истории (см. raskhod_v2.list_egais_operations)."""
+    return {"rows": legacy_raskhod.list_egais_operations(
+        conn, kvartal=kvartal, vydel=vydel, tip_dokumenta=tip_dokumenta, limit=limit,
+    )}
 
 
 # --------------------------------------------------------------------------- #

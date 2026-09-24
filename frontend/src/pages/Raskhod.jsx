@@ -53,8 +53,13 @@ function ImportEgaisModal({ open, onClose }) {
       const formData = new FormData();
       formData.append("file", file);
       const { task_id } = await api.upload("/raskhod/egais/import", formData);
-      await pollTask(task_id, { timeoutMs: 10 * 60 * 1000 });
-      toast.show({ tone: "success", title: "Выгрузка ЕГАИС импортирована" });
+      const result = await pollTask(task_id, { timeoutMs: 10 * 60 * 1000 });
+      const added = result?.journal_rows_added;
+      toast.show({
+        tone: "success",
+        title: "Выгрузка ЕГАИС импортирована",
+        description: added != null ? `В журнал добавлено новых записей: ${added} из ${result.journal_rows_total} в файле.` : undefined,
+      });
       setFile(null);
       onClose();
     } catch (e) {
@@ -996,9 +1001,9 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
  * колонки KR/SR/ML/DROVA, что и в БалансТаблице — не два разных среза,
  * что раньше ошибочно считалось несовместимым.
  */
-function NaryadyEgaisToggle({ view, onChange, egaisCount }) {
+function NaryadyEgaisToggle({ view, onChange, egaisCount, journalCount }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       <button
         onClick={() => onChange("naryady")}
         className={["h-8 px-3.5 rounded-[9px] text-[12.5px] font-semibold transition-colors border",
@@ -1014,6 +1019,92 @@ function NaryadyEgaisToggle({ view, onChange, egaisCount }) {
         Расход по ЕГАИС
         {egaisCount > 0 && <StatusBadge tone="info" label={egaisCount} dot={false} className="ml-1.5" />}
       </button>
+      <button
+        onClick={() => onChange("journal")}
+        className={["h-8 px-3.5 rounded-[9px] text-[12.5px] font-semibold transition-colors border",
+          view === "journal" ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted hover:bg-hover"].join(" ")}
+      >
+        Журнал ЕГАИС
+        {journalCount > 0 && <StatusBadge tone="info" label={journalCount} dot={false} className="ml-1.5" />}
+      </button>
+    </div>
+  );
+}
+
+// Тип документа ЕГАИС -> как показать строку в журнале. "Расход при
+// внутреннем перемещении" помечен нейтральным (не приход и не расход
+// делянки — см. чат с пользователем 24.09.2026: он либо задваивал бы
+// приход, либо относится к перемещению на чужой склад вне этой выгрузки),
+// "Перевод" — тоже нейтральный (переклассификация уже учтённой древесины
+// между сортами на том же складе, не новое поступление — подтверждено
+// пользователем 24.09.2026).
+const EGAIS_JOURNAL_TYPE_TONE = {
+  "Приход": "success",
+  "Расход при реализации потребителю": "danger",
+  "Расход при внутреннем перемещении": "neutral",
+  "Перевод": "neutral",
+  "Корректировка остатков": "warning",
+};
+
+function EgaisJournalTable({ rows, loading }) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <div className="h-5 w-5 rounded-full border-2 border-pine border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+  if (!rows || rows.length === 0) {
+    return (
+      <EmptyState
+        icon="📜"
+        title="Журнал ЕГАИС по этому выделу пуст"
+        description="Журнал копится при каждом импорте выгрузки — сюда попадает каждая строка (приход, расход, корректировка), без потерь при повторных/ежедневных импортах."
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-xs text-muted">
+        {rows.length} {rows.length === 1 ? "запись" : "записей"} в журнале — накопительно, по всем импортам выгрузки ЕГАИС.
+      </div>
+      <div className="border border-border rounded-md overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-surface-alt border-b border-border text-left text-muted font-semibold">
+              <th className="px-3 py-2">Дата</th>
+              <th className="px-3 py-2">Тип операции</th>
+              <th className="px-3 py-2">Порода</th>
+              <th className="px-3 py-2">Сорт / годность</th>
+              <th className="px-3 py-2 text-right">Объём, м³</th>
+              <th className="px-3 py-2">Склад</th>
+              <th className="px-3 py-2">Документ</th>
+              <th className="px-3 py-2">Сотрудник</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-b border-border last:border-b-0 align-top">
+                <td className="px-3 py-2 text-ink whitespace-nowrap" style={MONO_STYLE}>{r.data_dokumenta || "—"}</td>
+                <td className="px-3 py-2">
+                  <StatusBadge tone={EGAIS_JOURNAL_TYPE_TONE[r.tip_dokumenta] || "neutral"} label={r.tip_dokumenta || "—"} dot={false} />
+                </td>
+                <td className="px-3 py-2 text-ink">{r.poroda || "—"}</td>
+                <td className="px-3 py-2 text-muted">
+                  {r.sort && r.sort !== "без сорта" ? r.sort : ""}
+                  {r.tehnicheskaya_godnost === "Дровяная древесина" ? " · дрова" : ""}
+                </td>
+                <td className={["px-3 py-2 text-right font-semibold", r.obyom > 0 ? "text-pine" : r.obyom < 0 ? "text-red-600" : "text-ink"].join(" ")} style={MONO_STYLE}>
+                  {r.obyom > 0 ? "+" : ""}{r.obyom?.toFixed(3)}
+                </td>
+                <td className="px-3 py-2 text-muted text-xs max-w-[220px] truncate" title={r.sklad}>{r.sklad || "—"}</td>
+                <td className="px-3 py-2 text-muted text-xs whitespace-nowrap" style={MONO_STYLE}>{r.nomer_dokumenta || "—"}</td>
+                <td className="px-3 py-2 text-muted text-xs">{r.sotrudnik || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1087,8 +1178,10 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
   const [loading, setLoading] = useState(true);
   const [naryadModal, setNaryadModal] = useState({ open: false, editing: null });
   const [exporting, setExporting] = useState(false);
-  const [view, setView] = useState("naryady"); // "naryady" | "egais"
+  const [view, setView] = useState("naryady"); // "naryady" | "egais" | "journal"
   const [selectedPoroda, setSelectedPoroda] = useState(null);
+  const [journal, setJournal] = useState(null);
+  const [journalLoading, setJournalLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1125,7 +1218,21 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
     // не обновлялся вообще, пока не выбрать делянку/выдел заново — родитель
     // (Raskhod) увеличивает egaisVersion при закрытии модалок импорта/
     // разбора, и это форсирует повторный load() здесь.
+    setJournal(null); // форсирует повторную подгрузку журнала ниже
   }, [load, egaisVersion]);
+
+  // Журнал грузится отдельно и лениво (только когда открыта вкладка) —
+  // он может быть заметно больше баланса/нарядов (вся накопленная
+  // история, а не только текущий снимок), незачем тянуть его для каждого
+  // выдела сразу при открытии делянки.
+  useEffect(() => {
+    if (view !== "journal" || journal !== null) return;
+    setJournalLoading(true);
+    api.get(`/raskhod/items/${item.id}/egais/journal`)
+      .then((res) => setJournal(res?.rows || []))
+      .catch(() => setJournal([]))
+      .finally(() => setJournalLoading(false));
+  }, [view, journal, item.id]);
 
   const handleDeleteNaryad = async (naryadId) => {
     if (!window.confirm("Удалить этот наряд?")) return;
@@ -1204,7 +1311,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
 
       <Card>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <NaryadyEgaisToggle view={view} onChange={setView} egaisCount={egaisPorodyCount} />
+          <NaryadyEgaisToggle view={view} onChange={setView} egaisCount={egaisPorodyCount} journalCount={journal?.length} />
           {view === "naryady" && (
             <Button variant="primary" size="sm" onClick={() => setNaryadModal({ open: true, editing: null })}>
               + Новый наряд
@@ -1245,8 +1352,10 @@ function ItemWorkspace({ item, delyankaId, egaisVersion }) {
               ))}
             </div>
           )
-        ) : (
+        ) : view === "egais" ? (
           <EgaisRaskhodTable egais={egais} />
+        ) : (
+          <EgaisJournalTable rows={journal} loading={journalLoading} />
         )}
       </Card>
 

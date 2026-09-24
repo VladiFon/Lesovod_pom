@@ -667,6 +667,55 @@ CREATE TABLE IF NOT EXISTS egais_snapshot_detail (
 );
 
 -- ------------------------------------------------------------------- --
+--   Журнал операций ЕГАИС — накопительный, видимый лесничему список
+--   КАЖДОЙ строки выгрузки (приход/расход/перевод/корректировка), а не
+--   только готовых сумм. В отличие от egais_snapshot* выше (снимок
+--   ПОСЛЕДНЕГО импорта, полностью перезаписывается по затронутым
+--   делянкам) эта таблица только РАСТЁТ — рассчитана на ежедневные
+--   выгрузки-"дельты" по всем кварталам: сегодняшний импорт не стирает
+--   вчерашний, а добавляется к нему.
+--
+--   Дедупликация — по natural_key (см. raskhod_v2.compute_egais_operation_key):
+--   хэш от ВСЕХ содержательных колонок строки, КРОМЕ служебных/технических
+--   (дата и время обработки на сервере, пользователь создания/изменения,
+--   статус) - на реальной выгрузке проверено (см. чат с пользователем,
+--   24.09.2026): часть строк - буквальные дубли одной операции в самой
+--   выгрузке ЕГАИС (совпадают вообще во всех колонках, включая серверную
+--   метку времени) - их нужно схлопывать; другая часть похожих строк
+--   отличается только "Номенклатурой"/"Кол-во" - это РАЗНЫЕ брёвна в
+--   одном документе (поштучный учёт), их схлопывать нельзя. Хэш от
+--   содержательных колонок различает эти случаи правильно: повторный
+--   импорт того же файла (или пересекающихся дней) - INSERT OR IGNORE по
+--   UNIQUE(natural_key) просто ничего не добавит повторно.
+CREATE TABLE IF NOT EXISTS egais_operation (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    natural_key TEXT UNIQUE NOT NULL,
+    data_dokumenta TEXT,
+    data_dokumenta_sort TEXT,  -- ГГГГ-ММ-ДД, только для ORDER BY (data_dokumenta - "ДД.ММ.ГГГГ", как в самой выгрузке, лексикографически сортируется неверно)
+    tip_dokumenta TEXT,
+    nomer_dokumenta TEXT,
+    nomer_svyazannogo_dokumenta TEXT,
+    kvartal TEXT,
+    vydel TEXT,
+    sklad TEXT,
+    sklad_kontragent TEXT,
+    poroda TEXT,
+    sort TEXT,
+    tehnicheskaya_godnost TEXT,
+    nomenklatura TEXT,
+    gruppa_diametrov TEXT,
+    kolvo TEXT,
+    obyom REAL,
+    osnovanie TEXT,
+    nomer_osnovaniya TEXT,
+    sotrudnik TEXT,
+    imported_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_egais_operation_kv ON egais_operation(kvartal, vydel);
+CREATE INDEX IF NOT EXISTS idx_egais_operation_data ON egais_operation(data_dokumenta_sort);
+CREATE INDEX IF NOT EXISTS idx_egais_operation_tip ON egais_operation(tip_dokumenta);
+
+-- ------------------------------------------------------------------- --
 --   Экран "Расход → ЕГАИС" — очереди на ручной разбор при импорте.
 --   В отличие от egais_snapshot/egais_snapshot_detail выше (снимок ПОСЛЕДНЕЙ
 --   выгрузки, полностью перезаписывается), эти три таблицы - ИСТОРИЯ:
