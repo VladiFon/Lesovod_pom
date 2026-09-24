@@ -1387,37 +1387,44 @@ def extract_egais_operations(excel_path):
     разбор) здесь сохраняется КАЖДАЯ содержательная строка любого типа
     документа как есть, без интерпретации - сырой аудиторский след,
     который лесничий видит на экране "Журнал ЕГАИС". Пропускается только
-    служебный "футер" отчёта (см. _parse_egais_reestr_impl - строка с
+    служебный "футер" отчёта (см. _operations_from_raw_rows - строка с
     одновременно пустыми "Тип документа" и "Склад операции")."""
-    rows = _read_egais_rows(excel_path)
+    return _operations_from_raw_rows(_read_egais_rows(excel_path))
+
+
+def _operations_from_raw_rows(rows):
+    """Общая часть extract_egais_operations/_parse_egais_reestr_impl -
+    сырые строки Excel (см. _read_egais_rows) -> нормализованные
+    dict-операции (тот же формат, что хранится построчно в
+    egais_operation, см. _EGAIS_OPERATION_COLUMNS)."""
     operations = []
     for row in rows:
         doc_type = row.get(_EGAIS_COL_DOC_TYPE)
         sklad_name = row.get(_EGAIS_COL_SKLAD_NAME)
         if not _egais_not_empty(doc_type) and not _egais_not_empty(sklad_name):
             continue
-        data_dok = str(row.get(_EGAIS_COL_DATA_DOK) or "").strip()
+        data_dok = _egais_str(row.get(_EGAIS_COL_DATA_DOK))
         operations.append({
             "natural_key": compute_egais_operation_key(row),
             "data_dokumenta": data_dok,
             "data_dokumenta_sort": _egais_date_sort_key(data_dok),
-            "tip_dokumenta": str(doc_type or "").strip(),
-            "nomer_dokumenta": str(row.get(_EGAIS_COL_DOC_NUM) or "").strip(),
-            "nomer_svyazannogo_dokumenta": str(row.get(_EGAIS_COL_LINKED_DOC) or "").strip(),
+            "tip_dokumenta": _egais_str(doc_type),
+            "nomer_dokumenta": _egais_str(row.get(_EGAIS_COL_DOC_NUM)),
+            "nomer_svyazannogo_dokumenta": _egais_str(row.get(_EGAIS_COL_LINKED_DOC)),
             "kvartal": _egais_clean_number(row.get(_EGAIS_COL_KVARTAL)),
             "vydel": _egais_clean_number(row.get(_EGAIS_COL_VYDEL)),
-            "sklad": str(sklad_name or "").strip(),
-            "sklad_kontragent": str(row.get(_EGAIS_COL_SKLAD_KONTRAGENT) or "").strip(),
-            "poroda": str(row.get(_EGAIS_COL_PORODA) or "").strip(),
-            "sort": str(row.get(_EGAIS_COL_SORT) or "").strip(),
-            "tehnicheskaya_godnost": str(row.get(_EGAIS_COL_GODNOST) or "").strip(),
-            "nomenklatura": str(row.get(_EGAIS_COL_NOMENKLATURA) or "").strip(),
-            "gruppa_diametrov": str(row.get(_EGAIS_COL_GRUPPA_DIAMETROV) or "").strip(),
-            "kolvo": str(row.get(_EGAIS_COL_KOLVO) or "").strip(),
+            "sklad": _egais_str(sklad_name),
+            "sklad_kontragent": _egais_str(row.get(_EGAIS_COL_SKLAD_KONTRAGENT)),
+            "poroda": _egais_str(row.get(_EGAIS_COL_PORODA)),
+            "sort": _egais_str(row.get(_EGAIS_COL_SORT)),
+            "tehnicheskaya_godnost": _egais_str(row.get(_EGAIS_COL_GODNOST)),
+            "nomenklatura": _egais_str(row.get(_EGAIS_COL_NOMENKLATURA)),
+            "gruppa_diametrov": _egais_str(row.get(_EGAIS_COL_GRUPPA_DIAMETROV)),
+            "kolvo": _egais_str(row.get(_EGAIS_COL_KOLVO)),
             "obyom": _egais_to_float(row.get(_EGAIS_COL_OBYOM)),
-            "osnovanie": str(row.get(_EGAIS_COL_OSNOVANIE) or "").strip(),
-            "nomer_osnovaniya": str(row.get(_EGAIS_COL_OSNOVANIE_NUM) or "").strip(),
-            "sotrudnik": str(row.get(_EGAIS_COL_SOTRUDNIK) or "").strip(),
+            "osnovanie": _egais_str(row.get(_EGAIS_COL_OSNOVANIE)),
+            "nomer_osnovaniya": _egais_str(row.get(_EGAIS_COL_OSNOVANIE_NUM)),
+            "sotrudnik": _egais_str(row.get(_EGAIS_COL_SOTRUDNIK)),
         })
     return operations
 
@@ -1888,13 +1895,28 @@ def _parse_egais_reestr_impl(excel_path):
                 "с полным набором колонок."
             )
 
+    operations = _operations_from_raw_rows(rows)
+    return _aggregate_egais_operations(operations)
+
+
+def _aggregate_egais_operations(operations):
+    """Общая логика агрегации нормализованных операций ЕГАИС (формат
+    extract_egais_operations/egais_operation, см. _EGAIS_OPERATION_COLUMNS)
+    в {(kvartal, vydel): {...}} + stats — раньше это был единственный
+    проход по СЫРЫМ строкам Excel внутри _parse_egais_reestr_impl (см.
+    _operations_from_raw_rows выше — та же логика колонок, просто
+    вынесенная в отдельный шаг); теперь эта же проверенная логика (дедуп
+    задвоений, классификация крупности, отсрочка ФЛС, корректировки,
+    неизвестные типы) используется ЕЩЁ и load_egais_snapshot() для
+    агрегации НАКОПЛЕННОГО журнала (egais_operation) - и на одном свежем
+    файле, и на всей истории объёмы считаются идентично, одним кодом."""
     # 1) множество номеров документов, которые являются "вторичным приходом"
     #    (парой к "Расходу при внутреннем перемещении")
     linked_doc_numbers = set()
-    for row in rows:
-        if row.get(_EGAIS_COL_DOC_TYPE) == _EGAIS_DOC_TYPE_VNUTR_PEREMESHENIE:
-            linked = row.get(_EGAIS_COL_LINKED_DOC)
-            if _egais_not_empty(linked):
+    for op in operations:
+        if op["tip_dokumenta"] == _EGAIS_DOC_TYPE_VNUTR_PEREMESHENIE:
+            linked = op.get("nomer_svyazannogo_dokumenta")
+            if linked:
                 linked_doc_numbers.add(str(linked).strip())
 
     result = {}
@@ -1918,19 +1940,8 @@ def _parse_egais_reestr_impl(excel_path):
     neizvestnye_tipy = []  # строки с незнакомым "Тип документа" - см. _EGAIS_KNOWN_DOC_TYPES
     krupnost_ne_opredelena = []  # деловая древесина, у которой не вышло определить KR/SR/ML - см. _egais_krupnost_for_row
 
-    for row in rows:
-        doc_type = row.get(_EGAIS_COL_DOC_TYPE)
-
-        if not _egais_not_empty(doc_type) and not _egais_not_empty(row.get(_EGAIS_COL_SKLAD_NAME)):
-            # Не настоящая строка операции, а служебный "футер" отчёта ЕГАИС
-            # (последняя строка выгрузки вида "Записей: 832" / "Количество:
-            # 32" с итоговой суммой в "Объем") - у неё пуст и тип документа,
-            # и склад одновременно. Настоящих операций с пустым складом не
-            # бывает, поэтому такое сочетание однозначно отличает футер от
-            # реально незнакомого типа документа - без этой проверки футер
-            # каждый раз попадал бы в "неизвестные операции" и создавал
-            # ложную тревогу при любом импорте.
-            continue
+    for op in operations:
+        doc_type = op["tip_dokumenta"]
 
         if doc_type not in _EGAIS_KNOWN_DOC_TYPES:
             # Ничего не выбрасываем молча - собираем "как есть", чтобы
@@ -1938,19 +1949,19 @@ def _parse_egais_reestr_impl(excel_path):
             # это за тип документа (в т.ч. пустые/битые строки выгрузки).
             neizvestnye_tipy.append({
                 "tip_dokumenta": doc_type,
-                "kvartal": _egais_clean_number(row.get(_EGAIS_COL_KVARTAL)),
-                "vydel": _egais_clean_number(row.get(_EGAIS_COL_VYDEL)),
-                "sklad": str(row.get(_EGAIS_COL_SKLAD_NAME) or "").strip(),
-                "obyom": _egais_to_float(row.get(_EGAIS_COL_OBYOM)),
-                "data": str(row.get(_EGAIS_COL_DATA_DOK) or "").strip(),
-                "sotrudnik": str(row.get(_EGAIS_COL_SOTRUDNIK) or "").strip(),
-                "nomer_dokumenta": str(row.get(_EGAIS_COL_DOC_NUM) or "").strip(),
+                "kvartal": op.get("kvartal") or "",
+                "vydel": op.get("vydel") or "",
+                "sklad": op.get("sklad") or "",
+                "obyom": op.get("obyom") or 0.0,
+                "data": op.get("data_dokumenta") or "",
+                "sotrudnik": op.get("sotrudnik") or "",
+                "nomer_dokumenta": op.get("nomer_dokumenta") or "",
             })
             continue
 
         if doc_type == _EGAIS_DOC_TYPE_KORREKTIROVKA:
-            kvartal_str = _egais_clean_number(row.get(_EGAIS_COL_KVARTAL))
-            vydel_str = _egais_clean_number(row.get(_EGAIS_COL_VYDEL))
+            kvartal_str = op.get("kvartal") or ""
+            vydel_str = op.get("vydel") or ""
             if not kvartal_str and not vydel_str:
                 continue
             delyanka_key = (kvartal_str, vydel_str)
@@ -1963,12 +1974,12 @@ def _parse_egais_reestr_impl(excel_path):
                 "fls_prihod": [],
             })
             entry.setdefault("korrektirovki", []).append({
-                "data": str(row.get(_EGAIS_COL_DATA_DOK) or "").strip(),
-                "sklad": str(row.get(_EGAIS_COL_SKLAD_NAME) or "").strip(),
-                "poroda": str(row.get(_EGAIS_COL_PORODA) or "").strip(),
-                "obyom": _egais_to_float(row.get(_EGAIS_COL_OBYOM)),
-                "sotrudnik": str(row.get(_EGAIS_COL_SOTRUDNIK) or "").strip(),
-                "nomer_dokumenta": str(row.get(_EGAIS_COL_DOC_NUM) or "").strip(),
+                "data": op.get("data_dokumenta") or "",
+                "sklad": op.get("sklad") or "",
+                "poroda": op.get("poroda") or "",
+                "obyom": op.get("obyom") or 0.0,
+                "sotrudnik": op.get("sotrudnik") or "",
+                "nomer_dokumenta": op.get("nomer_dokumenta") or "",
             })
             continue
 
@@ -1983,14 +1994,13 @@ def _parse_egais_reestr_impl(excel_path):
             continue
         prihod_total += 1
 
-        doc_num_raw = row.get(_EGAIS_COL_DOC_NUM)
-        doc_num = str(doc_num_raw).strip() if _egais_not_empty(doc_num_raw) else ""
-        osnovanie = row.get(_EGAIS_COL_OSNOVANIE)
-        osnovanie_num = row.get(_EGAIS_COL_OSNOVANIE_NUM)
-        sklad_name_check = str(row.get(_EGAIS_COL_SKLAD_NAME) or "").strip()
+        doc_num = str(op.get("nomer_dokumenta") or "").strip()
+        osnovanie = op.get("osnovanie")
+        osnovanie_num = op.get("nomer_osnovaniya")
+        sklad_name_check = str(op.get("sklad") or "").strip()
 
         is_linked_pair = bool(doc_num) and doc_num in linked_doc_numbers
-        has_osnovanie = _egais_not_empty(osnovanie) or _egais_not_empty(osnovanie_num)
+        has_osnovanie = bool(osnovanie) or bool(osnovanie_num)
         is_fls_sklad = sklad_name_check.startswith("ФЛС")
 
         # "Основание"/"Номер основания" заполнены - надёжный признак
@@ -2013,13 +2023,13 @@ def _parse_egais_reestr_impl(excel_path):
         # исключение.
         if is_linked_pair or (has_osnovanie and not is_fls_sklad):
             prihod_excluded += 1
-            obyom_excluded += _egais_to_float(row.get(_EGAIS_COL_OBYOM))
+            obyom_excluded += op.get("obyom") or 0.0
             continue
 
         prihod_used += 1
 
-        kvartal_str = _egais_clean_number(row.get(_EGAIS_COL_KVARTAL))
-        vydel_str = _egais_clean_number(row.get(_EGAIS_COL_VYDEL))
+        kvartal_str = op.get("kvartal") or ""
+        vydel_str = op.get("vydel") or ""
         if not kvartal_str and not vydel_str:
             # совсем без привязки к участку - пропускаем строку, чтобы не
             # собрать мусорный ключ ("", "")
@@ -2041,18 +2051,16 @@ def _parse_egais_reestr_impl(excel_path):
                 seen.append(sklad_name)
                 entry["nazvanie_sklada"] = "; ".join(seen)
 
-        poroda = str(row.get(_EGAIS_COL_PORODA) or "").strip()
+        poroda = str(op.get("poroda") or "").strip()
         if not poroda:
             continue
 
-        godnost = str(row.get(_EGAIS_COL_GODNOST) or "").strip()
+        godnost = str(op.get("tehnicheskaya_godnost") or "").strip()
         if godnost == "Дровяная древесина":
             sortiment = "дрова"
         else:
             krupnost = _egais_krupnost_for_row(
-                poroda,
-                row.get(_EGAIS_COL_NOMENKLATURA),
-                row.get(_EGAIS_COL_GRUPPA_DIAMETROV),
+                poroda, op.get("nomenklatura"), op.get("gruppa_diametrov"),
             )
             if krupnost is None:
                 # Не смогли достать диаметр/группу ни из "Номенклатуры",
@@ -2062,18 +2070,18 @@ def _parse_egais_reestr_impl(excel_path):
                 # в статистике, чтобы это было видно на экране импорта.
                 sortiment = "б/р"
                 krupnost_ne_opredelena.append({
-                    "kvartal": _egais_clean_number(row.get(_EGAIS_COL_KVARTAL)),
-                    "vydel": _egais_clean_number(row.get(_EGAIS_COL_VYDEL)),
+                    "kvartal": kvartal_str,
+                    "vydel": vydel_str,
                     "poroda": poroda,
-                    "nomenklatura": str(row.get(_EGAIS_COL_NOMENKLATURA) or "").strip(),
-                    "gruppa_diametrov": str(row.get(_EGAIS_COL_GRUPPA_DIAMETROV) or "").strip(),
-                    "obyom": _egais_to_float(row.get(_EGAIS_COL_OBYOM)),
+                    "nomenklatura": str(op.get("nomenklatura") or "").strip(),
+                    "gruppa_diametrov": str(op.get("gruppa_diametrov") or "").strip(),
+                    "obyom": op.get("obyom") or 0.0,
                     "nomer_dokumenta": doc_num,
                 })
             else:
                 sortiment = krupnost
 
-        obyom = _egais_to_float(row.get(_EGAIS_COL_OBYOM))
+        obyom = op.get("obyom") or 0.0
 
         # Приход на склад ФЛС (верхний склад делянки) - редкий, но
         # легальный случай полной цепочки складов: Приход-ФЛС →
@@ -2089,7 +2097,7 @@ def _parse_egais_reestr_impl(excel_path):
         if sklad_name.startswith("ФЛС"):
             fls_total += 1
             entry.setdefault("fls_prihod", []).append({
-                "data": str(row.get(_EGAIS_COL_DATA_DOK) or "").strip(),
+                "data": op.get("data_dokumenta") or "",
                 "sklad": sklad_name,
                 "poroda": poroda,
                 "sortiment": sortiment,
@@ -2168,6 +2176,24 @@ def _egais_not_empty(value):
         return value == value  # False для NaN
     text = str(value).strip()
     return bool(text) and text.lower() != "nan"
+
+
+def _egais_str(value):
+    """Приводит сырую ячейку выгрузки к строке, НЕ теряя пустоту на NaN —
+    в отличие от наивного str(value or "").strip(), которое на NaN молча
+    портит данные. _read_egais_rows (через pandas df.where(df.notna(),
+    None)) подменяет NaN на None не во всех колонках — на практике живой
+    float('nan') всё же встречается (проверено 24.09.2026 на реальной
+    выгрузке, колонка "Основание"), а float('nan') в Python ИСТИНЕН как
+    bool (не равен нулю) — поэтому "value or ''" возвращает сам nan, и
+    str(nan) даёт буквальную строку "nan", которая дальше читается как
+    непустое значение (например, ошибочно включает дедуп задвоений
+    приходов — см. регрессию 24.09.2026: без этой функции почти весь
+    приход в выгрузке ошибочно считался "вторичным"). _egais_not_empty
+    уже умеет отличать такой NaN (в обеих формах — float и уже ставшую
+    строку "nan") от настоящего значения — переиспользуем её вместо
+    повторения той же проверки."""
+    return str(value).strip() if _egais_not_empty(value) else ""
 
 
 def _egais_clean_number(value):
@@ -2378,8 +2404,7 @@ def _save_egais_review_queues(conn, loaded_egais_data, now):
 
 
 def load_egais_snapshot(conn):
-    """Обратная операция к save_egais_snapshot(): восстанавливает из
-    egais_snapshot_detail данные ТОЧНО в том формате, что возвращает
+    """Данные ЕГАИС ТОЧНО в том формате, что возвращает
     parse_egais_reestr()/parse_egais_reestr_with_stats() —
     {(kvartal, vydel): {"nazvanie_sklada", "kvartal", "vydel", "porody",
     "korrektirovki"}} — без потери детализации (сорта ЕГАИС, корректировки
@@ -2388,11 +2413,46 @@ def load_egais_snapshot(conn):
     screens/raskhod/screen.py), а не только сумму, которой довольствуется
     Telegram-бот через egais_snapshot/_load_egais_grouped_for_vydel.
 
+    С появлением журнала (egais_operation, Этап 1) источник —
+    НАКОПЛЕННЫЙ журнал, агрегированный через _aggregate_egais_operations
+    (та же логика, что и в parse_egais_reestr на свежем файле) - а не
+    egais_snapshot_detail (снимок ПОСЛЕДНЕГО импорта, который при
+    ежедневных выгрузках-дельтах по всем кварталам заменял бы данные по
+    затронутым делянкам и терял накопленную историю, см. обсуждение с
+    пользователем 24.09.2026). Если журнал ещё пуст (например, все
+    имеющиеся импорты были СДЕЛАНЫ до появления этой таблицы, Этап 1, и
+    файл с тех пор не переимпортировали) — подстраховка старым снимком
+    (_load_egais_snapshot_legacy), чтобы уже загруженные данные не
+    "исчезли" из интерфейса до следующего импорта.
+
     Возвращает (data, imported_at):
-        data: dict в формате loaded_egais_data, {} если снапшот пуст;
+        data: dict в формате loaded_egais_data, {} если данных нет;
         imported_at: str | None — время последнего импорта из БД (как
-        сохранено save_egais_snapshot, "%Y-%m-%d %H:%M:%S"), либо None,
-        если снапшота ещё не было."""
+        сохранено save_egais_operations/save_egais_snapshot,
+        "%Y-%m-%d %H:%M:%S"), либо None, если импортов ещё не было."""
+    try:
+        rows = conn.execute(
+            f"SELECT {', '.join(_EGAIS_OPERATION_COLUMNS)} FROM egais_operation"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+
+    if not rows:
+        return _load_egais_snapshot_legacy(conn)
+
+    operations = [dict(zip(_EGAIS_OPERATION_COLUMNS, row)) for row in rows]
+    data, _stats = _aggregate_egais_operations(operations)
+    imported_at = max(
+        (op["imported_at"] for op in operations if op.get("imported_at")),
+        default=None,
+    )
+    return data, imported_at
+
+
+def _load_egais_snapshot_legacy(conn):
+    """Старый путь load_egais_snapshot — читает egais_snapshot_detail
+    (снимок ПОСЛЕДНЕГО импорта) напрямую. Подстраховка на случай, если
+    журнал (egais_operation) ещё пуст — см. докстринг load_egais_snapshot."""
     try:
         rows = conn.execute(
             "SELECT kvartal, vydel, imported_at, nazvanie_sklada, porody_json, korrektirovki_json "
