@@ -1711,19 +1711,55 @@ def add_fls_prihod_to_egais_snapshot(conn, kvartal, vydel, poroda, sortiment, ob
         conn.commit()
 
 
-def delete_egais_snapshot_for_item(conn, item):
-    """Удаляет данные последней выгрузки ЕГАИС, относящиеся к ОДНОМУ выделу
-    делянки (kvartal/vydel из delyanka_item), не трогая записи остальных
-    выделов из того же снапшота. Ключи (kvartal, vydel) ищутся тем же
-    "умным" пересечением чисел выдела, что и в find_egais_entry_for_item -
-    иначе для составных выделов ничего бы не удалилось.
+def _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers):
+    """Ключи (kvartal, vydel), реально встречающиеся в данных ЕГАИС для
+    этого выдела - объединяет egais_operation (журнал, Этап 1 - основной,
+    полный источник) И egais_snapshot_detail (старый снимок - на случай
+    БД, где журнал ещё пуст, см. load_egais_snapshot/_load_egais_snapshot_legacy),
+    иначе для делянок с пустым "чистым" приходом (весь приход отложен на
+    ФЛС/задвоен - в старый снимок такие вообще не попадали, см.
+    save_egais_snapshot) найденных ключей не было бы вовсе, и удалить их
+    данные из журнала не получилось бы."""
+    keys = set()
+    for table in ("egais_operation", "egais_snapshot_detail"):
+        try:
+            rows = conn.execute(
+                f"SELECT DISTINCT kvartal, vydel FROM {table} WHERE kvartal=?",
+                (kvartal_clean,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        keys.update(
+            (kv, vd) for kv, vd in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd)
+        )
+    return keys
 
-    Чистит обе таблицы снапшота (egais_snapshot и egais_snapshot_detail) -
-    иначе после удаления детальной записи бот продолжал бы видеть старые
-    суммы через egais_snapshot, либо наоборот. Очереди ручного разбора
-    (egais_*_review) не трогаются - это история, а не снимок, удаление
-    выгрузки по одной делянке не должно "забывать", что корректировка или
-    неизвестная делянка когда-то были замечены.
+
+def _delete_egais_data_for_keys(conn, matched_keys):
+    for kv, vd in matched_keys:
+        conn.execute("DELETE FROM egais_operation WHERE kvartal=? AND vydel=?", (kv, vd))
+        conn.execute("DELETE FROM egais_snapshot_detail WHERE kvartal=? AND vydel=?", (kv, vd))
+        conn.execute("DELETE FROM egais_snapshot WHERE kvartal=? AND vydel=?", (kv, vd))
+
+
+def delete_egais_snapshot_for_item(conn, item):
+    """Удаляет данные выгрузки ЕГАИС, относящиеся к ОДНОМУ выделу делянки
+    (kvartal/vydel из delyanka_item), не трогая записи остальных выделов.
+    Ключи (kvartal, vydel) ищутся тем же "умным" пересечением чисел
+    выдела, что и в find_egais_entry_for_item - иначе для составных
+    выделов ничего бы не удалилось.
+
+    Чистит ВСЕ три таблицы данных ЕГАИС: журнал (egais_operation, Этап 1 -
+    основной источник, из которого теперь читает баланс, см.
+    load_egais_snapshot) и обе таблицы старого снимка (egais_snapshot,
+    egais_snapshot_detail) - раньше (до перевода баланса на журнал) чистка
+    только снимка была достаточна; теперь без удаления из журнала кнопка
+    "удалить данные ЕГАИС" молча переставала бы работать (данные
+    оставались бы видны, потому что баланс их всё равно читает из
+    нетронутого журнала). Очереди ручного разбора (egais_*_review) не
+    трогаются - это история, а не снимок, удаление выгрузки по одной
+    делянке не должно "забывать", что корректировка или неизвестная
+    делянка когда-то были замечены.
 
     Возвращает True, если что-то было удалено, иначе False (нечего
     удалять - выгрузка ЕГАИС не загружена вовсе, либо в ней нет данных по
@@ -1733,19 +1769,11 @@ def delete_egais_snapshot_for_item(conn, item):
     if not wanted_vydel_numbers:
         return False
 
-    rows = conn.execute(
-        "SELECT DISTINCT kvartal, vydel FROM egais_snapshot_detail WHERE kvartal=?",
-        (kvartal_clean,),
-    ).fetchall()
-    matched_keys = [
-        (kv, vd) for kv, vd in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd)
-    ]
+    matched_keys = _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers)
     if not matched_keys:
         return False
 
-    for kv, vd in matched_keys:
-        conn.execute("DELETE FROM egais_snapshot_detail WHERE kvartal=? AND vydel=?", (kv, vd))
-        conn.execute("DELETE FROM egais_snapshot WHERE kvartal=? AND vydel=?", (kv, vd))
+    _delete_egais_data_for_keys(conn, matched_keys)
     conn.commit()
     return True
 
@@ -1753,10 +1781,11 @@ def delete_egais_snapshot_for_item(conn, item):
 def delete_egais_snapshot_for_delyanka(conn, items):
     """Массовое удаление данных выгрузки ЕГАИС сразу по всем выделам ОДНОЙ
     делянки — та же "умная" логика сопоставления kvartal/vydel, что и в
-    delete_egais_snapshot_for_item (см. её докстринг), но одним проходом по
-    списку items делянки (см. get_delyanka_items) и одним commit в конце,
-    а не по одному выделу за раз - иначе пользователю пришлось бы заходить
-    в каждый выдел делянки по очереди, чтобы почистить ошибочную выгрузку.
+    delete_egais_snapshot_for_item (см. её докстринг, включая журнал), но
+    одним проходом по списку items делянки (см. get_delyanka_items) и
+    одним commit в конце, а не по одному выделу за раз - иначе
+    пользователю пришлось бы заходить в каждый выдел делянки по очереди,
+    чтобы почистить ошибочную выгрузку.
 
     Очереди ручного разбора (egais_*_review) не трогаются по тем же
     причинам, что и в delete_egais_snapshot_for_item.
@@ -1770,18 +1799,10 @@ def delete_egais_snapshot_for_delyanka(conn, items):
         wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
         if not wanted_vydel_numbers:
             continue
-        rows = conn.execute(
-            "SELECT DISTINCT kvartal, vydel FROM egais_snapshot_detail WHERE kvartal=?",
-            (kvartal_clean,),
-        ).fetchall()
-        matched_keys = [
-            (kv, vd) for kv, vd in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd)
-        ]
+        matched_keys = _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers)
         if not matched_keys:
             continue
-        for kv, vd in matched_keys:
-            conn.execute("DELETE FROM egais_snapshot_detail WHERE kvartal=? AND vydel=?", (kv, vd))
-            conn.execute("DELETE FROM egais_snapshot WHERE kvartal=? AND vydel=?", (kv, vd))
+        _delete_egais_data_for_keys(conn, matched_keys)
         touched.append(item)
     if touched:
         conn.commit()
