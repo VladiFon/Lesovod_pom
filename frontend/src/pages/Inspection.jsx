@@ -66,7 +66,7 @@ function formatNarusheniya(list) {
 
 function emptyActForm() {
   return {
-    act_date: "", oblast_rayon: "",
+    act_date: "", oblast: "", rayon: "",
     osnovanie_nomer: "", osnovanie_data: "", izveshchenie_data: "",
     predsedatel_dolzhnost: "", predsedatel_fio: "", chleny_text: "",
     predstavitel_lesxoza_dolzhnost: "", predstavitel_lesxoza_fio: "",
@@ -155,7 +155,8 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
       predsedatel_dolzhnost: p.predsedatel_dolzhnost || "",
       predsedatel_fio: p.predsedatel_fio || "",
       chleny_text: formatNamedList(p.chleny),
-      oblast_rayon: p.oblast_rayon || "",
+      oblast: p.oblast || "",
+      rayon: p.rayon || "",
       predstavitel_lesxoza_dolzhnost: p.predstavitel_lesxoza_dolzhnost || "",
       predstavitel_lesxoza_fio: p.predstavitel_lesxoza_fio || "",
       predstavitel_lesopolz_organizatsiya: p.lesopolz_organizatsiya || "",
@@ -186,7 +187,8 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
           predsedatel_dolzhnost: form.predsedatel_dolzhnost || "",
           predsedatel_fio: form.predsedatel_fio || "",
           chleny: parseNamedList(form.chleny_text),
-          oblast_rayon: form.oblast_rayon || "",
+          oblast: form.oblast || "",
+          rayon: form.rayon || "",
           predstavitel_lesxoza_dolzhnost: form.predstavitel_lesxoza_dolzhnost || "",
           predstavitel_lesxoza_fio: form.predstavitel_lesxoza_fio || "",
           lesopolz_organizatsiya: form.predstavitel_lesopolz_organizatsiya || "",
@@ -339,7 +341,8 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
         <Section title="Общие сведения">
           <div className="grid grid-cols-3 gap-3">
             <TextField label="Дата акта" placeholder="ДД.ММ.ГГГГ" value={form.act_date} onChange={setField("act_date")} />
-            <TextField label="Область/район" value={form.oblast_rayon} onChange={setField("oblast_rayon")} className="col-span-2" />
+            <TextField label="Область" value={form.oblast} onChange={setField("oblast")} />
+            <TextField label="Район" value={form.rayon} onChange={setField("rayon")} />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <TextField label="№ основания рубки" value={form.osnovanie_nomer} onChange={setField("osnovanie_nomer")} />

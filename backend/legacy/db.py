@@ -515,6 +515,7 @@ CREATE TABLE IF NOT EXISTS osvidetelstvovanie_komissiya_preset (
     predsedatel_fio TEXT,
     chleny_json TEXT,
     oblast_rayon TEXT,
+    rayon TEXT,
     predstavitel_lesxoza_dolzhnost TEXT,
     predstavitel_lesxoza_fio TEXT,
     lesopolz_organizatsiya TEXT,
@@ -822,6 +823,7 @@ def migrate_schema(conn):
     }
     new_preset_cols = {
         "oblast_rayon": "TEXT",
+        "rayon": "TEXT",
         "predstavitel_lesxoza_dolzhnost": "TEXT",
         "predstavitel_lesxoza_fio": "TEXT",
         "lesopolz_organizatsiya": "TEXT",
@@ -2495,7 +2497,7 @@ def delete_checklist_item(conn, item_id):
 def list_osvidetelstvovanie_presets(conn):
     """Список сохранённых пресетов акта освидетельствования —
     [{"nazvanie", "predsedatel_dolzhnost", "predsedatel_fio", "chleny",
-    "oblast_rayon", "predstavitel_lesxoza_dolzhnost",
+    "oblast", "rayon", "predstavitel_lesxoza_dolzhnost",
     "predstavitel_lesxoza_fio", "lesopolz_organizatsiya",
     "lesopolz_dolzhnost", "lesopolz_fio", "sign_lesopolz_dolzhnost",
     "sign_lesopolz_fio", "vid_osvidetelstvovaniya", "sposob_rubki",
@@ -2505,10 +2507,16 @@ def list_osvidetelstvovanie_presets(conn):
     chleny_json). Помимо состава комиссии, пресет хранит и остальные
     "организационные" поля акта, которые обычно не меняются от делянки к
     делянке (см. комментарий над CREATE TABLE
-    osvidetelstvovanie_komissiya_preset в SCHEMA)."""
+    osvidetelstvovanie_komissiya_preset в SCHEMA).
+
+    "oblast"/"rayon" — раньше было одно поле "область/район" (столбец
+    oblast_rayon), с обновлением официального бланка акта разбито на два
+    отдельных поля; столбец в БД по-прежнему называется oblast_rayon
+    (хранит значение "область"), чтобы не терять уже сохранённые пресеты —
+    наружу отдаётся как "oblast"."""
     rows = conn.execute(
         "SELECT nazvanie, predsedatel_dolzhnost, predsedatel_fio, chleny_json, "
-        "oblast_rayon, predstavitel_lesxoza_dolzhnost, predstavitel_lesxoza_fio, "
+        "oblast_rayon, rayon, predstavitel_lesxoza_dolzhnost, predstavitel_lesxoza_fio, "
         "lesopolz_organizatsiya, lesopolz_dolzhnost, lesopolz_fio, "
         "sign_lesopolz_dolzhnost, sign_lesopolz_fio, vid_osvidetelstvovaniya, "
         "sposob_rubki, sposob_ucheta, sposob_ochistki, "
@@ -2518,7 +2526,7 @@ def list_osvidetelstvovanie_presets(conn):
     result = []
     for row in rows:
         (nazvanie, pred_dolzhnost, pred_fio, chleny_json,
-         oblast_rayon, predstavitel_lesxoza_dolzhnost, predstavitel_lesxoza_fio,
+         oblast, rayon, predstavitel_lesxoza_dolzhnost, predstavitel_lesxoza_fio,
          lesopolz_organizatsiya, lesopolz_dolzhnost, lesopolz_fio,
          sign_lesopolz_dolzhnost, sign_lesopolz_fio, vid_osvidetelstvovaniya,
          sposob_rubki, sposob_ucheta, sposob_ochistki,
@@ -2532,7 +2540,8 @@ def list_osvidetelstvovanie_presets(conn):
             "predsedatel_dolzhnost": pred_dolzhnost or "",
             "predsedatel_fio": pred_fio or "",
             "chleny": chleny,
-            "oblast_rayon": oblast_rayon or "",
+            "oblast": oblast or "",
+            "rayon": rayon or "",
             "predstavitel_lesxoza_dolzhnost": predstavitel_lesxoza_dolzhnost or "",
             "predstavitel_lesxoza_fio": predstavitel_lesxoza_fio or "",
             "lesopolz_organizatsiya": lesopolz_organizatsiya or "",
@@ -2552,7 +2561,7 @@ def list_osvidetelstvovanie_presets(conn):
 
 def save_osvidetelstvovanie_preset(
     conn, nazvanie, predsedatel_dolzhnost, predsedatel_fio, chleny,
-    oblast_rayon="", predstavitel_lesxoza_dolzhnost="", predstavitel_lesxoza_fio="",
+    oblast="", rayon="", predstavitel_lesxoza_dolzhnost="", predstavitel_lesxoza_fio="",
     lesopolz_organizatsiya="", lesopolz_dolzhnost="", lesopolz_fio="",
     sign_lesopolz_dolzhnost="", sign_lesopolz_fio="", vid_osvidetelstvovaniya="",
     sposob_rubki="", sposob_ucheta="", sposob_ochistki="",
@@ -2563,22 +2572,25 @@ def save_osvidetelstvovanie_preset(
     ...]. Остальные параметры — организационные поля акта, которые обычно
     не меняются от делянки к делянке (см. list_osvidetelstvovanie_presets);
     все необязательны — вызывающий код может сохранить только состав
-    комиссии, как раньше, оставив остальные пустыми."""
+    комиссии, как раньше, оставив остальные пустыми.
+
+    oblast хранится в столбце oblast_rayon (см. list_osvidetelstvovanie_presets)."""
     chleny_json = json.dumps(chleny or [], ensure_ascii=False)
     conn.execute(
         "INSERT INTO osvidetelstvovanie_komissiya_preset "
         "(nazvanie, predsedatel_dolzhnost, predsedatel_fio, chleny_json, "
-        "oblast_rayon, predstavitel_lesxoza_dolzhnost, predstavitel_lesxoza_fio, "
+        "oblast_rayon, rayon, predstavitel_lesxoza_dolzhnost, predstavitel_lesxoza_fio, "
         "lesopolz_organizatsiya, lesopolz_dolzhnost, lesopolz_fio, "
         "sign_lesopolz_dolzhnost, sign_lesopolz_fio, vid_osvidetelstvovaniya, "
         "sposob_rubki, sposob_ucheta, sposob_ochistki, "
         "rukovoditel_dolzhnost, rukovoditel_fio) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(nazvanie) DO UPDATE SET "
         "predsedatel_dolzhnost = excluded.predsedatel_dolzhnost, "
         "predsedatel_fio = excluded.predsedatel_fio, "
         "chleny_json = excluded.chleny_json, "
         "oblast_rayon = excluded.oblast_rayon, "
+        "rayon = excluded.rayon, "
         "predstavitel_lesxoza_dolzhnost = excluded.predstavitel_lesxoza_dolzhnost, "
         "predstavitel_lesxoza_fio = excluded.predstavitel_lesxoza_fio, "
         "lesopolz_organizatsiya = excluded.lesopolz_organizatsiya, "
@@ -2594,7 +2606,7 @@ def save_osvidetelstvovanie_preset(
         "rukovoditel_fio = excluded.rukovoditel_fio",
         (
             nazvanie.strip(), predsedatel_dolzhnost or "", predsedatel_fio or "", chleny_json,
-            oblast_rayon or "", predstavitel_lesxoza_dolzhnost or "", predstavitel_lesxoza_fio or "",
+            oblast or "", rayon or "", predstavitel_lesxoza_dolzhnost or "", predstavitel_lesxoza_fio or "",
             lesopolz_organizatsiya or "", lesopolz_dolzhnost or "", lesopolz_fio or "",
             sign_lesopolz_dolzhnost or "", sign_lesopolz_fio or "", vid_osvidetelstvovaniya or "",
             sposob_rubki or "", sposob_ucheta or "", sposob_ochistki or "",

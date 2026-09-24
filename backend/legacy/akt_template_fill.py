@@ -76,10 +76,10 @@ def fill_akt(template_path, data, output_path):
     set_cell_text(t0, 2, 29, (d.get("act_year", "") + " г.") if d.get("act_year") else "",
                   align=WD_ALIGN_PARAGRAPH.LEFT)
 
-    # --- область/район (в данных приложения это одно поле свободного
-    # текста — целиком идёт в первую линию, "область"), лесхоз/лесничество
+    # --- область / район (два отдельных поля), лесхоз/лесничество
     # (структурное подразделение) ---
-    set_cell_text(t0, 3, 2, d.get("oblast_rayon", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell_text(t0, 3, 2, d.get("oblast", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell_text(t0, 3, 14, d.get("rayon", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
     set_cell_text(t0, 4, 0, d.get("lesxoz", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
     set_cell_text(t0, 6, 0, d.get("lesnichestvo", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
 

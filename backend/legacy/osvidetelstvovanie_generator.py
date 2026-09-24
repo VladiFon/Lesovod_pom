@@ -117,7 +117,7 @@ def generate_akt_osvidetelstvovaniya(delyanka: dict, items: list, sortiment_tota
 
     fill_data = {
         "act_day": act_day, "act_month": act_month, "act_year": act_year,
-        "oblast_rayon": d.get("oblast_rayon", ""),
+        "oblast": d.get("oblast", ""), "rayon": d.get("rayon", ""),
         "lesxoz": lesxoz, "lesnichestvo": lesnichestvo,
         "predstavitel_lesxoza": d.get("predstavitel_lesxoza_dolzhnost_fio") or _dolzhnost_fio(
             d.get("predstavitel_lesxoza_dolzhnost"), d.get("predstavitel_lesxoza_fio")),
