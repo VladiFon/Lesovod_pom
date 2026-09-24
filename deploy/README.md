@@ -172,3 +172,46 @@ fail-safe-поведение (см. `config.get_bot_service_token()`), не ба
 `backup_lesovod.bat` теперь бэкапит `.env` в ту же защищённую папку
 `backups-secrets\`, что и `secrets.json` (см. раздел 5) — оба значения
 из этого раздела попадут туда же.
+
+## 8. Проверка обновлений мобильного приложения (Android, сайдлоуд)
+
+Мобильное приложение при запуске тихо запрашивает `GET /app/version.json`
+и сравнивает `version_code` со своим `BuildConfig.VERSION_CODE`. Это
+обычная статика — Caddy отдаёт её тем же `file_server`, что и весь
+остальной фронтенд (см. `handle {}` в `Caddyfile`), отдельный
+backend-эндпоинт под это не заводили. Источник файла в репозитории —
+`frontend/public/app/version.json`, `npm run build` копирует его в
+`frontend/dist/app/version.json`, как и остальные файлы `public/`
+(см. `frontend/public/vendor/`, `abris_tool.html` — та же схема).
+
+При каждом релизе мобильного приложения (после того как в
+`LesovodMobile/app/build.gradle.kts` подняли `versionCode`):
+
+1. Соберите подписанный релизный APK (не debug-сборку из CI).
+2. Положите его на сервер как
+   `C:\lesovod\frontend\dist\app\lesovod-latest.apk` — рядом с
+   `version.json`, имя файла должно совпадать с `apk_url` внутри него.
+   Сам APK **не кладите в git** — большой бинарник, меняется каждый
+   релиз; копируете вручную на сервер, как и весь `frontend\dist`.
+3. Поднимите `version_code` в `frontend/public/app/version.json` до
+   значения нового `versionCode` и либо пересоберите фронтенд
+   (`npm run build`), либо, раз это всего один файл, просто перезапишите
+   его прямо в `C:\lesovod\frontend\dist\app\version.json` — рестарт
+   служб не нужен, Caddy отдаёт изменения сразу. Если правили на
+   сервере напрямую — перенесите то же значение и в
+   `frontend/public/app/version.json` в репозитории, чтобы следующая
+   пересборка фронтенда не откатила `version_code` назад.
+
+Формат файла:
+```json
+{
+  "version_code": 2,
+  "apk_url": "https://lesovodapipom.store/app/lesovod-latest.apk"
+}
+```
+
+Если сервер недоступен или отдал не-200/битый JSON — мобильное
+приложение должно тихо считать, что обновления нет, и не мешать
+работе (это уже требование к клиенту, не к серверу — здесь просто
+фиксируем, что сервер не гарантирует и не обязан ничего, кроме отдачи
+статического файла).
