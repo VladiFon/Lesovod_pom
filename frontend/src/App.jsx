@@ -11,6 +11,7 @@ import Raskhod from "./pages/Raskhod.jsx";
 import Inspection from "./pages/Inspection.jsx";
 import RubkiUhoda from "./pages/RubkiUhoda.jsx";
 import PlanRabot from "./pages/PlanRabot.jsx";
+import TabelRuchnoy from "./pages/TabelRuchnoy.jsx";
 import Sotrudniki from "./pages/Sotrudniki.jsx";
 import Attendance from "./pages/Attendance.jsx";
 import WorkerNotes from "./pages/WorkerNotes.jsx";
@@ -49,6 +50,10 @@ const READY_SCREENS = {
   // Фаза 4 плана доработки — постановка задач сотрудникам (work_plan),
   // веб-половина уже существующей мобильной функции (см. app/routers/bot.py).
   work_plan: { title: "План работ", subtitle: "Постановка задач сотрудникам: дата, делянка, статус", Page: PlanRabot },
+  // Ручной ввод табеля (просьба пользователя, 24.09.2026) — пока рядовые
+  // рабочие не отмечаются в мобильном приложении сами, лесничий расставляет
+  // за них статус, место и вид работы построчно на день. См. app/routers/tabel.py.
+  tabel: { title: "Табель — ручной ввод", subtitle: "Кто где работал: статус, делянка/участок, вид работы, комментарий", Page: TabelRuchnoy },
   // Перенесено из Settings.jsx (WorkersCard) — тот же /api/auth/workers,
   // полноценный экран вместо блока внутри "Настроек".
   sotrudniki: { title: "Сотрудники", subtitle: "Справочник работников: ФИО, должность, участок", Page: Sotrudniki },

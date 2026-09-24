@@ -37,3 +37,16 @@ def list_attendance(
     уже приджойненными (см. webext.list_attendance_marks). date_from/
     date_to — "ГГГГ-ММ-ДД", включительно."""
     return webext.list_attendance_marks(conn, date_from=date_from, date_to=date_to, sotrudnik_id=sotrudnik_id)
+
+
+@router.get("/tabel")
+def list_tabel_for_grid(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user=Depends(require_office_or_master),
+    conn=Depends(get_conn),
+) -> list[dict]:
+    """Записи табеля ручного ввода (см. app/routers/tabel.py) за период —
+    для слияния в ту же месячную сетку "Присутствие" на фронте
+    (Attendance.jsx запрашивает и это, и "/" выше, и сводит вместе)."""
+    return webext.list_tabel_zapisi(conn, date_from=date_from, date_to=date_to)

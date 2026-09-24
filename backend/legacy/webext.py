@@ -228,6 +228,47 @@ CREATE TABLE IF NOT EXISTS trelevka (
 CREATE INDEX IF NOT EXISTS idx_trelevka_sotrudnik ON trelevka(sotrudnik_id, created_at);
 """
 
+# Табель ручного ввода (по просьбе пользователя, 24.09.2026): пока
+# мобильное приложение есть только у начальства, рядовые рабочие в
+# attendance_marks вообще не попадают (это append-only лента, которую
+# рабочий сам отмечает в телефоне) — лесничему нечем заполнить табель на
+# них руками. В отличие от attendance_marks (много отметок в день, без
+# места/вида работы) tabel_zapis — ОДНА запись на сотрудника за день
+# (UNIQUE), с местом работы (делянка ИЛИ участок лесных культур — тот же
+# принцип, что и в work_plan) и видом работы (см. vidy_rabot) — лесничий
+# сам расставляет, кто где что делал, и может поправить уже введённый
+# день, а не плодить дубли.
+VIDY_RABOT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS vidy_rabot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nazvanie TEXT UNIQUE NOT NULL,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+"""
+
+TABEL_ZAPIS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tabel_zapis (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sotrudnik_id INTEGER NOT NULL REFERENCES sotrudniki(id),
+    data TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('работал', 'не работал', 'больничный', 'отпуск', 'выходной')),
+    delyanka_item_id INTEGER REFERENCES delyanka_item(id),
+    lesokultury_uchastok_id INTEGER REFERENCES lesokultury_uchastok(id),
+    vid_raboty_id INTEGER REFERENCES vidy_rabot(id),
+    kommentariy TEXT NOT NULL DEFAULT '',
+    entered_by TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    UNIQUE(sotrudnik_id, data)
+);
+CREATE INDEX IF NOT EXISTS idx_tabel_zapis_data ON tabel_zapis(data);
+"""
+
+# Затравка частых видов работ — лесничий дополняет список сам прямо из
+# формы ("+ новый вид работы"), см. get_or_create_vid_raboty.
+_VIDY_RABOT_SEED = ("Заготовка", "Рубки ухода", "Вывозка", "Уход за лесными культурами",
+                     "Лесовосстановление", "Охрана леса")
+
 
 # Уведомления (колокольчик в веб-шапке и в мобильном приложении).
 # recipient_sotrudnik_id NULL — общее (всем руководителям: мастер/помощник/
@@ -277,6 +318,13 @@ def ensure_webext_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(TRELEVKA_SCHEMA)
     conn.executescript(NOTIFICATIONS_SCHEMA)
     conn.executescript(NOTIFICATION_READS_SCHEMA)
+    conn.executescript(VIDY_RABOT_SCHEMA)
+    conn.executescript(TABEL_ZAPIS_SCHEMA)
+    conn.executemany(
+        "INSERT OR IGNORE INTO vidy_rabot (nazvanie) VALUES (?)",
+        [(n,) for n in _VIDY_RABOT_SEED],
+    )
+    conn.commit()
 
     # recipient_sotrudnik_id в worker_notes — адресат заметки (NULL = общая,
     # видна всем руководителям), для баз, созданных до этого добавления.
@@ -1314,6 +1362,160 @@ def delete_work_plan_item(conn, work_plan_id):
     conn.commit()
 
 
+# --------------------------------------------------------------------------- #
+#   Табель ручного ввода (tabel_zapis/vidy_rabot) — см. докстринг
+#   TABEL_ZAPIS_SCHEMA. Экран "Табель — ручной ввод" в веб-панели.
+# --------------------------------------------------------------------------- #
+def list_vidy_rabot(conn):
+    rows = conn.execute("SELECT id, nazvanie FROM vidy_rabot ORDER BY nazvanie").fetchall()
+    return [{"id": r[0], "nazvanie": r[1]} for r in rows]
+
+
+def get_or_create_vid_raboty(conn, nazvanie):
+    """Возвращает id вида работы, заводя новую строку в справочнике, если
+    такого названия ещё нет — форма табеля даёт лесничему "+ новый вид
+    работы" прямо на месте, без отдельного экрана-справочника."""
+    nazvanie = (nazvanie or "").strip()
+    if not nazvanie:
+        raise ValueError("Название вида работы не может быть пустым")
+    row = conn.execute("SELECT id FROM vidy_rabot WHERE nazvanie=?", (nazvanie,)).fetchone()
+    if row:
+        return row[0]
+    cur = conn.execute("INSERT INTO vidy_rabot (nazvanie) VALUES (?)", (nazvanie,))
+    conn.commit()
+    return cur.lastrowid
+
+
+def _tabel_mobile_status_by_sotrudnik(conn, data):
+    """Итоговый статус мобильной отметки (attendance_marks) на дату — тот
+    же приоритет, что и Attendance.jsx dayKind (больничный > работаю > не
+    работаю) — только чтобы форма табеля показала "уже отметился в
+    приложении" рядом с сотрудником, лесничему решать самому."""
+    rows = conn.execute(
+        "SELECT sotrudnik_id, status FROM attendance_marks WHERE substr(created_at, 1, 10) = ?",
+        (data,),
+    ).fetchall()
+    by_sotrudnik = {}
+    for sotrudnik_id, status in rows:
+        by_sotrudnik.setdefault(sotrudnik_id, set()).add(status)
+    result = {}
+    for sotrudnik_id, statuses in by_sotrudnik.items():
+        if "больничный" in statuses:
+            result[sotrudnik_id] = "больничный"
+        elif "работаю" in statuses:
+            result[sotrudnik_id] = "работаю"
+        else:
+            result[sotrudnik_id] = "не работаю"
+    return result
+
+
+def get_tabel_day(conn, data):
+    """Табель ручного ввода на ОДИН день — строка на КАЖДОГО активного
+    сотрудника (не только тех, у кого уже есть запись за этот день, в
+    отличие от attendance_marks-based Attendance.jsx, где виден только тот,
+    кто сам отметился), с уже приджойненной записью (если лесничий её уже
+    вносил) и итогом мобильной отметки за этот день для подсказки
+    "уже отметился"."""
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT sotrudniki.id AS sotrudnik_id, sotrudniki.fio, sotrudniki.dolzhnost,
+               tz.id AS zapis_id, tz.status, tz.kommentariy, tz.entered_by, tz.updated_at,
+               tz.delyanka_item_id, delyanka_item.kvartal AS d_kvartal, delyanka_item.vydel AS d_vydel,
+               tz.lesokultury_uchastok_id, lku.kvartal AS lku_kvartal, lku.vydel AS lku_vydel,
+               lku.glavnaya_poroda AS lku_glavnaya_poroda,
+               tz.vid_raboty_id, vidy_rabot.nazvanie AS vid_raboty_nazvanie
+        FROM sotrudniki
+        LEFT JOIN tabel_zapis tz ON tz.sotrudnik_id = sotrudniki.id AND tz.data = ?
+        LEFT JOIN delyanka_item ON delyanka_item.id = tz.delyanka_item_id
+        LEFT JOIN lesokultury_uchastok lku ON lku.id = tz.lesokultury_uchastok_id
+        LEFT JOIN vidy_rabot ON vidy_rabot.id = tz.vid_raboty_id
+        WHERE sotrudniki.is_active = 1
+        ORDER BY sotrudniki.fio
+        """,
+        (data,),
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    mobile_status = _tabel_mobile_status_by_sotrudnik(conn, data)
+    for r in result:
+        r["mobile_status"] = mobile_status.get(r["sotrudnik_id"])
+    return result
+
+
+def save_tabel_day(conn, data, entries, entered_by):
+    """Пакетное сохранение табеля на один день. entries — список dict:
+    sotrudnik_id, status, delyanka_item_id, lesokultury_uchastok_id,
+    vid_raboty_id, kommentariy. UPSERT по UNIQUE(sotrudnik_id, data) — одна
+    запись на сотрудника за день, повторное сохранение того же дня
+    исправляет её, а не плодит дубли (лесничий может открыть уже
+    заполненный день и что-то поправить)."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for e in entries:
+        if e.get("delyanka_item_id") and e.get("lesokultury_uchastok_id"):
+            raise ValueError(
+                "Запись табеля нельзя привязать одновременно к делянке и к участку лесных культур"
+            )
+        if not conn.execute(
+            "SELECT 1 FROM sotrudniki WHERE id=? AND is_active=1", (e["sotrudnik_id"],)
+        ).fetchone():
+            raise ValueError(f"Сотрудник id={e['sotrudnik_id']} не найден или отключён")
+        conn.execute(
+            """
+            INSERT INTO tabel_zapis
+                (sotrudnik_id, data, status, delyanka_item_id, lesokultury_uchastok_id,
+                 vid_raboty_id, kommentariy, entered_by, created_at, updated_at)
+            VALUES (:sotrudnik_id, :data, :status, :delyanka_item_id, :lesokultury_uchastok_id,
+                    :vid_raboty_id, :kommentariy, :entered_by, :now, :now)
+            ON CONFLICT(sotrudnik_id, data) DO UPDATE SET
+                status=excluded.status,
+                delyanka_item_id=excluded.delyanka_item_id,
+                lesokultury_uchastok_id=excluded.lesokultury_uchastok_id,
+                vid_raboty_id=excluded.vid_raboty_id,
+                kommentariy=excluded.kommentariy,
+                entered_by=excluded.entered_by,
+                updated_at=excluded.updated_at
+            """,
+            {
+                "sotrudnik_id": e["sotrudnik_id"], "data": data, "status": e["status"],
+                "delyanka_item_id": e.get("delyanka_item_id"),
+                "lesokultury_uchastok_id": e.get("lesokultury_uchastok_id"),
+                "vid_raboty_id": e.get("vid_raboty_id"),
+                "kommentariy": e.get("kommentariy") or "",
+                "entered_by": entered_by, "now": now,
+            },
+        )
+    conn.commit()
+
+
+def list_tabel_zapisi(conn, date_from=None, date_to=None):
+    """Записи табеля ручного ввода за период — для слияния в месячную
+    сетку "Присутствие" (см. app/routers/attendance.py: GET .../tabel)."""
+    conn.row_factory = sqlite3.Row
+    q = """
+        SELECT tz.id, tz.sotrudnik_id, tz.data, tz.status, tz.kommentariy, tz.entered_by,
+               sotrudniki.fio AS sotrudnik_fio, sotrudniki.dolzhnost AS sotrudnik_dolzhnost,
+               tz.delyanka_item_id, delyanka_item.kvartal AS d_kvartal, delyanka_item.vydel AS d_vydel,
+               tz.lesokultury_uchastok_id, lku.kvartal AS lku_kvartal, lku.vydel AS lku_vydel,
+               lku.glavnaya_poroda AS lku_glavnaya_poroda,
+               tz.vid_raboty_id, vidy_rabot.nazvanie AS vid_raboty_nazvanie
+        FROM tabel_zapis tz
+        JOIN sotrudniki ON sotrudniki.id = tz.sotrudnik_id
+        LEFT JOIN delyanka_item ON delyanka_item.id = tz.delyanka_item_id
+        LEFT JOIN lesokultury_uchastok lku ON lku.id = tz.lesokultury_uchastok_id
+        LEFT JOIN vidy_rabot ON vidy_rabot.id = tz.vid_raboty_id
+        WHERE 1=1
+    """
+    params = []
+    if date_from:
+        q += " AND tz.data >= ?"
+        params.append(date_from)
+    if date_to:
+        q += " AND tz.data <= ?"
+        params.append(date_to)
+    rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
+
+
 def purge_expired_sessions(conn):
     """Необязательная уборка — можно дёргать периодически (например, из
     background-задачи по расписанию), просроченные сессии и так не проходят
@@ -1338,6 +1540,11 @@ PERMISSIONS = {
     # полноценного экрана "План работ" (Фаза 4 плана доработки), см.
     # webext.WORK_PLAN_SCHEMA.
     "work_plan.edit": ("admin", "lesovod"),
+    # Табель ручного ввода (просьба пользователя, 24.09.2026) — тот же круг
+    # ролей, что и у "Плана работ" (лесничий/админ): расставляет, кто где
+    # что делал, задним числом, пока рядовые рабочие не завели мобильное
+    # приложение и не попадают в attendance_marks сами.
+    "tabel.edit": ("admin", "lesovod"),
     "documents.view": ("admin", "lesovod", "viewer"),
     "documents.generate": ("admin", "lesovod"),
     "documents.delete": ("admin", "lesovod"),

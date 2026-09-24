@@ -11,7 +11,13 @@ export const NAV_GROUPS = [
   { title: "лес", items: [["taxation", "Таксация"], ["forestry", "Лесокультуры"], ["uhody", "Рубки ухода"]] },
   {
     title: "люди",
-    items: [["sotrudniki", "Сотрудники"], ["work_plan", "План работ"], ["attendance", "Присутствие"], ["worker_notes", "Заметки"]],
+    items: [
+      ["sotrudniki", "Сотрудники"],
+      ["work_plan", "План работ"],
+      ["tabel", "Табель — ввод"],
+      ["attendance", "Присутствие"],
+      ["worker_notes", "Заметки"],
+    ],
   },
   { title: "прочее", items: [["ai_log", "ИИ-журнал"], ["archive", "Архив"], ["settings", "Настройки"]] },
 ];

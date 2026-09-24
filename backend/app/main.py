@@ -36,6 +36,7 @@ from app.routers import (
     notifications,
     raskhod,
     settings as settings_router,
+    tabel,
     taxation,
     tasks,
     trelevka,
@@ -104,6 +105,7 @@ app.include_router(settings_router.router)
 app.include_router(tasks.router)
 app.include_router(uhody.router)
 app.include_router(work_plan.router)
+app.include_router(tabel.router)
 app.include_router(attendance.router)
 app.include_router(notes.router)
 app.include_router(notifications.router)
