@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Роутер экрана "Распределение бригад" — состав бригад (с историей
-членства, brigada_sostav) и назначение бригады/рабочего на делянку с
-диапазоном дат (brigada_naznachenie), плюс сигнал "делянка близка к
-завершению" (list_delyanki_dlya_raspredeleniya), посчитанный уже
-существующими функциями raskhod_v2 (см. докстринг backend/legacy/brigada.py).
+членства, brigada_sostav) и назначение бригады/рабочего на делянку ИЛИ
+на участок лесных культур с диапазоном дат (brigada_naznachenie), плюс
+сигнал "делянка близка к завершению" (list_delyanki_dlya_raspredeleniya,
+делянка-only — см. докстринг backend/legacy/brigada.py), посчитанный уже
+существующими функциями raskhod_v2.
 
 Чтение (GET) оставлено открытым — тот же принцип, что и в
 app/routers/inspection.py (GET /api/inspection/ без require_permission);
@@ -85,6 +86,17 @@ def get_sotrudnik_brigada_history(sotrudnik_id: int, conn=Depends(get_conn)) -> 
     return brigada.get_sotrudnik_brigada_history(conn, sotrudnik_id)
 
 
+@router.get("/lesokultury-uchastki")
+def list_lesokultury_uchastki_for_picker(
+    user=Depends(require_permission("brigady.edit")), conn=Depends(get_conn)
+) -> list[dict]:
+    """Лёгкий список активных участков лесных культур — для переключателя
+    "Делянка / Лесные культуры" в модалке назначения (тот же принцип, что
+    и GET /api/work-plan/lesokultury-uchastki)."""
+    import db as legacy_db
+    return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=False)
+
+
 # --------------------------------------------------------------------------- #
 #   Сигнал "делянка близка к завершению"
 # --------------------------------------------------------------------------- #
@@ -99,6 +111,7 @@ def list_delyanki_dlya_raspredeleniya(conn=Depends(get_conn)) -> list[dict]:
 @router.get("/naznacheniya")
 def list_naznacheniya(
     delyanka_id: Optional[int] = None,
+    lesokultury_uchastok_id: Optional[int] = None,
     brigada_id: Optional[int] = None,
     status: Optional[str] = None,
     date_from: Optional[str] = None,
@@ -106,13 +119,14 @@ def list_naznacheniya(
     conn=Depends(get_conn),
 ) -> list[dict]:
     return brigada.list_naznacheniya(
-        conn, delyanka_id=delyanka_id, brigada_id=brigada_id,
-        status=status, date_from=date_from, date_to=date_to,
+        conn, delyanka_id=delyanka_id, lesokultury_uchastok_id=lesokultury_uchastok_id,
+        brigada_id=brigada_id, status=status, date_from=date_from, date_to=date_to,
     )
 
 
 class NaznachenieCreateIn(BaseModel):
-    delyanka_id: int
+    delyanka_id: Optional[int] = None
+    lesokultury_uchastok_id: Optional[int] = None
     data_nachala: str  # "ГГГГ-ММ-ДД"
     data_okonchaniya: Optional[str] = None
     brigada_id: Optional[int] = None
@@ -126,7 +140,8 @@ def create_naznachenie(body: NaznachenieCreateIn,
                         user=Depends(require_permission("brigady.edit")), conn=Depends(get_conn)) -> dict:
     try:
         naznachenie_id = brigada.create_naznachenie(
-            conn, body.delyanka_id, body.data_nachala,
+            conn, body.data_nachala, delyanka_id=body.delyanka_id,
+            lesokultury_uchastok_id=body.lesokultury_uchastok_id,
             data_okonchaniya=body.data_okonchaniya, brigada_id=body.brigada_id,
             sotrudnik_id=body.sotrudnik_id, kommentariy=body.kommentariy,
             created_by=user["login"], close_current_for_brigada=body.close_current_for_brigada,

@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app import legacy_bridge  # noqa: F401
 import db as legacy_db
+import webext
 
-from app.auth import require_office_writer_or_master
+from app.auth import require_office_writer_or_master, require_permission
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/lesokultury", tags=["lesokultury"])
@@ -45,22 +46,26 @@ def get_uchastok(uchastok_id: int, conn=Depends(get_conn)):
 
 
 @router.post("/uchastki")
-def create_uchastok(fields: Dict[str, Any], conn=Depends(get_conn)):
+def create_uchastok(fields: Dict[str, Any], user=Depends(require_permission("lesokultury.edit")),
+                     conn=Depends(get_conn)):
     uchastok_id = legacy_db.create_lesokultury_uchastok(conn, **fields)
     return {"id": uchastok_id}
 
 
 @router.patch("/uchastki/{uchastok_id}")
-def update_uchastok(uchastok_id: int, fields: Dict[str, Any], conn=Depends(get_conn)):
+def update_uchastok(uchastok_id: int, fields: Dict[str, Any],
+                     user=Depends(require_permission("lesokultury.edit")), conn=Depends(get_conn)):
     u = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
     if u is None:
         raise HTTPException(404, "Участок не найден")
     legacy_db.update_lesokultury_uchastok(conn, uchastok_id, **fields)
+    webext.touch_updated_by(conn, "lesokultury_uchastok", uchastok_id, user["login"])
     return {"ok": True}
 
 
 @router.delete("/uchastki/{uchastok_id}")
-def delete_uchastok(uchastok_id: int, conn=Depends(get_conn)):
+def delete_uchastok(uchastok_id: int, user=Depends(require_permission("lesokultury.edit")),
+                     conn=Depends(get_conn)):
     u = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
     if u is None:
         raise HTTPException(404, "Участок не найден")
@@ -82,6 +87,7 @@ def add_meropriyatie(
     kolichestvo_na_ga: Optional[float] = None,
     sostav_fakt: str = "",
     primechaniya: str = "",
+    user=Depends(require_permission("lesokultury.edit")),
     conn=Depends(get_conn),
 ):
     meropriyatie_id = legacy_db.add_lesokultury_meropriyatie(

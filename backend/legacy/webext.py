@@ -339,20 +339,23 @@ CREATE INDEX IF NOT EXISTS idx_brigada_sostav_sotrudnik ON brigada_sostav(sotrud
 
 # Назначение бригады ИЛИ отдельного рабочего (ровно один из двух —
 # проверяется в Python, как delyanka_item_id/lesokultury_uchastok_id в
-# work_plan) на делянку с диапазоном дат. Отдельная таблица, а не
-# расширение work_plan: work_plan — ежедневная задача одному человеку со
-# свободным текстом, читаемая ботом построчно на день ("Мои задачи");
-# смешивание с "бригада работает на делянке N недель" сломало бы оба
-# смысла статуса и мобильный сценарий. Два незакрытых назначения на одну
-# бригаду одновременно (текущее "активно" + будущее "запланировано")
-# допускаются намеренно — это и есть сценарий "планируем следующий шаг,
-# пока бригада ещё дорабатывает текущую делянку".
+# work_plan) на делянку ИЛИ на участок лесных культур (тоже ровно один
+# из двух — тот же принцип, что и у work_plan/tabel_zapis) с диапазоном
+# дат. Отдельная таблица, а не расширение work_plan: work_plan —
+# ежедневная задача одному человеку со свободным текстом, читаемая ботом
+# построчно на день ("Мои задачи"); смешивание с "бригада работает на
+# делянке N недель" сломало бы оба смысла статуса и мобильный сценарий.
+# Два незакрытых назначения на одну бригаду одновременно (текущее
+# "активно" + будущее "запланировано") допускаются намеренно — это и
+# есть сценарий "планируем следующий шаг, пока бригада ещё дорабатывает
+# текущее место работы".
 BRIGADA_NAZNACHENIE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS brigada_naznachenie (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     brigada_id INTEGER REFERENCES brigada(id),
     sotrudnik_id INTEGER REFERENCES sotrudniki(id),
-    delyanka_id INTEGER NOT NULL REFERENCES delyanka(id),
+    delyanka_id INTEGER REFERENCES delyanka(id),
+    lesokultury_uchastok_id INTEGER REFERENCES lesokultury_uchastok(id),
     data_nachala TEXT NOT NULL,
     data_okonchaniya TEXT,
     status TEXT NOT NULL DEFAULT 'запланировано'
@@ -360,14 +363,82 @@ CREATE TABLE IF NOT EXISTS brigada_naznachenie (
     kommentariy TEXT,
     created_by TEXT,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
-    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    CHECK (
+        (delyanka_id IS NOT NULL AND lesokultury_uchastok_id IS NULL) OR
+        (delyanka_id IS NULL AND lesokultury_uchastok_id IS NOT NULL)
+    )
 );
 CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_delyanka ON brigada_naznachenie(delyanka_id, status);
+CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_lesokultury ON brigada_naznachenie(lesokultury_uchastok_id, status);
 CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_brigada ON brigada_naznachenie(brigada_id, status);
 """
 
 
 def ensure_webext_schema(conn: sqlite3.Connection) -> None:
+    # lesokultury_uchastok_id в brigada_naznachenie — назначение бригады/
+    # рабочего теперь можно привязать либо к делянке, либо к участку лесных
+    # культур (тот же принцип, что и у work_plan). В отличие от work_plan
+    # простой ALTER TABLE ADD COLUMN тут недостаточен: delyanka_id в уже
+    # развёрнутых базах — NOT NULL, а вставка NULL туда упадёт на уровне
+    # SQLite ещё до Python-проверки "ровно одно из двух" в
+    # brigada.create_naznachenie(). SQLite не умеет снимать NOT NULL через
+    # ALTER — пересобираем таблицу один раз, только для баз, заведённых до
+    # этого добавления (проверено: ничего не ссылается на
+    # brigada_naznachenie(id) внешним ключом, переносить нечего).
+    #
+    # Важно: этот блок должен отработать РАНЬШЕ, чем
+    # executescript(BRIGADA_NAZNACHENIE_SCHEMA) ниже — та строка содержит
+    # "CREATE INDEX ... ON brigada_naznachenie(lesokultury_uchastok_id, ...)",
+    # который упадёт на старой таблице без этой колонки (CREATE TABLE IF
+    # NOT EXISTS там же — no-op на уже существующей таблице, колонку сама
+    # по себе не добавит).
+    existing_bn_cols = {row[1] for row in conn.execute("PRAGMA table_info(brigada_naznachenie)").fetchall()}
+    if existing_bn_cols and "lesokultury_uchastok_id" not in existing_bn_cols:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute(
+            """CREATE TABLE brigada_naznachenie_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                brigada_id INTEGER REFERENCES brigada(id),
+                sotrudnik_id INTEGER REFERENCES sotrudniki(id),
+                delyanka_id INTEGER REFERENCES delyanka(id),
+                lesokultury_uchastok_id INTEGER REFERENCES lesokultury_uchastok(id),
+                data_nachala TEXT NOT NULL,
+                data_okonchaniya TEXT,
+                status TEXT NOT NULL DEFAULT 'запланировано'
+                    CHECK (status IN ('запланировано', 'активно', 'завершено', 'отменено')),
+                kommentariy TEXT,
+                created_by TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                CHECK (
+                    (delyanka_id IS NOT NULL AND lesokultury_uchastok_id IS NULL) OR
+                    (delyanka_id IS NULL AND lesokultury_uchastok_id IS NOT NULL)
+                )
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO brigada_naznachenie_new
+                   (id, brigada_id, sotrudnik_id, delyanka_id, data_nachala, data_okonchaniya,
+                    status, kommentariy, created_by, created_at, updated_at)
+               SELECT id, brigada_id, sotrudnik_id, delyanka_id, data_nachala, data_okonchaniya,
+                      status, kommentariy, created_by, created_at, updated_at
+               FROM brigada_naznachenie"""
+        )
+        conn.execute("DROP TABLE brigada_naznachenie")
+        conn.execute("ALTER TABLE brigada_naznachenie_new RENAME TO brigada_naznachenie")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_delyanka ON brigada_naznachenie(delyanka_id, status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_lesokultury "
+            "ON brigada_naznachenie(lesokultury_uchastok_id, status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_brigada ON brigada_naznachenie(brigada_id, status)"
+        )
+        conn.execute("PRAGMA foreign_keys=ON")
+
     conn.executescript(DOCUMENTS_SCHEMA)
     conn.executescript(TASKS_SCHEMA)
     conn.executescript(USERS_SCHEMA)
@@ -418,6 +489,7 @@ def ensure_webext_schema(conn: sqlite3.Connection) -> None:
             "ALTER TABLE work_plan ADD COLUMN lesokultury_uchastok_id INTEGER "
             "REFERENCES lesokultury_uchastok(id)"
         )
+
     if "updated_by" not in existing_doc_cols:
         conn.execute("ALTER TABLE documents ADD COLUMN updated_by TEXT")
     conn.execute(

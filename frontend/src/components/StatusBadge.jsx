@@ -32,6 +32,11 @@ const STATUS_PRESETS = {
   "ошибка": "danger",
   "архив": "neutral",
   "черновик": "neutral",
+  // Участок лесных культур (Lesokultury.jsx) — тот же смысл, что у делянки,
+  // просто другое окончание слова ("активен" вместо "активна").
+  "активен": "success",
+  "переведён": "success",
+  "списан": "danger",
 };
 
 export default function StatusBadge({ tone, status, label, dot = false, className = "" }) {

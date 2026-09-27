@@ -73,7 +73,9 @@ function emptyNaznachenieForm() {
     executorType: "brigada",
     brigada_id: "",
     sotrudnik_id: "",
+    targetType: "delyanka",
     delyanka_id: "",
+    lesokultury_uchastok_id: "",
     data_nachala: todayIso(),
     data_okonchaniya: "",
     kommentariy: "",
@@ -87,6 +89,7 @@ export default function RaspredelenieBrigad() {
   const [brigady, setBrigady] = useState(null);
   const [sotrudniki, setSotrudniki] = useState([]);
   const [activnyeDelyanki, setActivnyeDelyanki] = useState([]);
+  const [activnyeLesokultury, setActivnyeLesokultury] = useState([]);
 
   const [brigadaModalOpen, setBrigadaModalOpen] = useState(false);
   const [brigadaForm, setBrigadaForm] = useState(emptyBrigadaForm());
@@ -111,12 +114,14 @@ export default function RaspredelenieBrigad() {
       api.get("/brigady/"),
       api.get("/brigady/sotrudniki"),
       api.get("/delyanki/", { status: "активна" }),
+      api.get("/brigady/lesokultury-uchastki"),
     ])
-      .then(([status, br, sotr, delyanki]) => {
+      .then(([status, br, sotr, delyanki, lesokultury]) => {
         setDelyankiStatus(status);
         setBrigady(br);
         setSotrudniki(sotr);
         setActivnyeDelyanki(delyanki);
+        setActivnyeLesokultury(lesokultury);
       })
       .catch((err) => {
         toast.show({
@@ -152,10 +157,30 @@ export default function RaspredelenieBrigad() {
     return map;
   }, [brigady]);
 
+  const lesokulturyLabelById = useMemo(() => {
+    const map = new Map();
+    for (const u of activnyeLesokultury) {
+      map.set(u.id, `кв. ${u.kvartal || "—"} / выд. ${u.vydel || "—"}${u.lesnichestvo ? ` (${u.lesnichestvo})` : ""}`);
+    }
+    return map;
+  }, [activnyeLesokultury]);
+
   const executorLabel = (naznachenie) => {
     if (!naznachenie) return "—";
     if (naznachenie.brigada_id) return brigadaNameById.get(naznachenie.brigada_id) || `Бригада №${naznachenie.brigada_id}`;
     if (naznachenie.sotrudnik_id) return sotrudnikFioById.get(naznachenie.sotrudnik_id) || `Сотрудник №${naznachenie.sotrudnik_id}`;
+    return "—";
+  };
+
+  // Назначение бригады/рабочего теперь целится либо в делянку, либо в
+  // участок лесных культур (ровно одно из двух, см. brigada.py) — этот
+  // помощник резолвит название места по тому, какое поле заполнено.
+  const targetLabel = (naznachenie) => {
+    if (!naznachenie) return "—";
+    if (naznachenie.delyanka_id) return delyankaNameById.get(naznachenie.delyanka_id) || `Делянка №${naznachenie.delyanka_id}`;
+    if (naznachenie.lesokultury_uchastok_id) {
+      return lesokulturyLabelById.get(naznachenie.lesokultury_uchastok_id) || `Участок №${naznachenie.lesokultury_uchastok_id}`;
+    }
     return "—";
   };
 
@@ -248,15 +273,20 @@ export default function RaspredelenieBrigad() {
   };
 
   const handleSaveNaznachenie = async () => {
-    const { executorType, brigada_id, sotrudnik_id, delyanka_id, data_nachala, data_okonchaniya, kommentariy } = naznachenieForm;
-    if (!delyanka_id || !data_nachala || (executorType === "brigada" ? !brigada_id : !sotrudnik_id)) {
-      toast.show({ tone: "warning", title: "Заполните исполнителя, делянку и дату начала" });
+    const {
+      executorType, brigada_id, sotrudnik_id, targetType, delyanka_id, lesokultury_uchastok_id,
+      data_nachala, data_okonchaniya, kommentariy,
+    } = naznachenieForm;
+    const targetId = targetType === "delyanka" ? delyanka_id : lesokultury_uchastok_id;
+    if (!targetId || !data_nachala || (executorType === "brigada" ? !brigada_id : !sotrudnik_id)) {
+      toast.show({ tone: "warning", title: "Заполните исполнителя, место работы и дату начала" });
       return;
     }
     setSavingNaznachenie(true);
     try {
       await api.post("/brigady/naznacheniya", {
-        delyanka_id: Number(delyanka_id),
+        delyanka_id: targetType === "delyanka" ? Number(delyanka_id) : null,
+        lesokultury_uchastok_id: targetType === "lesokultury" ? Number(lesokultury_uchastok_id) : null,
         data_nachala,
         data_okonchaniya: data_okonchaniya || null,
         brigada_id: executorType === "brigada" ? Number(brigada_id) : null,
@@ -318,7 +348,7 @@ export default function RaspredelenieBrigad() {
           if (!r.sleduyushee_naznachenie) {
             return <StatusBadge tone="warning" label="не запланировано" />;
           }
-          return `${delyankaNameById.get(r.sleduyushee_naznachenie.delyanka_id) || "—"} (${naznachenieRange(r.sleduyushee_naznachenie)})`;
+          return `${targetLabel(r.sleduyushee_naznachenie)} (${naznachenieRange(r.sleduyushee_naznachenie)})`;
         },
       },
       {
@@ -332,7 +362,7 @@ export default function RaspredelenieBrigad() {
           ) : null,
       },
     ],
-    [delyankaNameById, brigadaNameById, sotrudnikFioById] // eslint-disable-line react-hooks/exhaustive-deps
+    [delyankaNameById, brigadaNameById, sotrudnikFioById, lesokulturyLabelById] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const brigadyColumns = useMemo(
@@ -350,18 +380,18 @@ export default function RaspredelenieBrigad() {
       },
       {
         key: "tekushee",
-        header: "Текущая делянка",
+        header: "Текущее место работы",
         render: (b) =>
           b.tekushee_naznachenie
-            ? `${delyankaNameById.get(b.tekushee_naznachenie.delyanka_id) || "—"} (${naznachenieRange(b.tekushee_naznachenie)})`
+            ? `${targetLabel(b.tekushee_naznachenie)} (${naznachenieRange(b.tekushee_naznachenie)})`
             : "—",
       },
       {
         key: "sleduyushee",
-        header: "Следующая делянка",
+        header: "Следующее место работы",
         render: (b) =>
           b.sleduyushee_naznachenie
-            ? `${delyankaNameById.get(b.sleduyushee_naznachenie.delyanka_id) || "—"} (${naznachenieRange(b.sleduyushee_naznachenie)})`
+            ? `${targetLabel(b.sleduyushee_naznachenie)} (${naznachenieRange(b.sleduyushee_naznachenie)})`
             : "—",
       },
       { key: "is_active", header: "Статус", render: (b) => <StatusBadge tone={b.is_active ? "success" : "neutral"} label={b.is_active ? "Активна" : "Не активна"} /> },
@@ -383,7 +413,7 @@ export default function RaspredelenieBrigad() {
         ),
       },
     ],
-    [delyankaNameById, sotrudnikFioById] // eslint-disable-line react-hooks/exhaustive-deps
+    [delyankaNameById, sotrudnikFioById, lesokulturyLabelById] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return (
@@ -561,18 +591,50 @@ export default function RaspredelenieBrigad() {
             </div>
           )}
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm text-muted font-medium">Делянка</label>
-            <select
-              value={naznachenieForm.delyanka_id}
-              onChange={(e) => setNaznachenieForm((f) => ({ ...f, delyanka_id: e.target.value }))}
-              className="bg-surface border border-border focus:border-pine rounded-md px-3 py-2.5 text-base text-ink outline-none"
-            >
-              <option value="">Выберите делянку…</option>
-              {activnyeDelyanki.map((d) => (
-                <option key={d.id} value={d.id}>{d.nazvanie || `Делянка №${d.id}`}</option>
-              ))}
-            </select>
+          <div>
+            <div className="text-sm text-muted font-medium mb-1.5">Место работы</div>
+            <div className="flex gap-2 mb-3">
+              <Button
+                type="button"
+                variant={naznachenieForm.targetType === "delyanka" ? "primary" : "secondary"}
+                size="sm"
+                onClick={() => setNaznachenieForm((f) => ({ ...f, targetType: "delyanka", lesokultury_uchastok_id: "" }))}
+              >
+                Делянка
+              </Button>
+              <Button
+                type="button"
+                variant={naznachenieForm.targetType === "lesokultury" ? "primary" : "secondary"}
+                size="sm"
+                onClick={() => setNaznachenieForm((f) => ({ ...f, targetType: "lesokultury", delyanka_id: "" }))}
+              >
+                Лесные культуры
+              </Button>
+            </div>
+
+            {naznachenieForm.targetType === "delyanka" ? (
+              <select
+                value={naznachenieForm.delyanka_id}
+                onChange={(e) => setNaznachenieForm((f) => ({ ...f, delyanka_id: e.target.value }))}
+                className="w-full bg-surface border border-border focus:border-pine rounded-md px-3 py-2.5 text-base text-ink outline-none"
+              >
+                <option value="">Выберите делянку…</option>
+                {activnyeDelyanki.map((d) => (
+                  <option key={d.id} value={d.id}>{d.nazvanie || `Делянка №${d.id}`}</option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={naznachenieForm.lesokultury_uchastok_id}
+                onChange={(e) => setNaznachenieForm((f) => ({ ...f, lesokultury_uchastok_id: e.target.value }))}
+                className="w-full bg-surface border border-border focus:border-pine rounded-md px-3 py-2.5 text-base text-ink outline-none"
+              >
+                <option value="">Выберите участок…</option>
+                {activnyeLesokultury.map((u) => (
+                  <option key={u.id} value={u.id}>{lesokulturyLabelById.get(u.id)}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="flex gap-3">

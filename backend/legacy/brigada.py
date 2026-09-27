@@ -1,16 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Бригады и назначения на делянки (экран "Распределение бригад").
+"""Бригады и назначения на делянки/участки лесных культур (экран
+"Распределение бригад").
 
 Отвечает на вопрос "делянка заканчивается — кого куда двигать дальше":
   - brigada/brigada_sostav — лёгкая группировка sotrudniki с историей
     членства (см. докстринг BRIGADA_SOSTAV_SCHEMA в webext.py);
   - brigada_naznachenie — назначение бригады ИЛИ отдельного рабочего на
-    делянку с диапазоном дат;
+    делянку ИЛИ на участок лесных культур (тоже ровно один из двух — тот
+    же принцип, что и у work_plan/tabel_zapis) с диапазоном дат;
   - list_delyanki_dlya_raspredeleniya() — сигнал "делянка близка к
     завершению", посчитанный существующими функциями raskhod_v2
     (compute_sortiment_limit_fakt_totals/compute_ploshad_summary), теми
     же, что уже использует app/routers/inspection.py — здесь не
     дублируется расчёт, только пороги и агрегация по бригадам.
+    Сознательно ДЕЛЯНКА-ONLY: аналогичного сигнала "участок лесных
+    культур близок к завершению" в системе пока нет (нечего считать —
+    normativ_perevoda нигде не сверяется с фактом, см. бэклог), поэтому
+    этот сигнал и бейдж на дашборде не расширяются на лесокультуры,
+    расширяется только сама возможность назначения.
 
 Стиль модуля — как у delyanka.py: простые функции, первым аргументом conn,
 без классов."""
@@ -164,11 +171,13 @@ def get_sotrudnik_brigada_history(conn, sotrudnik_id):
 # --------------------------------------------------------------------------- #
 #   Назначения на делянку
 # --------------------------------------------------------------------------- #
-def create_naznachenie(conn, delyanka_id, data_nachala, data_okonchaniya=None,
-                        brigada_id=None, sotrudnik_id=None, kommentariy=None,
-                        created_by=None, close_current_for_brigada=True):
+def create_naznachenie(conn, data_nachala, delyanka_id=None, lesokultury_uchastok_id=None,
+                        data_okonchaniya=None, brigada_id=None, sotrudnik_id=None,
+                        kommentariy=None, created_by=None, close_current_for_brigada=True):
     if bool(brigada_id) == bool(sotrudnik_id):
         raise ValueError("Укажите ровно одно: brigada_id ИЛИ sotrudnik_id")
+    if bool(delyanka_id) == bool(lesokultury_uchastok_id):
+        raise ValueError("Укажите ровно одно: delyanka_id ИЛИ lesokultury_uchastok_id")
 
     if close_current_for_brigada and brigada_id:
         _close_current_naznacheniya(conn, brigada_id=brigada_id, before_date=data_nachala)
@@ -177,11 +186,11 @@ def create_naznachenie(conn, delyanka_id, data_nachala, data_okonchaniya=None,
 
     cur = conn.execute(
         """INSERT INTO brigada_naznachenie
-               (brigada_id, sotrudnik_id, delyanka_id, data_nachala, data_okonchaniya,
-                kommentariy, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (brigada_id, sotrudnik_id, delyanka_id, data_nachala, data_okonchaniya,
-         kommentariy, created_by),
+               (brigada_id, sotrudnik_id, delyanka_id, lesokultury_uchastok_id, data_nachala,
+                data_okonchaniya, kommentariy, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (brigada_id, sotrudnik_id, delyanka_id, lesokultury_uchastok_id, data_nachala,
+         data_okonchaniya, kommentariy, created_by),
     )
     conn.commit()
     return cur.lastrowid
@@ -215,13 +224,16 @@ def _close_current_naznacheniya(conn, brigada_id=None, sotrudnik_id=None, before
     )
 
 
-def list_naznacheniya(conn, delyanka_id=None, brigada_id=None, sotrudnik_id=None,
-                       status=None, date_from=None, date_to=None):
+def list_naznacheniya(conn, delyanka_id=None, lesokultury_uchastok_id=None, brigada_id=None,
+                       sotrudnik_id=None, status=None, date_from=None, date_to=None):
     q = "SELECT * FROM brigada_naznachenie WHERE 1=1"
     params = []
     if delyanka_id is not None:
         q += " AND delyanka_id=?"
         params.append(delyanka_id)
+    if lesokultury_uchastok_id is not None:
+        q += " AND lesokultury_uchastok_id=?"
+        params.append(lesokultury_uchastok_id)
     if brigada_id is not None:
         q += " AND brigada_id=?"
         params.append(brigada_id)
