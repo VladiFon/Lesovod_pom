@@ -247,6 +247,10 @@ class RawReportIn(BaseModel):
     vydels: Optional[List[str]] = None
     photo_path: Optional[str] = None
     opisanie: Optional[str] = None
+    # Необязательная привязка к делянке из справочника — рабочий нашёл её в
+    # приложении по кварталу/выделу (GET /api/delyanki/by-location) вместо
+    # произвольного текста. None — отчёт остаётся свободным текстом, как раньше.
+    delyanka_item_id: Optional[int] = None
 
 
 def _duplicate_row_to_dict(row) -> dict:
@@ -328,6 +332,7 @@ def create_report(
         payload.tip_raboty,
         payload.photo_path,
         payload.opisanie,
+        delyanka_item_id=payload.delyanka_item_id,
     )
     return {
         "id": report_id,
@@ -691,6 +696,41 @@ def create_geo_note(
     conn.commit()
     note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     return {"id": note_id}
+
+
+@router.get("/geo-notes.geojson")
+def list_geo_notes_geojson(
+    conn=Depends(get_conn),
+    user=Depends(require_permission("bot.access")),
+):
+    """Метки, оставленные рабочими с телефона, для показа на карте самого
+    мобильного приложения (Живая карта) — рабочие раньше не видели
+    поставленные метки вообще, потому что мобильный клиент дёргал
+    GET /api/map/geo-notes.geojson (app/routers/map.py), а тот эндпоинт
+    защищён общим сервисным токеном QGIS-моста (?token=...), которого у
+    мобильного клиента нет и быть не должно — это секрет для машинного
+    моста, а не для встраивания в APK. Здесь та же выборка geo_notes, но
+    за обычной Bearer-авторизацией рабочего, как и все остальные
+    /api/bot/* эндпоинты."""
+    rows = conn.execute(
+        "SELECT id, telegram_id, lat, lon, note_text, photo_path, created_at "
+        "FROM geo_notes WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY id DESC"
+    ).fetchall()
+    features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [r[3], r[2]]},  # [lon, lat]
+            "properties": {
+                "id": r[0],
+                "telegram_id": r[1],
+                "note_text": r[4],
+                "photo_path": r[5],
+                "created_at": r[6],
+            },
+        }
+        for r in rows
+    ]
+    return {"type": "FeatureCollection", "features": features}
 
 
 # ------------------------------------------------------------ фото (мобильное приложение) ---

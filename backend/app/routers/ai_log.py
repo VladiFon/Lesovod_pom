@@ -29,13 +29,22 @@ router = APIRouter(prefix="/api/ai-log", tags=["ai_log"])
 def list_raw_reports(conn=Depends(get_conn)):
     try:
         rows = conn.execute(
-            "SELECT id, ispolnitel_fio, data_soobscheniya, raw_text, photo_path, "
-            "opisanie, kvartal, vydels, tip_raboty FROM raw_reports "
-            "WHERE status='на проверке' ORDER BY id DESC"
+            "SELECT r.id, r.ispolnitel_fio, r.data_soobscheniya, r.raw_text, r.photo_path, "
+            "r.opisanie, r.kvartal, r.vydels, r.tip_raboty, r.delyanka_item_id, "
+            "d.id AS delyanka_id, d.nazvanie AS delyanka_nazvanie, "
+            "i.kvartal AS delyanka_kvartal, i.vydel AS delyanka_vydel, i.lesnichestvo AS delyanka_lesnichestvo "
+            "FROM raw_reports r "
+            "LEFT JOIN delyanka_item i ON i.id = r.delyanka_item_id "
+            "LEFT JOIN delyanka d ON d.id = i.delyanka_id "
+            "WHERE r.status='на проверке' ORDER BY r.id DESC"
         ).fetchall()
     except sqlite3.OperationalError:
         return []
-    cols = ["id", "ispolnitel_fio", "data_soobscheniya", "raw_text", "photo_path", "opisanie", "kvartal", "vydels", "tip_raboty"]
+    cols = [
+        "id", "ispolnitel_fio", "data_soobscheniya", "raw_text", "photo_path", "opisanie", "kvartal", "vydels",
+        "tip_raboty", "delyanka_item_id", "delyanka_id", "delyanka_nazvanie", "delyanka_kvartal", "delyanka_vydel",
+        "delyanka_lesnichestvo",
+    ]
     return [dict(zip(cols, r)) for r in rows]
 
 

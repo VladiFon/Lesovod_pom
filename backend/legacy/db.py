@@ -225,7 +225,13 @@ CREATE TABLE IF NOT EXISTS raw_reports (
     -- которую нажал рабочий (telegram_bot.py: REPORT_BUTTON_TIP), а не
     -- угадывается ИИ, поэтому приходит уже готовым и просто отображается
     -- при разборе на экране "Журнал ИИ" (screens/ai_log/)
-    tip_raboty TEXT
+    tip_raboty TEXT,
+    -- рабочий необязательно указывает делянку из справочника при отправке
+    -- отчёта (app/routers/bot.py: RawReportIn.delyanka_item_id, найдена
+    -- через GET /api/delyanki/by-location) — тогда лесничему не нужно
+    -- сопоставлять квартал/выдел вручную на экране "Журнал ИИ". NULL,
+    -- если отчёт с произвольным текстом без привязки (как раньше).
+    delyanka_item_id INTEGER REFERENCES delyanka_item(id)
 );
 -- Независимая база выполненных работ из Telegram-бота: сюда попадает
 -- ЛЮБАЯ работа (посадка, осветление, рубка и т.д.), которую боту удалось
@@ -922,6 +928,10 @@ def migrate_schema(conn):
     # если база была создана до перехода на пошаговый опрос без ИИ
     if "tip_raboty" not in existing_raw_cols:
         conn.execute("ALTER TABLE raw_reports ADD COLUMN tip_raboty TEXT")
+    # добавляем delyanka_item_id в raw_reports (см. комментарий в SCHEMA выше),
+    # если база была создана до добавления привязки отчёта к делянке
+    if "delyanka_item_id" not in existing_raw_cols:
+        conn.execute("ALTER TABLE raw_reports ADD COLUMN delyanka_item_id INTEGER REFERENCES delyanka_item(id)")
 
     # независимая таблица выполненных работ (полностью отвязана от delyanka_item) —
     # создаём на случай, если база была создана до этого пивота
@@ -1806,7 +1816,8 @@ def complete_sluzhebnaya_zametka(conn, zametka_id):
 # --------------------------------------------------------------------------- #
 #   RAW_REPORTS — дедуп и отмена последнего отчёта (этап 10, telegram_bot.py)
 # --------------------------------------------------------------------------- #
-def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_path, opisanie):
+def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_path, opisanie,
+                     delyanka_item_id=None):
     """Кладёт отчёт рабочего в буферную таблицу raw_reports на проверку
     лесничим (экран "Журнал ИИ"). Восстановлено в рамках подчасти 3.2
     доработки (перенос из telegram_bot.py, где раньше принимала общий
@@ -1816,14 +1827,17 @@ def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_p
     в таблице хранится строкой через запятую — тот же формат, что читает
     find_recent_duplicate_report/get_last_raw_report_for_user ниже.
     data_soobscheniya пишется в формате '%d.%m.%Y %H:%M', как и ожидает
-    find_recent_duplicate_report при разборе окна дублей. Возвращает id
-    новой записи."""
+    find_recent_duplicate_report при разборе окна дублей.
+    delyanka_item_id — необязательная явная привязка к делянке из
+    справочника (рабочий нашёл её по кварталу/выделу в приложении вместо
+    произвольного текста); kvartal/vydels при этом всё равно сохраняются
+    как и раньше. Возвращает id новой записи."""
     vydels_str = ",".join(v.strip() for v in (vydels or []) if v.strip())
     cur = conn.execute(
         """INSERT INTO raw_reports
                (ispolnitel_viber_id, ispolnitel_fio, kvartal, vydels,
-                data_soobscheniya, status, photo_path, opisanie, tip_raboty)
-           VALUES (?, ?, ?, ?, ?, 'на проверке', ?, ?, ?)""",
+                data_soobscheniya, status, photo_path, opisanie, tip_raboty, delyanka_item_id)
+           VALUES (?, ?, ?, ?, ?, 'на проверке', ?, ?, ?, ?)""",
         (
             telegram_id,
             fio,
@@ -1833,6 +1847,7 @@ def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_p
             photo_path,
             opisanie,
             tip_raboty,
+            delyanka_item_id,
         ),
     )
     conn.commit()
