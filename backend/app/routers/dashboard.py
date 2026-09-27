@@ -82,6 +82,7 @@ from db import (
 # от PySide6/дерева screens/.
 from raskhod_v2 import _fmt_m3, compute_items_totals, get_delyanka_items
 from dashboard_calc import _compute_fire_danger, _wind_direction_to_text
+import brigada
 
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -228,6 +229,30 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
                 f"{limit_obyom:.1f} м³. Требуется проверка."
             ),
             "severity": "critical",
+        })
+
+    try:
+        pending_brigady = brigada.count_zavershayutsya_bez_naznacheniya(conn)
+    except Exception:  # noqa: BLE001 — та же защита, что и у остальных секций insights
+        pending_brigady = 0
+
+    if pending_brigady:
+        n10, n100 = pending_brigady % 10, pending_brigady % 100
+        if n10 == 1 and n100 != 11:
+            delyanka_word, blizki_word = "делянка", "близка"
+        elif 2 <= n10 <= 4 and not (12 <= n100 <= 14):
+            delyanka_word, blizki_word = "делянки", "близки"
+        else:
+            delyanka_word, blizki_word = "делянок", "близки"
+        entries.append({
+            "category": "Бригады",
+            "timestamp": "сейчас",
+            "title": f"{pending_brigady} {delyanka_word} {blizki_word} к завершению без плана бригады",
+            "description": (
+                "Откройте «Распределение бригад», чтобы назначить, куда "
+                "направить освобождающиеся бригады."
+            ),
+            "severity": "warning",
         })
 
     try:

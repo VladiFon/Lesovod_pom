@@ -13,6 +13,7 @@ export const NAV_GROUPS = [
     title: "люди",
     items: [
       ["sotrudniki", "Сотрудники"],
+      ["raspredelenie", "Распределение бригад"],
       ["work_plan", "План работ"],
       ["tabel", "Табель — ввод"],
       ["attendance", "Присутствие"],
