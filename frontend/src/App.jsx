@@ -10,6 +10,7 @@ import Lesokultury from "./pages/Lesokultury.jsx";
 import Raskhod from "./pages/Raskhod.jsx";
 import Inspection from "./pages/Inspection.jsx";
 import RubkiUhoda from "./pages/RubkiUhoda.jsx";
+import RaspredelenieBrigad from "./pages/RaspredelenieBrigad.jsx";
 import PlanRabot from "./pages/PlanRabot.jsx";
 import TabelRuchnoy from "./pages/TabelRuchnoy.jsx";
 import Sotrudniki from "./pages/Sotrudniki.jsx";
@@ -57,6 +58,11 @@ const READY_SCREENS = {
   // Перенесено из Settings.jsx (WorkersCard) — тот же /api/auth/workers,
   // полноценный экран вместо блока внутри "Настроек".
   sotrudniki: { title: "Сотрудники", subtitle: "Справочник работников: ФИО, должность, участок", Page: Sotrudniki },
+  // Планирование распределения бригад (см. backend/legacy/brigada.py) —
+  // сигнал "делянка близка к завершению" (те же % освоения лимита/срок
+  // вывозки, что и в "Инспекции") + состав бригад + назначение/
+  // перемещение на делянку с диапазоном дат.
+  raspredelenie: { title: "Распределение бригад", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: RaspredelenieBrigad },
   // Односторонние ленты "рабочий -> мастер" (мобильное приложение ->
   // веб), см. app/routers/attendance.py и app/routers/notes.py.
   attendance: { title: "Присутствие", subtitle: "Кто сегодня работал — отметки из мобильного приложения", Page: Attendance },

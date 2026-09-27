@@ -305,6 +305,68 @@ CREATE TABLE IF NOT EXISTS notification_reads (
 """
 
 
+# Бригады (экран "Распределение бригад") — лёгкая группировка sotrudniki
+# для перемещения единой командой с одной делянки на другую, когда
+# текущая заканчивается. Состав хранится ОТДЕЛЬНОЙ историей
+# (brigada_sostav), а не колонкой sotrudniki.brigada_id — по явному
+# решению: нужно знать, кто когда входил в бригаду (отчётность/зарплата
+# по периодам), а не только текущий список.
+BRIGADA_SCHEMA = """
+CREATE TABLE IF NOT EXISTS brigada (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nazvanie TEXT NOT NULL,
+    brigadir_sotrudnik_id INTEGER REFERENCES sotrudniki(id),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+"""
+
+# Членство в бригаде с историей: data_vyhoda IS NULL значит "состоит по
+# сей день". Разрыв/перевод в другую бригаду закрывает старую строку
+# (data_vyhoda) и открывает новую — см. set_brigada_sostav() в brigada.py.
+BRIGADA_SOSTAV_SCHEMA = """
+CREATE TABLE IF NOT EXISTS brigada_sostav (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    brigada_id INTEGER NOT NULL REFERENCES brigada(id),
+    sotrudnik_id INTEGER NOT NULL REFERENCES sotrudniki(id),
+    data_vstupleniya TEXT NOT NULL,
+    data_vyhoda TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_brigada_sostav_brigada ON brigada_sostav(brigada_id, data_vyhoda);
+CREATE INDEX IF NOT EXISTS idx_brigada_sostav_sotrudnik ON brigada_sostav(sotrudnik_id, data_vyhoda);
+"""
+
+# Назначение бригады ИЛИ отдельного рабочего (ровно один из двух —
+# проверяется в Python, как delyanka_item_id/lesokultury_uchastok_id в
+# work_plan) на делянку с диапазоном дат. Отдельная таблица, а не
+# расширение work_plan: work_plan — ежедневная задача одному человеку со
+# свободным текстом, читаемая ботом построчно на день ("Мои задачи");
+# смешивание с "бригада работает на делянке N недель" сломало бы оба
+# смысла статуса и мобильный сценарий. Два незакрытых назначения на одну
+# бригаду одновременно (текущее "активно" + будущее "запланировано")
+# допускаются намеренно — это и есть сценарий "планируем следующий шаг,
+# пока бригада ещё дорабатывает текущую делянку".
+BRIGADA_NAZNACHENIE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS brigada_naznachenie (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    brigada_id INTEGER REFERENCES brigada(id),
+    sotrudnik_id INTEGER REFERENCES sotrudniki(id),
+    delyanka_id INTEGER NOT NULL REFERENCES delyanka(id),
+    data_nachala TEXT NOT NULL,
+    data_okonchaniya TEXT,
+    status TEXT NOT NULL DEFAULT 'запланировано'
+        CHECK (status IN ('запланировано', 'активно', 'завершено', 'отменено')),
+    kommentariy TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_delyanka ON brigada_naznachenie(delyanka_id, status);
+CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_brigada ON brigada_naznachenie(brigada_id, status);
+"""
+
+
 def ensure_webext_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(DOCUMENTS_SCHEMA)
     conn.executescript(TASKS_SCHEMA)
@@ -320,6 +382,9 @@ def ensure_webext_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(NOTIFICATION_READS_SCHEMA)
     conn.executescript(VIDY_RABOT_SCHEMA)
     conn.executescript(TABEL_ZAPIS_SCHEMA)
+    conn.executescript(BRIGADA_SCHEMA)
+    conn.executescript(BRIGADA_SOSTAV_SCHEMA)
+    conn.executescript(BRIGADA_NAZNACHENIE_SCHEMA)
     conn.executemany(
         "INSERT OR IGNORE INTO vidy_rabot (nazvanie) VALUES (?)",
         [(n,) for n in _VIDY_RABOT_SEED],
@@ -1540,6 +1605,10 @@ PERMISSIONS = {
     # полноценного экрана "План работ" (Фаза 4 плана доработки), см.
     # webext.WORK_PLAN_SCHEMA.
     "work_plan.edit": ("admin", "lesovod"),
+    # Экран "Распределение бригад" — состав бригад и назначение бригады/
+    # рабочего на делянку с диапазоном дат, тот же круг ролей, что и у
+    # "Плана работ"/делянок (лесничий/админ).
+    "brigady.edit": ("admin", "lesovod"),
     # Табель ручного ввода (просьба пользователя, 24.09.2026) — тот же круг
     # ролей, что и у "Плана работ" (лесничий/админ): расставляет, кто где
     # что делал, задним числом, пока рядовые рабочие не завели мобильное

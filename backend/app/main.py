@@ -25,6 +25,7 @@ from app.routers import (
     attendance,
     auth as auth_router,
     bot as bot_router,
+    brigady,
     calendar as calendar_router,
     dashboard,
     delyanki,
@@ -90,6 +91,7 @@ def health():
 
 app.include_router(auth_router.router)
 app.include_router(bot_router.router)
+app.include_router(brigady.router)
 app.include_router(ai_log.router)
 app.include_router(archive.router)
 app.include_router(calendar_router.router)
