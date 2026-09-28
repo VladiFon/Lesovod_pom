@@ -1989,18 +1989,25 @@ def get_uhody_proba_photo_path(conn, proba_id, kind):
     return row[0] if row and row[0] else None
 
 
-def list_uhody_proby(conn):
+def list_uhody_proby(conn, sotrudnik_id=None):
     """Возвращает краткий список всех независимых проб рубок ухода
     (без data_json — для отображения в списке слева на экране
-    "Рубки ухода"), самые новые сверху."""
+    "Рубки ухода"), самые новые сверху. sotrudnik_id — только пробы этого
+    автора (рабочий видит свои, а не чужие). avtor_fio — кто прислал пробу
+    из мобильного приложения (NULL — завёл офис)."""
+    where = "WHERE p.sotrudnik_id = ?" if sotrudnik_id is not None else ""
     rows = conn.execute(
-        """
-        SELECT id, kvartal, vydel, ploshad_vydela, ploshad_proby, data_zamera,
-               created_at, completed_at, ispolniteli_json, lesokultury_uchastok_ids_json,
-               sotrudnik_id
-        FROM uhody_proby
-        ORDER BY id DESC
-        """
+        f"""
+        SELECT p.id, p.kvartal, p.vydel, p.ploshad_vydela, p.ploshad_proby, p.data_zamera,
+               p.created_at, p.completed_at, p.ispolniteli_json, p.lesokultury_uchastok_ids_json,
+               p.sotrudnik_id, s.fio,
+               (p.foto_stolb_delyanki IS NOT NULL OR p.foto_stolb_proby IS NOT NULL)
+        FROM uhody_proby p
+        LEFT JOIN sotrudniki s ON s.id = p.sotrudnik_id
+        {where}
+        ORDER BY p.id DESC
+        """,
+        (sotrudnik_id,) if sotrudnik_id is not None else (),
     ).fetchall()
     return [
         {
@@ -2015,6 +2022,8 @@ def list_uhody_proby(conn):
             "ispolniteli": json.loads(row[8]) if row[8] else [],
             "lesokultury_uchastok_ids": json.loads(row[9]) if row[9] else [],
             "sotrudnik_id": row[10],
+            "avtor_fio": row[11],
+            "est_foto": bool(row[12]),
         }
         for row in rows
     ]
@@ -2028,7 +2037,8 @@ def get_uhody_proba(conn, proba_id):
         SELECT id, kvartal, vydel, ploshad_vydela, ploshad_proby, data_zamera,
                data_json, created_at, completed_at, ispolniteli_json,
                lesokultury_uchastok_ids_json, sotrudnik_id,
-               foto_stolb_delyanki, foto_stolb_proby
+               foto_stolb_delyanki, foto_stolb_proby,
+               (SELECT fio FROM sotrudniki WHERE sotrudniki.id = uhody_proby.sotrudnik_id)
         FROM uhody_proby
         WHERE id = ?
         """,
@@ -2070,6 +2080,8 @@ def get_uhody_proba(conn, proba_id):
         # какие фото приложены (сами пути наружу не отдаём) — файл берётся
         # через GET /api/uhody/proby/{id}/photo/{kind}
         "photos": {"stolb_delyanki": bool(row[12]), "stolb_proby": bool(row[13])},
+        # кто прислал пробу из мобильного приложения (NULL — завёл офис)
+        "avtor_fio": row[14],
     }
 
 
