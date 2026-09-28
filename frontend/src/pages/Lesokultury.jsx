@@ -378,6 +378,52 @@ function KartochkaPerevodaModal({ open, onClose, uchastokId }) {
   );
 }
 
+function PasportModal({ open, onClose, uchastokId }) {
+  const toast = useToast();
+  const [form, setForm] = useState({ yuridicheskoe_litso: "", relyef: "", pochva: "", pokrov: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleGenerate = async () => {
+    setSubmitting(true);
+    try {
+      const { task_id } = await api.post(`/lesokultury/uchastki/${uchastokId}/documents/pasport`, form);
+      const result = await pollTask(task_id, { timeoutMs: 5 * 60 * 1000 });
+      toast.show({ tone: "success", title: "Паспорт сформирован" });
+      const docId = result?.document_ids?.[0];
+      if (docId) window.open(`${API_BASE_URL}/documents/${docId}/download`, "_blank");
+      onClose();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сформировать паспорт", description: e.message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => !submitting && onClose()}
+      title="Паспорт насаждения (приложение 8)"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>Отмена</Button>
+          <Button variant="primary" onClick={handleGenerate} loading={submitting}>Сформировать</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <TextField label="Юридическое лицо, ведущее лесное хозяйство" value={form.yuridicheskoe_litso} onChange={setField("yuridicheskoe_litso")} />
+        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+          <TextField label="Рельеф" value={form.relyef} onChange={setField("relyef")} />
+          <TextField label="Почва" value={form.pochva} onChange={setField("pochva")} />
+          <TextField label="Покров" value={form.pokrov} onChange={setField("pokrov")} />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function UchastokDetail({ uchastokId, onListChanged }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -388,6 +434,7 @@ function UchastokDetail({ uchastokId, onListChanged }) {
   const [meropriyatiya, setMeropriyatiya] = useState([]);
   const [logLoading, setLogLoading] = useState(false);
   const [kartochkaOpen, setKartochkaOpen] = useState(false);
+  const [pasportOpen, setPasportOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -483,6 +530,9 @@ function UchastokDetail({ uchastokId, onListChanged }) {
             <p className="text-muted text-sm mt-0.5">{uchastok.lesnichestvo || "—"} · заведён {(uchastok.created_at || "").slice(0, 10).split("-").reverse().join(".") || "—"}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <Button variant="secondary" size="sm" onClick={() => setPasportOpen(true)}>
+              📄 Паспорт
+            </Button>
             {meropriyatiya.some((m) => m.tip === "Инвентаризация на перевод" && m.dannye) && (
               <Button variant="secondary" size="sm" onClick={() => setKartochkaOpen(true)}>
                 📋 Карточка перевода
@@ -503,6 +553,7 @@ function UchastokDetail({ uchastokId, onListChanged }) {
         </div>
 
         <KartochkaPerevodaModal open={kartochkaOpen} onClose={() => setKartochkaOpen(false)} uchastokId={uchastokId} />
+        <PasportModal open={pasportOpen} onClose={() => setPasportOpen(false)} uchastokId={uchastokId} />
 
         <UchastokFormFields form={form} setForm={setForm} />
 

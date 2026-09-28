@@ -13,6 +13,7 @@ import db as legacy_db
 import webext
 import lesokultury_normativy
 import kartochka_perevoda_generator
+import pasport_generator
 
 from app.auth import require_office_writer_or_master, require_permission
 from app.database import get_conn, get_connection
@@ -449,4 +450,57 @@ def generate_kartochka_perevoda(
     background_tasks.add_task(
         _run_generate_kartochka_perevoda, task_id, uchastok_id, body.model_dump(), user["login"],
     )
+    return {"task_id": task_id}
+
+
+# --------------------------------------------------------------------------- #
+#   Документы: "Паспорт насаждения искусственного происхождения" (приложение 8)
+# --------------------------------------------------------------------------- #
+class PasportIn(BaseModel):
+    yuridicheskoe_litso: str = ""
+    relyef: str = ""
+    pochva: str = ""
+    pokrov: str = ""
+
+
+def _run_generate_pasport(task_id: str, uchastok_id: int, body: dict, created_by: Optional[str]):
+    conn = get_connection()
+    task_dir = new_task_dir(task_id)
+    try:
+        webext.set_task_running(conn, task_id)
+        uchastok = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
+        if uchastok is None:
+            raise ValueError(f"Участок {uchastok_id} не найден")
+        meropriyatiya = legacy_db.list_lesokultury_meropriyatiya(conn, uchastok_id)
+        output_path = task_dir / f"Pasport_{uchastok_id}.docx"
+        path = pasport_generator.generate_pasport(uchastok, meropriyatiya, str(output_path), **body)
+        doc_id = register_document(
+            conn, "lesokultury_pasport", None, path,
+            created_by=created_by, lesokultury_uchastok_id=uchastok_id,
+        )
+        webext.set_task_done(conn, task_id, result={"document_ids": [doc_id]})
+    except Exception as e:  # noqa: BLE001
+        register_document(
+            conn, "lesokultury_pasport", None, "",
+            created_by=created_by, status="ошибка", error_text=str(e),
+            lesokultury_uchastok_id=uchastok_id,
+        )
+        webext.set_task_error(conn, task_id, str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/uchastki/{uchastok_id}/documents/pasport")
+def generate_pasport(
+    uchastok_id: int,
+    body: PasportIn,
+    background_tasks: BackgroundTasks,
+    user=Depends(require_permission("documents.generate")),
+    conn=Depends(get_conn),
+):
+    uchastok = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
+    if uchastok is None:
+        raise HTTPException(404, "Участок не найден")
+    task_id = webext.create_task(conn, "generate_pasport")
+    background_tasks.add_task(_run_generate_pasport, task_id, uchastok_id, body.model_dump(), user["login"])
     return {"task_id": task_id}
