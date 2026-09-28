@@ -130,19 +130,3 @@ def test_gemini_key(key: str) -> tuple[bool, str]:
     count = len(models) if isinstance(models, list) else 0
     return True, f"Ключ действителен. Доступно моделей: {count}."
 
-
-def test_telegram_bot_token(token: str) -> tuple[bool, str]:
-    """GET /bot<token>/getMe — подтверждает токен, ничего не отправляет."""
-    token = (token or "").strip()
-    if not token:
-        return False, "Токен не задан."
-    ok, result = _get_json(f"https://api.telegram.org/bot{token}/getMe", headers={})
-    if not ok:
-        return False, result  # type: ignore[return-value]
-    if not isinstance(result, dict) or not result.get("ok"):
-        detail = result.get("description") if isinstance(result, dict) else None
-        return False, detail or "Telegram не подтвердил токен."
-    info = result.get("result") or {}
-    username = info.get("username")
-    name = f"@{username}" if username else info.get("first_name", "бот")
-    return True, f"Токен действителен. Бот: {name}."

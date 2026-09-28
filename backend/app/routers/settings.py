@@ -65,7 +65,7 @@ def set_harvest_plan(body: HarvestPlanIn, conn=Depends(get_conn), _user=Depends(
 
 
 # --------------------------------------------------------------------------- #
-#   Секреты (ключ Gemini/OpenRouter, токен Telegram-бота)
+#   Секреты (ключи Gemini/OpenRouter)
 #   Ни один эндпоинт не возвращает секрет в открытом виде.
 # --------------------------------------------------------------------------- #
 @router.get("/secrets")
@@ -73,11 +73,9 @@ def get_secrets_status(_user=Depends(require_permission("settings.edit"))):
     """Только МАСКИРОВАННЫЙ статус — null, если секрет не задан."""
     gemini = secrets_store.get_gemini_api_key()
     openrouter = secrets_store.get_openrouter_api_key()
-    telegram = secrets_store.get_telegram_bot_token()
     return {
         "gemini_api_key": secrets_store.mask_api_key(gemini) if gemini else None,
         "openrouter_api_key": secrets_store.mask_api_key(openrouter) if openrouter else None,
-        "telegram_bot_token": secrets_store.mask_api_key(telegram) if telegram else None,
     }
 
 
@@ -88,19 +86,17 @@ class SecretIn(BaseModel):
 _SECRET_SETTERS = {
     "gemini": secrets_store.set_gemini_api_key,
     "openrouter": secrets_store.set_openrouter_api_key,
-    "telegram": secrets_store.set_telegram_bot_token,
 }
 _SECRET_CLEARERS = {
     "gemini": secrets_store.clear_gemini_api_key,
     "openrouter": secrets_store.clear_openrouter_api_key,
-    "telegram": secrets_store.clear_telegram_bot_token,
 }
 
 
 @router.post("/secrets/{name}")
 def set_secret(name: str, body: SecretIn, _user=Depends(require_permission("settings.edit"))):
     if name not in _SECRET_SETTERS:
-        raise HTTPException(404, "Неизвестный секрет: %s (ожидается gemini/openrouter/telegram)" % name)
+        raise HTTPException(404, "Неизвестный секрет: %s (ожидается gemini/openrouter)" % name)
     if not body.value.strip():
         raise HTTPException(422, "Значение не может быть пустым — используйте DELETE для очистки")
     _SECRET_SETTERS[name](body.value)
@@ -110,7 +106,7 @@ def set_secret(name: str, body: SecretIn, _user=Depends(require_permission("sett
 @router.delete("/secrets/{name}")
 def clear_secret(name: str, _user=Depends(require_permission("settings.edit"))):
     if name not in _SECRET_CLEARERS:
-        raise HTTPException(404, "Неизвестный секрет: %s (ожидается gemini/openrouter/telegram)" % name)
+        raise HTTPException(404, "Неизвестный секрет: %s (ожидается gemini/openrouter)" % name)
     _SECRET_CLEARERS[name]()
     return {"ok": True}
 
@@ -125,12 +121,10 @@ def clear_secret(name: str, _user=Depends(require_permission("settings.edit"))):
 _SECRET_GETTERS = {
     "gemini": secrets_store.get_gemini_api_key,
     "openrouter": secrets_store.get_openrouter_api_key,
-    "telegram": secrets_store.get_telegram_bot_token,
 }
 _SECRET_TESTERS = {
     "gemini": legacy_key_test.test_gemini_key,
     "openrouter": legacy_key_test.test_openrouter_key,
-    "telegram": legacy_key_test.test_telegram_bot_token,
 }
 
 
@@ -148,7 +142,7 @@ def test_secret(name: str, body: Optional[SecretTestIn] = None, _user=Depends(re
     Если body/value не переданы — проверяем уже сохранённый на сервере
     секрет."""
     if name not in _SECRET_TESTERS:
-        raise HTTPException(404, "Неизвестный секрет: %s (ожидается gemini/openrouter/telegram)" % name)
+        raise HTTPException(404, "Неизвестный секрет: %s (ожидается gemini/openrouter)" % name)
 
     value = body.value.strip() if (body and body.value and body.value.strip()) else None
     if value is None:

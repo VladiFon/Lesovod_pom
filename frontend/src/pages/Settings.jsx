@@ -20,7 +20,6 @@ import { api, ApiError } from "../api/client.js";
  *    (маскированный статус, ввод/сохранение/удаление; ключ никогда не
  *    приходит с сервера в открытом виде — то же ограничение, что и в
  *    desktop-версии, secrets_store.mask_api_key).
- *  • Токен Telegram-бота — то же самое, .../secrets/telegram.
  *  • Данные лесничего (ФИО/должность/лесничество) — GET/POST
  *    /api/settings/lesnichiy, список лесничеств для подсказки —
  *    GET /api/settings/lesnichestva (editable combo → <input list>).
@@ -29,7 +28,7 @@ import { api, ApiError } from "../api/client.js";
  *  • «Проверить ключ» / «Проверить токен» (Блок 5 доработки, п.1.1) —
  *    POST /api/settings/secrets/{name}/test. Секрет не отправляется из
  *    браузера на сторонний сервис напрямую — backend сам делает лёгкий
- *    запрос (OpenRouter GET /key, Telegram GET /getMe — см.
+ *    запрос (OpenRouter GET /key — см.
  *    legacy/key_test.py) и возвращает {ok, message}. Если в поле есть
  *    ещё не сохранённое значение — проверяется оно; иначе проверяется
  *    то, что уже сохранено на сервере.
@@ -65,12 +64,6 @@ const SECRET_FIELDS = [
     title: "ИИ-ассистент (OpenRouter API)",
     hint: "Распознавание фото ведомости перечёта («Рубки ухода») и сканов документов в «Архиве». Получить ключ: openrouter.ai → Sign in → Keys → Create Key.",
     placeholder: "Вставьте ключ сюда (из openrouter.ai/keys)…",
-  },
-  {
-    name: "telegram",
-    title: "Telegram-бот",
-    hint: "Токен бота, который принимает отчёты о работах от рабочих в Telegram. Получить токен: @BotFather → /newbot (или /token для существующего бота).",
-    placeholder: "Вставьте токен сюда (из @BotFather)…",
   },
 ];
 
@@ -575,7 +568,6 @@ export default function Settings({ currentUser }) {
   const secretStatus = useMemo(
     () => ({
       openrouter: secrets?.openrouter_api_key ?? null,
-      telegram: secrets?.telegram_bot_token ?? null,
     }),
     [secrets]
   );

@@ -69,7 +69,7 @@ const READY_SCREENS = {
   worker_notes: { title: "Заметки", subtitle: "Заметки рабочих начальнику — лента, непрочитанные наверху", Page: WorkerNotes },
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
   calendar: { title: "Календарь", subtitle: "Рабочий календарь: разовые и периодические задачи", Page: CalendarScreen },
-  ai_log: { title: "ИИ-журнал", subtitle: "Разбор отчётов telegram-бота и журнал выполненных работ", Page: AiLog },
+  ai_log: { title: "ИИ-журнал", subtitle: "Разбор отчётов с телефона и журнал выполненных работ", Page: AiLog },
   settings: { title: "Настройки", subtitle: "Ключи доступа и данные лесничего — общие для всех", Page: Settings },
   gallery: { title: "Витрина компонентов", subtitle: "Все базовые компоненты дизайн-системы на моковых данных", Page: ComponentGallery },
 };

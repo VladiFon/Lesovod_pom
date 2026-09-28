@@ -111,21 +111,6 @@ def clear_openrouter_api_key() -> None:
     _clear(_OPENROUTER_KEY, OPENROUTER_ENV_VAR_NAME)
 
 
-# --------------------------------------------------------------------------- #
-#   Telegram bot token
-# --------------------------------------------------------------------------- #
-def get_telegram_bot_token() -> str | None:
-    return _get(_TELEGRAM_TOKEN_KEY)
-
-
-def set_telegram_bot_token(token: str) -> None:
-    _set(_TELEGRAM_TOKEN_KEY, token, TELEGRAM_TOKEN_ENV_VAR_NAME)
-
-
-def clear_telegram_bot_token() -> None:
-    _clear(_TELEGRAM_TOKEN_KEY, TELEGRAM_TOKEN_ENV_VAR_NAME)
-
-
 def apply_saved_secrets_to_env() -> None:
     """Вызывается один раз при старте backend'а (main.py): кладёт уже
     сохранённые секреты в os.environ для этого процесса — тем же
@@ -139,10 +124,6 @@ def apply_saved_secrets_to_env() -> None:
         key = get_openrouter_api_key()
         if key:
             os.environ[OPENROUTER_ENV_VAR_NAME] = key
-    if not os.environ.get(TELEGRAM_TOKEN_ENV_VAR_NAME):
-        token = get_telegram_bot_token()
-        if token:
-            os.environ[TELEGRAM_TOKEN_ENV_VAR_NAME] = token
 
 
 def mask_api_key(key: str) -> str:

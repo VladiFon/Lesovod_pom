@@ -208,7 +208,7 @@ function RawReportsTab() {
           rows={reports}
           onRowClick={(r) => setSelectedId(r.id)}
           emptyTitle="Отчётов на проверке нет"
-          emptyDescription="Новые сообщения от рабочих через telegram-бота появятся здесь."
+          emptyDescription="Новые отчёты рабочих из мобильного приложения появятся здесь."
         />
       </Card>
 
