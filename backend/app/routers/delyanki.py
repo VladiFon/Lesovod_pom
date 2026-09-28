@@ -27,7 +27,7 @@ import tehkarta_generator
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
-from app.auth import require_permission
+from app.auth import map_reader, require_permission
 import webext
 
 router = APIRouter(prefix="/api/delyanki", tags=["delyanki"])
@@ -63,7 +63,7 @@ def create_delyanka_manual(body: ManualDelyankaIn,
 
 
 @router.get("/for-map")
-def get_delyanki_for_map(conn=Depends(get_conn)):
+def get_delyanki_for_map(conn=Depends(get_conn), _user=Depends(map_reader)):
     """Облегчённый список для подсветки делянок на живой карте (веб и
     мобильное приложение) — см. delyanka.list_delyanka_items_for_map."""
     return delyanka.list_delyanka_items_for_map(conn)
@@ -210,7 +210,10 @@ def activate_delyanka(delyanka_id: int, body: ActivateDelyankaIn,
 @router.patch("/items/{item_id}")
 def update_item(item_id: int, fields: Dict[str, Any],
                  user=Depends(require_permission("delyanka.edit")), conn=Depends(get_conn)):
-    delyanka.update_delyanka_item(conn, item_id, **fields)
+    try:
+        delyanka.update_delyanka_item(conn, item_id, **fields)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     webext.touch_updated_by(conn, "delyanka_item", item_id, user["login"])
     return {"ok": True}
 

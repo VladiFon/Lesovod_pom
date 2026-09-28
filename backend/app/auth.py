@@ -25,6 +25,7 @@ sessions на каждый запрос).
 Сервисный токен Telegram-бота (LESOVOD_BOT_SERVICE_TOKEN) удалён вместе
 с ботом 28.09.2026; остался только статический токен QGIS-моста ниже.
 """
+import os
 import hmac
 from typing import Optional
 
@@ -163,3 +164,13 @@ require_office_or_master = _office_or_master(OFFICE_ROLES)
 # Запись (например, инвентаризация/перевод лесных культур из поля): то же,
 # но без viewer.
 require_office_writer_or_master = _office_or_master(OFFICE_WRITE_ROLES)
+
+
+def map_reader(user=Depends(get_current_user_optional)):
+    """Геометрия лесничеств, импортированные слои и склады — только для вошедших
+    (рабочий в приложении, сотрудник на сайте, QGIS-мост со служебным токеном).
+    До 28.09.2026 эти адреса были открыты всем. LESOVOD_MAP_PUBLIC=1 временно
+    возвращает старое поведение — если приложение ещё не обновлено до 0.4.1."""
+    if user is None and os.environ.get("LESOVOD_MAP_PUBLIC", "").strip() not in ("1", "true", "yes"):
+        raise HTTPException(401, "Требуется авторизация (Authorization: Bearer <token>)")
+    return user

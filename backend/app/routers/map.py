@@ -23,10 +23,11 @@ import sklad as sklad_store
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app import map_features
-from app.auth import get_current_user, require_permission
+from app.auth import get_current_user, map_reader, require_permission
 import webext
 
 router = APIRouter(prefix="/api/map", tags=["map"])
+
 
 
 def _lesnichestvo_name(lesnichestvo_num: Optional[str]) -> Optional[str]:
@@ -49,7 +50,7 @@ def list_lesnichestva():
 
 
 @router.get("/sanitary")
-def get_sanitary(lesnichestvo_num: str):
+def get_sanitary(lesnichestvo_num: str, _user=Depends(map_reader)):
     return forest_map.get_sanitary_vydely(legacy_config.DB_PATH, lesnichestvo_num)
 
 
@@ -72,7 +73,8 @@ def _map_layer_error_to_http(e: Exception) -> HTTPException:
 
 
 @router.get("/kvartaly")
-def get_kvartaly_layer(lesnichestvo_num: str, bbox: Optional[str] = None, zoom: Optional[float] = None):
+def get_kvartaly_layer(lesnichestvo_num: str, bbox: Optional[str] = None, zoom: Optional[float] = None,
+                      _user=Depends(map_reader)):
     """GeoJSON границ кварталов, обрезанный по bbox текущего вида карты и
     упрощённый под zoom (см. forest_map.get_map_layer_geojson). bbox —
     строка "minLon,minLat,maxLon,maxLat" (LiveMap.jsx собирает её из
@@ -87,7 +89,8 @@ def get_kvartaly_layer(lesnichestvo_num: str, bbox: Optional[str] = None, zoom: 
 
 
 @router.get("/vydela")
-def get_vydela_layer(lesnichestvo_num: str, bbox: Optional[str] = None, zoom: Optional[float] = None):
+def get_vydela_layer(lesnichestvo_num: str, bbox: Optional[str] = None, zoom: Optional[float] = None,
+                     _user=Depends(map_reader)):
     """То же самое для выделов (map_vydela.geojson, 56 МБ исходник —
     поэтому bbox здесь не опция, а необходимость, см. PLAN_DORABOTKI.md).
     properties каждого feature дополнены status_color/status_label —
@@ -156,14 +159,14 @@ async def import_map_layer(
 
 
 @router.get("/import-layers")
-def get_import_layers(lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
+def get_import_layers(lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn), _user=Depends(map_reader)):
     """FeatureCollection всех импортированных слоёв — независимый от
     делянок оверлей на Живой карте (см. LiveMap.jsx)."""
     return map_import.list_import_layer_geojson(conn, lesnichestvo=_lesnichestvo_name(lesnichestvo_num))
 
 
 @router.get("/import-layers/batches")
-def get_import_batches(lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
+def get_import_batches(lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn), _user=Depends(map_reader)):
     """Список загруженных файлов (для панели управления слоями в
     LiveMap.jsx — посмотреть что уже загружено и убрать одну загрузку
     целиком)."""
@@ -395,7 +398,7 @@ class SkladCreate(BaseModel):
 
 
 @router.get("/sklady")
-def get_sklady(conn=Depends(get_conn)):
+def get_sklady(conn=Depends(get_conn), _user=Depends(map_reader)):
     return sklad_store.list_sklady(conn)
 
 
@@ -417,7 +420,7 @@ def delete_sklad(sklad_id: int, conn=Depends(get_conn), _user=Depends(require_pe
 
 
 @router.get("/delyanka-location")
-def get_delyanka_location(lesnichestvo_num: str, kvartal: str, vydel: str):
+def get_delyanka_location(lesnichestvo_num: str, kvartal: str, vydel: str, _user=Depends(map_reader)):
     """Мобильное приложение (Фаза 6): координаты одной делянки для экрана
     "Карта" — центроид её выдела, без стриминга всего слоя лесничества
     (см. докстринг forest_map.get_delyanka_location). Если координаты не
