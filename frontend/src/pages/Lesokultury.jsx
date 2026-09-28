@@ -424,6 +424,72 @@ function PasportModal({ open, onClose, uchastokId }) {
   );
 }
 
+function AktSpisaniyaModal({ open, onClose, uchastokId }) {
+  const toast = useToast();
+  const [form, setForm] = useState({
+    prichiny_gibeli: "", izrashodovano_tys_rub: "", reshenie_komissii: "",
+    data_akta: "", predsedatel_dolzhnost: "", predsedatel_fio: "", chleny_text: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleGenerate = async () => {
+    if (!form.prichiny_gibeli.trim()) {
+      toast.show({ tone: "warning", title: "Укажите причины гибели" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { task_id } = await api.post(`/lesokultury/uchastki/${uchastokId}/documents/akt-spisaniya`, {
+        prichiny_gibeli: form.prichiny_gibeli,
+        izrashodovano_tys_rub: form.izrashodovano_tys_rub,
+        reshenie_komissii: form.reshenie_komissii,
+        data_akta: form.data_akta,
+        predsedatel: { dolzhnost: form.predsedatel_dolzhnost, fio: form.predsedatel_fio },
+        chleny: parseNamedList(form.chleny_text),
+      });
+      const result = await pollTask(task_id, { timeoutMs: 5 * 60 * 1000 });
+      toast.show({ tone: "success", title: "Акт на списание сформирован" });
+      const docId = result?.document_ids?.[0];
+      if (docId) window.open(`${API_BASE_URL}/documents/${docId}/download`, "_blank");
+      onClose();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сформировать акт", description: e.message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => !submitting && onClose()}
+      title="Акт на списание (приложение 20)"
+      size="lg"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>Отмена</Button>
+          <Button variant="primary" onClick={handleGenerate} loading={submitting}>Сформировать</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <TextAreaField label="Причины гибели" rows={2} value={form.prichiny_gibeli} onChange={setField("prichiny_gibeli")} />
+        <TextAreaField label="Решение комиссии" rows={2} value={form.reshenie_komissii} onChange={setField("reshenie_komissii")} />
+        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+          <TextField label="Израсходовано, тыс. руб" value={form.izrashodovano_tys_rub} onChange={setField("izrashodovano_tys_rub")} />
+          <TextField label="Дата составления" placeholder="ДД.ММ.ГГГГ" value={form.data_akta} onChange={setField("data_akta")} />
+        </div>
+        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+          <TextField label="Председатель, должность" value={form.predsedatel_dolzhnost} onChange={setField("predsedatel_dolzhnost")} />
+          <TextField label="Председатель, ФИО" value={form.predsedatel_fio} onChange={setField("predsedatel_fio")} />
+        </div>
+        <TextAreaField label="Члены комиссии" rows={2} value={form.chleny_text} onChange={setField("chleny_text")} hint="По одному на строку: Должность; ФИО" />
+      </div>
+    </Modal>
+  );
+}
+
 function UchastokDetail({ uchastokId, onListChanged }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -435,6 +501,7 @@ function UchastokDetail({ uchastokId, onListChanged }) {
   const [logLoading, setLogLoading] = useState(false);
   const [kartochkaOpen, setKartochkaOpen] = useState(false);
   const [pasportOpen, setPasportOpen] = useState(false);
+  const [aktSpisaniyaOpen, setAktSpisaniyaOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -548,12 +615,16 @@ function UchastokDetail({ uchastokId, onListChanged }) {
                 🗄️ Списать
               </Button>
             )}
+            <Button variant="secondary" size="sm" onClick={() => setAktSpisaniyaOpen(true)}>
+              📝 Акт на списание
+            </Button>
             <Button variant="danger" size="sm" onClick={handleDelete} loading={deleting}>Удалить</Button>
           </div>
         </div>
 
         <KartochkaPerevodaModal open={kartochkaOpen} onClose={() => setKartochkaOpen(false)} uchastokId={uchastokId} />
         <PasportModal open={pasportOpen} onClose={() => setPasportOpen(false)} uchastokId={uchastokId} />
+        <AktSpisaniyaModal open={aktSpisaniyaOpen} onClose={() => setAktSpisaniyaOpen(false)} uchastokId={uchastokId} />
 
         <UchastokFormFields form={form} setForm={setForm} />
 

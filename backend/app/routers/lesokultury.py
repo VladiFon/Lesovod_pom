@@ -14,6 +14,8 @@ import webext
 import lesokultury_normativy
 import kartochka_perevoda_generator
 import pasport_generator
+import akt_spisaniya_generator
+import pasport_template_fill
 
 from app.auth import require_office_writer_or_master, require_permission
 from app.database import get_conn, get_connection
@@ -503,4 +505,71 @@ def generate_pasport(
         raise HTTPException(404, "Участок не найден")
     task_id = webext.create_task(conn, "generate_pasport")
     background_tasks.add_task(_run_generate_pasport, task_id, uchastok_id, body.model_dump(), user["login"])
+    return {"task_id": task_id}
+
+
+# --------------------------------------------------------------------------- #
+#   Документы: "Акт на списание погибших лесных культур" (приложение 20)
+# --------------------------------------------------------------------------- #
+class AktSpisaniyaIn(BaseModel):
+    prichiny_gibeli: str = Field(min_length=1)
+    izrashodovano_tys_rub: str = ""
+    reshenie_komissii: str = ""
+    data_akta: str = ""
+    predsedatel: Optional[PodpisantIn] = None
+    chleny: List[PodpisantIn] = Field(default_factory=list)
+
+
+def _latest_inventarizatsiya_s_prizhivaemostyu(uchastok_id: int, conn):
+    meropriyatiya = legacy_db.list_lesokultury_meropriyatiya(conn, uchastok_id)
+    invs = [
+        m for m in meropriyatiya
+        if m.get("tip") in pasport_template_fill.INVENTORY_TIPY and m.get("prizhivaemost_pct") is not None
+    ]
+    invs = pasport_template_fill._sorted_by_date(invs)
+    return invs[-1] if invs else None
+
+
+def _run_generate_akt_spisaniya(task_id: str, uchastok_id: int, body: dict, created_by: Optional[str]):
+    conn = get_connection()
+    task_dir = new_task_dir(task_id)
+    try:
+        webext.set_task_running(conn, task_id)
+        uchastok = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
+        if uchastok is None:
+            raise ValueError(f"Участок {uchastok_id} не найден")
+        latest_inventarizatsiya = _latest_inventarizatsiya_s_prizhivaemostyu(uchastok_id, conn)
+        output_path = task_dir / f"Akt_spisaniya_{uchastok_id}.docx"
+        path = akt_spisaniya_generator.generate_akt_spisaniya(
+            uchastok, latest_inventarizatsiya, str(output_path), **body
+        )
+        doc_id = register_document(
+            conn, "lesokultury_akt_spisaniya", None, path,
+            created_by=created_by, lesokultury_uchastok_id=uchastok_id,
+        )
+        webext.set_task_done(conn, task_id, result={"document_ids": [doc_id]})
+    except Exception as e:  # noqa: BLE001
+        register_document(
+            conn, "lesokultury_akt_spisaniya", None, "",
+            created_by=created_by, status="ошибка", error_text=str(e),
+            lesokultury_uchastok_id=uchastok_id,
+        )
+        webext.set_task_error(conn, task_id, str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/uchastki/{uchastok_id}/documents/akt-spisaniya")
+def generate_akt_spisaniya(
+    uchastok_id: int,
+    body: AktSpisaniyaIn,
+    background_tasks: BackgroundTasks,
+    user=Depends(require_permission("documents.generate")),
+    conn=Depends(get_conn),
+):
+    uchastok = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
+    if uchastok is None:
+        raise HTTPException(404, "Участок не найден")
+    task_id = webext.create_task(conn, "generate_akt_spisaniya")
+    background_tasks.add_task(_run_generate_akt_spisaniya, task_id, uchastok_id, body.model_dump(), user["login"])
     return {"task_id": task_id}
