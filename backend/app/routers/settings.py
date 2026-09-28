@@ -17,6 +17,7 @@ import key_test as legacy_key_test
 import mdo_parser as legacy_mdo_parser
 import secrets_store
 
+from app.auth import require_permission
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -34,7 +35,7 @@ class LesnichiyIn(BaseModel):
 
 
 @router.post("/lesnichiy")
-def set_lesnichiy(body: LesnichiyIn, conn=Depends(get_conn)):
+def set_lesnichiy(body: LesnichiyIn, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     legacy_db.set_app_login(conn, body.fio, dolzhnost=body.dolzhnost, lesnichestvo=body.lesnichestvo)
     return {"ok": True}
 
@@ -58,7 +59,7 @@ class HarvestPlanIn(BaseModel):
 
 
 @router.post("/harvest-plan")
-def set_harvest_plan(body: HarvestPlanIn, conn=Depends(get_conn)):
+def set_harvest_plan(body: HarvestPlanIn, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     legacy_db.set_harvest_plan(conn, body.period, body.plan_obyom)
     return {"ok": True}
 
@@ -68,7 +69,7 @@ def set_harvest_plan(body: HarvestPlanIn, conn=Depends(get_conn)):
 #   Ни один эндпоинт не возвращает секрет в открытом виде.
 # --------------------------------------------------------------------------- #
 @router.get("/secrets")
-def get_secrets_status():
+def get_secrets_status(_user=Depends(require_permission("settings.edit"))):
     """Только МАСКИРОВАННЫЙ статус — null, если секрет не задан."""
     gemini = secrets_store.get_gemini_api_key()
     openrouter = secrets_store.get_openrouter_api_key()
@@ -97,7 +98,7 @@ _SECRET_CLEARERS = {
 
 
 @router.post("/secrets/{name}")
-def set_secret(name: str, body: SecretIn):
+def set_secret(name: str, body: SecretIn, _user=Depends(require_permission("settings.edit"))):
     if name not in _SECRET_SETTERS:
         raise HTTPException(404, "Неизвестный секрет: %s (ожидается gemini/openrouter/telegram)" % name)
     if not body.value.strip():
@@ -107,7 +108,7 @@ def set_secret(name: str, body: SecretIn):
 
 
 @router.delete("/secrets/{name}")
-def clear_secret(name: str):
+def clear_secret(name: str, _user=Depends(require_permission("settings.edit"))):
     if name not in _SECRET_CLEARERS:
         raise HTTPException(404, "Неизвестный секрет: %s (ожидается gemini/openrouter/telegram)" % name)
     _SECRET_CLEARERS[name]()
@@ -138,7 +139,7 @@ class SecretTestIn(BaseModel):
 
 
 @router.post("/secrets/{name}/test")
-def test_secret(name: str, body: Optional[SecretTestIn] = None):
+def test_secret(name: str, body: Optional[SecretTestIn] = None, _user=Depends(require_permission("settings.edit"))):
     """Проверяет ключ/токен настоящим запросом к сервису, без сохранения.
 
     Если body.value передан (пользователь ещё не нажал "Сохранить") —
@@ -172,7 +173,7 @@ def test_secret(name: str, body: Optional[SecretTestIn] = None):
 #   LibreOffice как настройка").
 # --------------------------------------------------------------------------- #
 @router.get("/libreoffice-path")
-def get_libreoffice_path():
+def get_libreoffice_path(_user=Depends(require_permission("settings.edit"))):
     """Статус LibreOffice для экрана Настройки: вручную заданный путь (если
     есть), путь, найденный автопоиском (реестр/стандартные места/PATH), и
     итоговый путь, который реально будет использован (ручной приоритетнее
@@ -193,7 +194,7 @@ class LibreOfficePathIn(BaseModel):
 
 
 @router.post("/libreoffice-path")
-def set_libreoffice_path(body: LibreOfficePathIn):
+def set_libreoffice_path(body: LibreOfficePathIn, _user=Depends(require_permission("settings.edit"))):
     """Сохраняет путь к soffice.exe/soffice, указанный вручную, и сразу
     проверяет, что по нему реально можно запустить LibreOffice (кнопка
     "Сохранить и проверить" на фронте) — используем check_soffice из
@@ -207,14 +208,14 @@ def set_libreoffice_path(body: LibreOfficePathIn):
 
 
 @router.delete("/libreoffice-path")
-def clear_libreoffice_path():
+def clear_libreoffice_path(_user=Depends(require_permission("settings.edit"))):
     """Сбрасывает вручную заданный путь — снова используется автопоиск."""
     legacy_mdo_parser.clear_configured_soffice_path()
     return {"ok": True}
 
 
 @router.post("/libreoffice-path/test")
-def test_libreoffice_path(body: Optional[LibreOfficePathIn] = None):
+def test_libreoffice_path(body: Optional[LibreOfficePathIn] = None, _user=Depends(require_permission("settings.edit"))):
     """Проверяет LibreOffice без сохранения — если path не передан, тестирует
     уже сохранённый/автонайденный путь (тот же порядок приоритета, что при
     реальной конвертации в mdo_parser.rtf_to_docx)."""

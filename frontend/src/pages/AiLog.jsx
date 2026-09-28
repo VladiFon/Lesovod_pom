@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { api, API_BASE_URL } from "../api/client.js";
+import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { useToast } from "../components/Toast.jsx";
+import AuthImage from "../components/AuthImage.jsx";
 
 /**
  * Экран "ИИ-журнал" (screens/ai_log/) — Этап 13 плана, последний обычный
@@ -45,14 +46,11 @@ function monthAgoISO() {
   return d.toISOString().slice(0, 10);
 }
 
+// Фото отдаётся только с токеном (GET /ai-log/photo требует вход) — обычный
+// <img src> заголовок авторизации не шлёт, поэтому через AuthImage.
 function PhotoThumb({ path }) {
   if (!path) return null;
-  const src = `${API_BASE_URL}/ai-log/photo?path=${encodeURIComponent(path)}`;
-  return (
-    <a href={src} target="_blank" rel="noreferrer">
-      <img src={src} alt="" className="max-h-56 rounded-md border border-border object-contain" />
-    </a>
-  );
+  return <AuthImage path={`/ai-log/photo?path=${encodeURIComponent(path)}`} />;
 }
 
 function ReviewPanel({ report, onDone }) {

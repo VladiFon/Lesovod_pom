@@ -11,6 +11,7 @@ from app import legacy_bridge  # noqa: F401
 import config as legacy_config
 import db as legacy_db
 
+from app.auth import require_permission
 from app.database import get_conn
 from app.paths import UPLOADS_DIR
 import webext
@@ -56,7 +57,7 @@ def build_taxation_db(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     reset: bool = True,
-    conn=Depends(get_conn),
+    conn=Depends(get_conn), _user=Depends(require_permission("taxation.edit")),
 ):
     """Загружает одно или несколько таксационных описаний (.docx) и
     перестраивает справочник lesnichestvo/kvartal/vydel/sostav в фоне

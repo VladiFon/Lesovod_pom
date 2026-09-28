@@ -21,6 +21,7 @@ import brigada
 import webext
 
 from app.auth import require_permission
+from app.auth import get_current_user
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/brigady", tags=["brigady"])
@@ -30,12 +31,12 @@ router = APIRouter(prefix="/api/brigady", tags=["brigady"])
 #   Бригады и состав
 # --------------------------------------------------------------------------- #
 @router.get("/")
-def list_brigady(conn=Depends(get_conn)) -> list[dict]:
+def list_brigady(conn=Depends(get_conn), _user=Depends(get_current_user)) -> list[dict]:
     return brigada.list_brigady(conn)
 
 
 @router.get("/sotrudniki")
-def list_sotrudniki_for_picker(conn=Depends(get_conn)) -> list[dict]:
+def list_sotrudniki_for_picker(conn=Depends(get_conn), _user=Depends(get_current_user)) -> list[dict]:
     """Лёгкий список активных работников — для пикеров состава бригады/
     исполнителя назначения (тот же принцип, что и GET /api/work-plan/sotrudniki)."""
     return [s for s in webext.list_sotrudniki(conn) if s["is_active"]]
@@ -81,7 +82,7 @@ def set_brigada_sostav(brigada_id: int, body: BrigadaSostavIn,
 
 
 @router.get("/sotrudniki/{sotrudnik_id}/istoriya")
-def get_sotrudnik_brigada_history(sotrudnik_id: int, conn=Depends(get_conn)) -> list[dict]:
+def get_sotrudnik_brigada_history(sotrudnik_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)) -> list[dict]:
     return brigada.get_sotrudnik_brigada_history(conn, sotrudnik_id)
 
 
@@ -89,7 +90,7 @@ def get_sotrudnik_brigada_history(sotrudnik_id: int, conn=Depends(get_conn)) -> 
 #   Сигнал "делянка близка к завершению"
 # --------------------------------------------------------------------------- #
 @router.get("/delyanki-status")
-def list_delyanki_dlya_raspredeleniya(conn=Depends(get_conn)) -> list[dict]:
+def list_delyanki_dlya_raspredeleniya(conn=Depends(get_conn), _user=Depends(get_current_user)) -> list[dict]:
     return brigada.list_delyanki_dlya_raspredeleniya(conn)
 
 
@@ -103,7 +104,7 @@ def list_naznacheniya(
     status: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
-    conn=Depends(get_conn),
+    conn=Depends(get_conn), _user=Depends(get_current_user),
 ) -> list[dict]:
     return brigada.list_naznacheniya(
         conn, delyanka_id=delyanka_id, brigada_id=brigada_id,

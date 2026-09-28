@@ -242,7 +242,7 @@ def get_sklady(conn=Depends(get_conn)):
 
 
 @router.post("/sklady")
-def create_sklad(payload: SkladCreate, conn=Depends(get_conn)):
+def create_sklad(payload: SkladCreate, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     if not payload.nazvanie.strip():
         raise HTTPException(400, "Укажите название склада")
     if not (-90 <= payload.lat <= 90 and -180 <= payload.lon <= 180):
@@ -251,7 +251,7 @@ def create_sklad(payload: SkladCreate, conn=Depends(get_conn)):
 
 
 @router.delete("/sklady/{sklad_id}")
-def delete_sklad(sklad_id: int, conn=Depends(get_conn)):
+def delete_sklad(sklad_id: int, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     deleted = sklad_store.delete_sklad(conn, sklad_id)
     if not deleted:
         raise HTTPException(404, "Склад не найден")
@@ -294,7 +294,7 @@ def _run_generate_map(task_id: str, lesnichestvo_num: str, created_by: Optional[
 
 @router.post("/generate")
 def generate_map(lesnichestvo_num: str, background_tasks: BackgroundTasks,
-                  created_by: Optional[str] = None, conn=Depends(get_conn)):
+                  created_by: Optional[str] = None, conn=Depends(get_conn), _user=Depends(require_permission("map.view"))):
     """Пересчёт HTML-карты (folium/geopandas) — долгая операция на больших
     geojson-файлах, поэтому выполняется в фоне (см. AUDIT.md, п.4
     "Общие замечания")."""

@@ -66,10 +66,12 @@ import sqlite3
 import urllib.error
 import urllib.request
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import db/config
+from app.auth import require_permission
+from app.auth import get_current_user
 from app.database import get_connection as _connect
 from db import (
     get_current_weather,
@@ -345,7 +347,7 @@ def _build_harvest_chart(conn: sqlite3.Connection) -> dict:
 
 
 @router.post("/harvest-plan")
-def post_harvest_plan(body: HarvestPlanIn):
+def post_harvest_plan(body: HarvestPlanIn, _user=Depends(require_permission("delyanka.edit"))):
     """Замена диалога "✏️ Задать план на месяц" (styled_get_item +
     styled_get_double в DashboardScreen._handle_set_plan) — период и
     значение приходят уже выбранными с фронта, здесь только сохранение
@@ -371,7 +373,7 @@ _WEATHER_URL_TEMPLATE = (
 
 
 @router.post("/weather/refresh")
-def refresh_weather():
+def refresh_weather(_user=Depends(get_current_user)):
     """Синхронный аналог WeatherWorker.run(): тот же URL Open-Meteo и та
     же формула класса пожарной опасности, но выполняется в теле
     HTTP-запроса вместо QThread — кнопка "🔄" на фронте просто ждёт

@@ -244,7 +244,7 @@ def bulk_archive_documents(payload: BulkIdsRequest,
 
 
 @router.post("/bulk-zip")
-def bulk_download_zip(payload: BulkIdsRequest, conn=Depends(get_conn)):
+def bulk_download_zip(payload: BulkIdsRequest, conn=Depends(get_conn), _user=Depends(require_permission("documents.view"))):
     """Панель массовых действий → "Скачать выбранное (.zip)". Документы без
     готового файла на диске (в процессе/ошибка) пропускаются молча — в
     архив попадают только реально скачиваемые файлы (включая уже

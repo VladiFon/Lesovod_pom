@@ -19,6 +19,8 @@ from pydantic import BaseModel
 from app import legacy_bridge  # noqa: F401
 import calendar_tasks as ct
 
+from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
@@ -34,12 +36,12 @@ def _serialize(task: dict) -> dict:
 
 
 @router.get("/tasks")
-def list_tasks(include_inactive: bool = False, conn=Depends(get_conn)):
+def list_tasks(include_inactive: bool = False, conn=Depends(get_conn), _user=Depends(get_current_user)):
     return [_serialize(t) for t in ct.list_tasks(conn, include_inactive=include_inactive)]
 
 
 @router.get("/tasks/{task_id}")
-def get_task(task_id: int, conn=Depends(get_conn)):
+def get_task(task_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
     task = ct.get_task(conn, task_id)
     if task is None:
         raise HTTPException(404, "Задача не найдена")
@@ -55,13 +57,13 @@ class TaskIn(BaseModel):
 
 
 @router.post("/tasks")
-def create_task(body: TaskIn, conn=Depends(get_conn)):
+def create_task(body: TaskIn, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     task_id = ct.create_task(conn, body.title, body.description, body.category, body.recurrence, body.recurrence_config)
     return {"id": task_id}
 
 
 @router.patch("/tasks/{task_id}")
-def update_task(task_id: int, body: TaskIn, conn=Depends(get_conn)):
+def update_task(task_id: int, body: TaskIn, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     if ct.get_task(conn, task_id) is None:
         raise HTTPException(404, "Задача не найдена")
     ct.update_task(conn, task_id, body.title, body.description, body.category, body.recurrence, body.recurrence_config)
@@ -69,7 +71,7 @@ def update_task(task_id: int, body: TaskIn, conn=Depends(get_conn)):
 
 
 @router.delete("/tasks/{task_id}")
-def delete_task(task_id: int, conn=Depends(get_conn)):
+def delete_task(task_id: int, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     if ct.get_task(conn, task_id) is None:
         raise HTTPException(404, "Задача не найдена")
     ct.delete_task(conn, task_id)
@@ -77,7 +79,7 @@ def delete_task(task_id: int, conn=Depends(get_conn)):
 
 
 @router.post("/tasks/{task_id}/active")
-def set_task_active(task_id: int, active: bool, conn=Depends(get_conn)):
+def set_task_active(task_id: int, active: bool, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     ct.set_task_active(conn, task_id, active)
     return {"ok": True}
 
@@ -88,17 +90,17 @@ class CompleteIn(BaseModel):
 
 
 @router.post("/tasks/{task_id}/complete")
-def mark_done(task_id: int, body: CompleteIn, conn=Depends(get_conn)):
+def mark_done(task_id: int, body: CompleteIn, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     ct.mark_done(conn, task_id, body.period_key, body.note)
     return {"ok": True}
 
 
 @router.delete("/tasks/{task_id}/complete/{period_key}")
-def unmark_done(task_id: int, period_key: str, conn=Depends(get_conn)):
+def unmark_done(task_id: int, period_key: str, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     ct.unmark_done(conn, task_id, period_key)
     return {"ok": True}
 
 
 @router.get("/needs-attention-count")
-def needs_attention_count(conn=Depends(get_conn)):
+def needs_attention_count(conn=Depends(get_conn), _user=Depends(get_current_user)):
     return {"count": ct.count_needs_attention(conn)}
