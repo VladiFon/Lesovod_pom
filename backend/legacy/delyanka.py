@@ -423,8 +423,15 @@ def update_delyanka_fields(conn, delyanka_id, **fields):
 
 
 def update_delyanka_item(conn, item_id, **fields):
+    """Имена столбцов подставляются в SQL текстом — поэтому только из списка
+    реальных столбцов delyanka_item, иначе ValueError (защита от SQL-инъекции
+    через имя поля)."""
     if not fields:
         return
+    allowed = {row[1] for row in conn.execute("PRAGMA table_info(delyanka_item)").fetchall()} - {"id"}
+    unknown = [k for k in fields if k not in allowed]
+    if unknown:
+        raise ValueError(f"Неизвестные поля выдела: {', '.join(map(str, unknown))}")
     set_clause = ", ".join(f"{k}=?" for k in fields)
     conn.execute(f"UPDATE delyanka_item SET {set_clause} WHERE id=?", (*fields.values(), item_id))
     conn.commit()
