@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """Роутер «Текущие изменения» — ведомости по приказу Минлесхоза №130
-(см. app/tekushchie_izmeneniya.py). Пока прил. 4, 7, 14 из «Лесных культур»."""
-from typing import Optional
+(см. app/tekushchie_izmeneniya.py): предпросмотр всех приложений, ручные
+строки и Word по шаблону."""
+import json
+from typing import List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from app import tekushchie_izmeneniya as ti
-from app.auth import get_current_user
+from app.auth import get_current_user, require_office_writer_or_master
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/tekushchie-izmeneniya", tags=["tekushchie-izmeneniya"])
@@ -21,40 +24,120 @@ def _check_god(god: int) -> None:
         raise HTTPException(400, "Год — четыре цифры, например 2026")
 
 
-@router.get("/lesokultury")
-def preview_lesokultury(
+def _svodnaya_rows(svod: dict) -> list:
+    """Прил. 2 для экрана: [{stroka, nazvanie, ploshad, kolichestvo}]."""
+    from docx import Document
+
+    labels = {}
+    try:
+        doc = Document(str(ti.TEMPLATE_PATH))
+        table = ti._tables_by_prilozhenie(doc).get(2)
+        if table is not None:
+            labels = {i: r.cells[0].text.strip() for i, r in enumerate(table.rows)}
+    except Exception:  # noqa: BLE001 — подписи не главное
+        pass
+    return [
+        {"stroka": n, "nazvanie": labels.get(n, f"строка {n}"), "ploshad": ti.fmt(area) if count else "",
+         "kolichestvo": count}
+        for n, (area, count) in sorted(svod.items())
+    ]
+
+
+@router.get("")
+def preview(
     god: int,
     lesnichestvo: str = "",
     conn=Depends(get_conn), _user=Depends(get_current_user),
 ):
-    """Строки прил. 4, 7, 14 за год и замечания (чего не хватает в данных)."""
+    """Строки всех приложений за год, замечания (чего не хватает) и сводная прил. 2."""
     _check_god(god)
     data = ti.build(conn, god, lesnichestvo.strip())
     return {
         "god": god,
+        "svodnaya": _svodnaya_rows(data["svodnaya"]),
         "prilozheniya": [
-            {"nomer": n, "title": ti.TITLES[n], "columns": ti.COLUMNS[n], **data[n]}
-            for n in (4, 7, 14)
+            {"nomer": n, "title": ti.TITLES[n], "columns": ti.COLUMNS[n], "istochnik": ti.ISTOCHNIKI.get(n, ""),
+             "rows": data[n]["rows"], "warnings": data[n]["warnings"], "uchastki": data[n]["uchastki"],
+             "avto": data[n]["avto"], "ruchnye": data[n]["ruchnye"]}
+            for n in ti.NOMERA
         ],
     }
 
 
-@router.post("/lesokultury/docx")
-async def docx_lesokultury(
+class RuchnayaIn(BaseModel):
+    god: int
+    lesnichestvo: str = ""
+    prilozhenie: int
+    values: List[str]
+
+
+class RuchnayaPatch(BaseModel):
+    values: List[str]
+
+
+def _clean_values(prilozhenie: int, values: List[str]) -> str:
+    if prilozhenie not in ti.COLUMNS:
+        raise HTTPException(400, "Нет такого приложения")
+    cols = len(ti.COLUMNS[prilozhenie])
+    clean = [str(v or "").strip() for v in values][:cols]
+    if not any(clean):
+        raise HTTPException(400, "Строка пустая")
+    return json.dumps(clean + [""] * (cols - len(clean)), ensure_ascii=False)
+
+
+@router.post("/ruchnye")
+def add_ruchnaya(body: RuchnayaIn, conn=Depends(get_conn), _user=Depends(require_office_writer_or_master)):
+    """Строка, введённая вручную, в любое приложение (3–15)."""
+    _check_god(body.god)
+    ti.ensure_table(conn)
+    cur = conn.execute(
+        "INSERT INTO tek_izm_ruchnye (god, lesnichestvo, prilozhenie, znacheniya_json) VALUES (?, ?, ?, ?)",
+        (body.god, body.lesnichestvo.strip(), body.prilozhenie, _clean_values(body.prilozhenie, body.values)),
+    )
+    conn.commit()
+    return {"id": cur.lastrowid}
+
+
+@router.patch("/ruchnye/{row_id}")
+def edit_ruchnaya(row_id: int, body: RuchnayaPatch, conn=Depends(get_conn),
+                  _user=Depends(require_office_writer_or_master)):
+    ti.ensure_table(conn)
+    row = conn.execute("SELECT prilozhenie FROM tek_izm_ruchnye WHERE id = ?", (row_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Строка не найдена")
+    conn.execute("UPDATE tek_izm_ruchnye SET znacheniya_json = ? WHERE id = ?",
+                 (_clean_values(row[0], body.values), row_id))
+    conn.commit()
+    return {"ok": True}
+
+
+@router.delete("/ruchnye/{row_id}")
+def delete_ruchnaya(row_id: int, conn=Depends(get_conn), _user=Depends(require_office_writer_or_master)):
+    ti.ensure_table(conn)
+    conn.execute("DELETE FROM tek_izm_ruchnye WHERE id = ?", (row_id,))
+    conn.commit()
+    return {"ok": True}
+
+
+@router.post("/docx")
+async def docx(
     god: int = Form(...),
     lesnichestvo: str = Form(""),
     data_zapolneniya: str = Form(""),
+    ploshad_nachalo: str = Form(""),
+    ploshad_konec: str = Form(""),
     shablon: Optional[UploadFile] = File(None),
     conn=Depends(get_conn), _user=Depends(get_current_user),
 ):
-    """Word по шаблону ведомостей: заполняются таблицы прил. 4, 7, 14, в шапках
-    меняются год и дата заполнения. shablon — свой «Таблицы … ЗАПОЛНЯТЬ
-    ЗДЕСЬ.docx» (если не прислан — встроенный)."""
+    """Word по шаблону ведомостей: заполняются таблицы прил. 2–15, в шапках
+    меняются год и дата заполнения, в прил. 1 — общая площадь. shablon —
+    свой «Таблицы … ЗАПОЛНЯТЬ ЗДЕСЬ.docx» (если не прислан — встроенный)."""
     _check_god(god)
     template = await shablon.read() if shablon is not None else None
     data = ti.build(conn, god, lesnichestvo.strip())
     try:
-        content = ti.make_docx(data, god, template or None, data_zapolneniya.strip() or None)
+        content = ti.make_docx(data, god, template or None, data_zapolneniya.strip() or None,
+                               ploshad_nachalo, ploshad_konec)
     except ti.TIError as exc:
         raise HTTPException(400, str(exc))
     name = f"Текущие изменения {god}" + (f" {lesnichestvo.strip()}" if lesnichestvo.strip() else "") + ".docx"

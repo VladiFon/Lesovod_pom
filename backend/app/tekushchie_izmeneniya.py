@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Ведомости текущих изменений (приказ Минлесхоза №130 от 10.06.2026) из
-«Лесных культур»: прил. 4 (перевод в покрытые лесом земли), прил. 7
-(культуры, созданные в отчётном году) и прил. 14 (списание — перевод из
-одного вида земель в другой).
+Ведомости текущих изменений (приказ Минлесхоза №130 от 10.06.2026), все
+15 приложений:
+  - прил. 4, 7, 14 — из «Лесных культур» (перевод в покрытые лесом земли,
+    культуры отчётного года, списание);
+  - прил. 3, 15 — рубки: выделы делянок (МДО) с актом освидетельствования
+    или отметкой «выполнено» в отчётном году, пробы рубок ухода;
+  - прил. 5, 6, 8–13 — ручные строки (tek_izm_ruchnye): таких данных в
+    программе нет; ручные строки можно добавить и в любое другое приложение;
+  - прил. 2 — сводная по всем остальным; прил. 1 — только год и общая
+    площадь лесничества (если указана).
 
 Строки собираются из участков и журнала мероприятий; Word заполняется по
 шаблону лесничества «Таблицы … ЗАПОЛНЯТЬ ЗДЕСЬ.docx» (лежит в
@@ -32,20 +38,94 @@ TIP_PEREVOD = "Перевод в покрытые лесом земли"
 TIP_SPISANIE = "Списание"
 TIPY_PRIZHIVAEMOSTI = ("Инвентаризация 1-го года", "Техническая приёмка")
 
-# Заголовки столбцов — как в формах приказа (для предпросмотра на сайте).
+# Заголовки столбцов — как в формах приказа (для предпросмотра и ручного ввода).
+_TAKS = ["Кв.", "Выдел (подвыдел) по лесоустройству", "Площадь, га", "Выдел (подвыдел)", "Площадь, га",
+         "Состав", "Возраст, лет", "Высота, м", "Диаметр, см", "Полнота"]
+_KULT = ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Выдел (подвыдел)", "Площадь, га",
+         "Метод, способ создания", "Состав", "Обработка почвы", "Между рядами, м", "В ряду, м",
+         "Количество, шт/га", "Приживаемость, %"]
 COLUMNS = {
-    4: ["Кв.", "Выдел (подвыдел) по лесоустройству", "Площадь, га", "Выдел (подвыдел)", "Площадь, га",
-        "Состав", "Возраст, лет", "Высота, м", "Диаметр, см", "Полнота"],
-    7: ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Выдел (подвыдел)", "Площадь, га",
-        "Метод, способ создания", "Состав", "Обработка почвы", "Между рядами, м", "В ряду, м",
-        "Количество, шт/га", "Приживаемость, %"],
+    3: ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Вид рубки", "Выдел (подвыдел)",
+        "Площадь вырубки, га", "Выбираемый запас, м3/га"],
+    4: _TAKS,
+    5: _TAKS,
+    6: _TAKS,
+    7: _KULT,
+    8: _KULT[:5] + ["Назначение плантации"] + _KULT[6:],
+    9: ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Метод естественного возобновления",
+        "Выдел (подвыдел)", "Площадь, га", "Метод содействия"],
+    10: _TAKS,
+    11: ["Кадастровый номер", "Кв.", "Выдел", "Категория леса", "Район", "Ограничение режима",
+         "Площадь, га", "Вид земель", "Состав", "Возраст, лет", "Высота, м", "Диаметр, см", "Полнота",
+         "Тип леса"],
+    12: ["Кадастровый номер", "Кв.", "Выдел (подвыдел)", "Площадь, га"],
+    13: ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Выдел (подвыдел)", "Площадь, га",
+         "Новый вид земель", "Примечание"],
     14: ["Кв.", "Выдел", "Площадь, га", "Вид земель", "Состав", "Возраст, лет", "Высота, м",
          "Диаметр, см", "Полнота", "Тип леса", "Причина перевода"],
+    15: ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Вид рубки", "Выдел (подвыдел)", "Площадь, га",
+         "Полнота после рубки", "Выбираемый запас, м3/га"],
 }
 TITLES = {
+    3: "Прил. 3 — сплошнолесосечные, сплошные санитарные рубки, рубки реконструкции, окончательные приёмы постепенных",
     4: "Прил. 4 — несомкнувшиеся лесные культуры, переведённые в покрытые лесом земли",
+    5: "Прил. 5 — участки с содействием естественному возобновлению, переведённые в покрытые лесом земли",
+    6: "Прил. 6 — участки естественного возобновления, переведённые в покрытые лесом земли",
     7: "Прил. 7 — лесные культуры, созданные в отчётном году",
+    8: "Прил. 8 — плантации и объекты постоянной лесосеменной базы",
+    9: "Прил. 9 — содействие естественному возобновлению",
+    10: "Прил. 10 — мягколиственные насаждения, введённые в категорию ценных рубками ухода",
+    11: "Прил. 11 — земли, предоставленные в состав лесного фонда",
+    12: "Прил. 12 — земли, изъятые из состава лесного фонда",
+    13: "Прил. 13 — лесные земли, переведённые в нелесные",
     14: "Прил. 14 — участки, переведённые из одного вида земель в другой (списание культур)",
+    15: "Прил. 15 — несплошные рубки главного пользования, рубки промежуточного пользования, прочие рубки",
+}
+# Откуда берутся строки (подсказка на сайте). Ручные строки можно добавить в любое приложение.
+ISTOCHNIKI = {
+    3: "делянки (МДО) с актом освидетельствования или отметкой «выполнено» в отчётном году",
+    4: "лесные культуры: «Перевод в покрытые лесом земли» в журнале участка",
+    7: "лесные культуры, созданные в отчётном году",
+    14: "лесные культуры: «Списание» в журнале участка",
+    15: "делянки (МДО) с несплошной рубкой и выполненные пробы рубок ухода",
+}
+NOMERA = tuple(sorted(COLUMNS))
+# Столбец площади (для сводной прил. 2): изменённая характеристика, если она есть.
+PLOSHAD_COL = {3: 5, 4: 4, 5: 4, 6: 4, 7: 4, 8: 4, 9: 5, 10: 4, 11: 6, 12: 3, 13: 4, 14: 2, 15: 5}
+
+# Виды рубок (для прил. 3/15 и строк прил. 2).
+RUBKA_SPLOSHNAYA_GLAVNAYA = "сплошнолесосечная рубка главного пользования"
+RUBKA_SPLOSHNAYA_SANITARNAYA = "сплошная санитарная рубка"
+RUBKA_SPLOSHNAYA_REKONSTRUKTSII = "сплошная рубка реконструкции"
+RUBKA_OKONCHATELNYY_PRIEM = "окончательный приём постепенной рубки"
+RUBKA_NESPLOSHNAYA_GLAVNAYA = "несплошная рубка главного пользования"
+RUBKA_PROMEZHUTOCHNAYA = "рубка промежуточного пользования"
+RUBKA_PROCHAYA = "прочая рубка"
+
+# Строки прил. 2: (номер строки таблицы, откуда считать).
+SVODNAYA = {
+    2: ("rubka", 3, RUBKA_SPLOSHNAYA_GLAVNAYA),
+    3: ("rubka", 3, RUBKA_SPLOSHNAYA_SANITARNAYA),
+    4: ("rubka", 3, RUBKA_SPLOSHNAYA_REKONSTRUKTSII),
+    5: ("rubka", 3, RUBKA_OKONCHATELNYY_PRIEM),
+    6: ("sum", (7, 8, 9)),
+    7: ("pril", 4),
+    8: ("pril", 5),
+    9: ("pril", 6),
+    10: ("sum", (11, 12, 13)),
+    11: ("kultury", "posadka"),
+    12: ("kultury", "posev"),
+    13: ("kultury", "rekonstruktsiya"),
+    14: ("pril", 8),
+    15: ("pril", 9),
+    16: ("pril", 10),
+    17: ("pril", 11),
+    18: ("pril", 12),
+    19: ("pril", 13),
+    20: ("pril", 14),
+    22: ("rubka", 15, RUBKA_NESPLOSHNAYA_GLAVNAYA),
+    23: ("rubka", 15, RUBKA_PROMEZHUTOCHNAYA),
+    24: ("rubka", 15, RUBKA_PROCHAYA),
 }
 
 
@@ -173,12 +253,14 @@ def _chasti_warning(u: dict, parts: List[dict]) -> Optional[str]:
     return None
 
 
-def build(conn, god: int, lesnichestvo: str = "") -> dict:
-    """Строки прил. 4, 7, 14 за год: {4: {"rows": [[...]], "warnings": [...]}, ...}."""
-    taxation = _taxation_ploshad(conn, lesnichestvo)
-    mer = _meropriyatiya(conn)
-    result = {n: {"rows": [], "warnings": [], "uchastki": 0} for n in (4, 7, 14)}
+def _lesn_match(target: str, own) -> bool:
+    own = _norm(own)
+    return not target or not own or own == target or target in own or own in target
 
+
+def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:
+    """Прил. 4, 7, 14 из «Лесных культур»."""
+    mer = _meropriyatiya(conn)
     for u in _uchastki(conn, lesnichestvo):
         kv = str(u.get("kvartal") or "").strip()
         parts = chasti(u)
@@ -188,6 +270,7 @@ def build(conn, god: int, lesnichestvo: str = "") -> dict:
         if _year_of(u.get("god_sozdaniya")) == god:
             res = result[7]
             res["uchastki"] += 1
+            res.setdefault("vidy", [])
             pct = next((m["prizhivaemost_pct"] for m in reversed(journal)
                         if m["tip"] in TIPY_PRIZHIVAEMOSTI and m["prizhivaemost_pct"] is not None), None)
             missing = [name for name, val in (
@@ -209,6 +292,7 @@ def build(conn, god: int, lesnichestvo: str = "") -> dict:
                     _cap(u.get("sposob_obrabotki")), fmt(u.get("shema_mezhdu_ryadami")),
                     fmt(u.get("shema_v_ryadu")), fmt(u.get("gustota_posadki")), fmt(pct),
                 ])
+                res["vidy"].append(_vid_kultur(u.get("metod_sozdaniya")))
 
         # --- Прил. 4: перевод в отчётном году
         perevod = [m for m in journal if m["tip"] == TIP_PEREVOD and _year_of(m["data"]) == god]
@@ -260,8 +344,279 @@ def build(conn, god: int, lesnichestvo: str = "") -> dict:
                     "", "", "", "", "", "", "; ".join(x for x in (prichina, akt) if x),
                 ])
 
-    for n in result:
-        result[n]["rows"].sort(key=lambda r: (_sort_num(r[0]), _sort_num(r[1])))
+
+
+def _vid_kultur(metod) -> str:
+    """Для прил. 2: посадка / посев / реконструкция (по методу создания)."""
+    m = _norm(metod)
+    if "реконстр" in m:
+        return "rekonstruktsiya"
+    if "посев" in m or "аэросев" in m:
+        return "posev"
+    return "posadka"
+
+
+# --------------------------------------------------------------------------- #
+#   Рубки: прил. 3 и 15
+# --------------------------------------------------------------------------- #
+_PROMEZH = ("промежут", "уход", "осветл", "прочист", "прорежив", "проходн", "санитар", "ландшафт",
+            "обновлен", "переформир", "реконстр")
+_NESPL_GLAV = ("главн", "постепен", "выборочн", "группов", "длительно")
+
+
+def vid_rubki(*texts) -> Optional[str]:
+    """Вид рубки по тексту МДО/ведомости («рубка леса», «вид рубки») — одна
+    из констант RUBKA_*; None, если текста нет."""
+    t = _norm(" ".join(str(x or "") for x in texts))
+    if not t:
+        return None
+    if "сплош" in t and "несплош" not in t:
+        if "санитар" in t:
+            return RUBKA_SPLOSHNAYA_SANITARNAYA
+        if "реконстр" in t:
+            return RUBKA_SPLOSHNAYA_REKONSTRUKTSII
+        return RUBKA_SPLOSHNAYA_GLAVNAYA
+    if "постепен" in t and "оконч" in t:
+        return RUBKA_OKONCHATELNYY_PRIEM
+    if "главн" in t:
+        return RUBKA_NESPLOSHNAYA_GLAVNAYA
+    if "проч" in t:
+        return RUBKA_PROCHAYA
+    if any(k in t for k in _PROMEZH):
+        return RUBKA_PROMEZHUTOCHNAYA
+    if any(k in t for k in _NESPL_GLAV):
+        return RUBKA_NESPLOSHNAYA_GLAVNAYA
+    return None
+
+
+def pril_rubki(vid: Optional[str]) -> int:
+    return 3 if vid in (RUBKA_SPLOSHNAYA_GLAVNAYA, RUBKA_SPLOSHNAYA_SANITARNAYA,
+                        RUBKA_SPLOSHNAYA_REKONSTRUKTSII, RUBKA_OKONCHATELNYY_PRIEM) else 15
+
+
+def _json(text) -> dict:
+    try:
+        value = json.loads(text) if text else {}
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:
+    """Выделы делянок, вырубленные в отчётном году: акт освидетельствования
+    делянки за этот год или выдел отмечен «выполнено» с датой в этом году."""
+    target = _norm(lesnichestvo)
+    try:
+        items = conn.execute(
+            "SELECT i.id, i.delyanka_id, d.nazvanie, i.lesnichestvo, i.kvartal, i.vydel, i.ploshad, "
+            "i.zapas_na_ga, i.vyrubaemyy_zapas, i.polnota, i.mdo_raw_json, i.status_rabot, i.data_vypolneniya "
+            "FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id ORDER BY i.id"
+        ).fetchall()
+        acts = conn.execute("SELECT delyanka_id, act_date FROM osvidetelstvovanie_acts").fetchall()
+    except Exception:  # noqa: BLE001 — старая база без делянок
+        return
+    act_years: Dict[int, set] = {}
+    for d_id, act_date in acts:
+        y = _year_of(act_date)
+        if y:
+            act_years.setdefault(d_id, set()).add(y)
+
+    for (item_id, d_id, nazvanie, lesn, kv, vd, pl, zapas_ga, vyrub, polnota, raw, status,
+         data_vyp) in items:
+        if not _lesn_match(target, lesn):
+            continue
+        done = _norm(status) == "выполнено"
+        y_vyp = _year_of(data_vyp) if done else None
+        if not (god in act_years.get(d_id, set()) or y_vyp == god):
+            if done and y_vyp is None and not act_years.get(d_id):
+                mesto = f"кв. {kv or '—'} выд. {vd or '—'}"
+                result[3]["warnings"].append(
+                    f"{mesto} (делянка «{nazvanie or d_id}»): отмечен выполненным, но нет ни даты, ни акта "
+                    "освидетельствования — в ведомости рубок не учтён")
+            continue
+        mdo = _json(raw)
+        vid = vid_rubki(mdo.get("vid_rubki"), mdo.get("sposob_rubki"))
+        n = pril_rubki(vid)
+        res = result[n]
+        res["uchastki"] += 1
+        kv = str(kv or "").strip()
+        vd = str(vd or "").strip()
+        mesto = f"кв. {kv or '—'} выд. {vd or '—'}"
+        if vid is None:
+            res["warnings"].append(f"{mesto}: в МДО не указан вид рубки — отнесён к прочим рубкам")
+            vid = RUBKA_PROCHAYA
+        area = _num(pl)
+        zapas = _num(vyrub)
+        if zapas is not None and area:
+            zapas_ga = zapas / area
+        else:
+            zapas_ga = _num(zapas_ga)
+            vyborka = _num(str(mdo.get("vyborka_zapasa_pct") or "").replace("%", ""))
+            if zapas_ga is not None and vyborka and n == 15:
+                zapas_ga = zapas_ga * vyborka / 100
+        if zapas_ga is None:
+            res["warnings"].append(f"{mesto}: нет выбираемого запаса (МДО)")
+        nazvanie_vida = _cap(mdo.get("sposob_rubki") or mdo.get("vid_rubki") or vid)
+        tax = taxation.get((kv, vd), "") or fmt(_num(mdo.get("ploshad_obshaya")))
+        if n == 3:
+            row = [kv, vd, tax, nazvanie_vida, vd, fmt(area), fmt(round(zapas_ga)) if zapas_ga else ""]
+        else:
+            p0 = _num(polnota) or _num(mdo.get("polnota"))
+            vyborka = _num(str(mdo.get("vyborka_zapasa_pct") or "").replace("%", ""))
+            posle = round(p0 * (1 - vyborka / 100), 1) if p0 and vyborka else None
+            if posle is None:
+                res["warnings"].append(f"{mesto}: полноту после рубки не из чего посчитать (нет полноты или % выборки)")
+            row = [kv, vd, tax, nazvanie_vida, vd, fmt(area), fmt(posle),
+                   fmt(round(zapas_ga)) if zapas_ga else ""]
+        res["rows"].append(row)
+        res.setdefault("vidy", []).append(vid)
+
+
+def _rubki_uhoda(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:
+    """Пробы рубок ухода, отмеченные выполненными в отчётном году → прил. 15."""
+    target = _norm(lesnichestvo)
+    try:
+        rows = conn.execute(
+            "SELECT id, kvartal, vydel, ploshad_vydela, data_zamera, data_json, completed_at FROM uhody_proby "
+            "WHERE completed_at IS NOT NULL AND completed_at != '' ORDER BY id"
+        ).fetchall()
+    except Exception:  # noqa: BLE001
+        return
+    res = result[15]
+    for pid, kv, vd, pl_vydela, data_zamera, data_json, completed in rows:
+        if _year_of(completed) != god:
+            continue
+        d = _json(data_json)
+        if not _lesn_match(target, d.get("lesnichestvo")):
+            continue
+        kv = str(kv or "").strip()
+        vd = str(vd or "").strip()
+        mesto = f"кв. {kv or '—'} выд. {vd or '—'}"
+        vid = vid_rubki(d.get("vid_polzovaniya"), d.get("vid_rubki"), d.get("sposob_rubki")) or RUBKA_PROMEZHUTOCHNAYA
+        if pril_rubki(vid) == 3:
+            vid = RUBKA_PROMEZHUTOCHNAYA
+        res["uchastki"] += 1
+        area = _num(d.get("ploshad_lesoseki")) or _num(pl_vydela)
+        zapas_ga = _num(d.get("zapas_na_1ga"))
+        polnota = _num(d.get("polnota"))
+        if polnota is None:
+            res["warnings"].append(f"{mesto} (проба рубок ухода №{pid}): не указана полнота")
+        tax = taxation.get((kv, vd), "") or fmt(_num(pl_vydela))
+        res["rows"].append([
+            kv, vd, tax, _cap(d.get("vid_rubki") or d.get("sposob_rubki") or "рубка ухода"), vd,
+            fmt(area), fmt(polnota), fmt(round(zapas_ga, 1)) if zapas_ga else "",
+        ])
+        res.setdefault("vidy", []).append(vid)
+
+
+# --------------------------------------------------------------------------- #
+#   Ручные строки (прил. 5, 6, 8–13 — данных для них в программе нет; и
+#   дополнения к любому другому приложению)
+# --------------------------------------------------------------------------- #
+def ensure_table(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tek_izm_ruchnye ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " god INTEGER NOT NULL,"
+        " lesnichestvo TEXT DEFAULT '',"
+        " prilozhenie INTEGER NOT NULL,"
+        " znacheniya_json TEXT NOT NULL,"
+        " created_at TEXT DEFAULT (datetime('now', 'localtime')))"
+    )
+
+
+def ruchnye(conn, god: int, lesnichestvo: str = "") -> List[dict]:
+    ensure_table(conn)
+    target = _norm(lesnichestvo)
+    out = []
+    for rid, pril, lesn, values in conn.execute(
+        "SELECT id, prilozhenie, lesnichestvo, znacheniya_json FROM tek_izm_ruchnye WHERE god = ? ORDER BY id",
+        (god,),
+    ).fetchall():
+        if not _lesn_match(target, lesn):
+            continue
+        try:
+            parsed = json.loads(values)
+        except ValueError:
+            parsed = []
+        cols = len(COLUMNS.get(pril, []))
+        parsed = [str(v if v is not None else "").strip() for v in (parsed if isinstance(parsed, list) else [])]
+        out.append({"id": rid, "prilozhenie": pril, "lesnichestvo": lesn or "",
+                    "values": (parsed + [""] * cols)[:cols]})
+    return out
+
+
+def _ruchnye_v_result(conn, god: int, lesnichestvo: str, result: dict) -> None:
+    for r in ruchnye(conn, god, lesnichestvo):
+        n = r["prilozhenie"]
+        if n not in result:
+            continue
+        res = result[n]
+        res["rows"].append(r["values"])
+        res["ruchnye"].append({"id": r["id"], "values": r["values"]})
+        if n in (3, 15):
+            vid = vid_rubki(r["values"][3])
+            if vid is None or pril_rubki(vid) != n:
+                vid = RUBKA_SPLOSHNAYA_GLAVNAYA if n == 3 else RUBKA_PROCHAYA
+            res.setdefault("vidy", []).append(vid)
+        elif n == 7:
+            res.setdefault("vidy", []).append(_vid_kultur(r["values"][5]))
+
+
+# --------------------------------------------------------------------------- #
+#   Сводная (прил. 2)
+# --------------------------------------------------------------------------- #
+def _itog(rows: List[list], col: int) -> Tuple[float, int]:
+    area = 0.0
+    for r in rows:
+        v = _num(r[col]) if col < len(r) else None
+        area += v or 0.0
+    return round(area, 2), len(rows)
+
+
+def svodnaya(result: dict) -> Dict[int, Tuple[float, int]]:
+    """{номер строки таблицы прил. 2: (площадь, количество участков)}."""
+    out: Dict[int, Tuple[float, int]] = {}
+    for row_no, rule in SVODNAYA.items():
+        kind = rule[0]
+        if kind == "pril":
+            n = rule[1]
+            out[row_no] = _itog(result[n]["rows"], PLOSHAD_COL[n])
+        elif kind in ("rubka", "kultury"):
+            n = rule[1] if kind == "rubka" else 7
+            want = rule[2] if kind == "rubka" else rule[1]
+            vidy = result[n].get("vidy", [])
+            rows = [r for r, v in zip(result[n]["rows"], vidy) if v == want]
+            out[row_no] = _itog(rows, PLOSHAD_COL[n])
+    for row_no, rule in SVODNAYA.items():
+        if rule[0] == "sum":
+            parts = [out[i] for i in rule[1]]
+            out[row_no] = (round(sum(p[0] for p in parts), 2), sum(p[1] for p in parts))
+    return out
+
+
+def build(conn, god: int, lesnichestvo: str = "") -> dict:
+    """Строки всех приложений за год:
+    {n: {"rows": [[...]], "warnings": [...], "uchastki": k, "ruchnye": [{id, values}]}}
+    и сводная прил. 2 в result["svodnaya"]."""
+    taxation = _taxation_ploshad(conn, lesnichestvo)
+    result = {n: {"rows": [], "warnings": [], "uchastki": 0, "ruchnye": []} for n in NOMERA}
+    _kultury(conn, god, lesnichestvo, result, taxation)
+    _rubki_delyanki(conn, god, lesnichestvo, result, taxation)
+    _rubki_uhoda(conn, god, lesnichestvo, result, taxation)
+    # Авто-строки сортируем по кварталу/выделу, ручные идут следом в порядке ввода.
+    for n in NOMERA:
+        res = result[n]
+        vidy = res.get("vidy")
+        if vidy is not None:
+            pairs = sorted(zip(res["rows"], vidy), key=lambda p: (_sort_num(p[0][0]), _sort_num(p[0][1])))
+            res["rows"] = [p[0] for p in pairs]
+            res["vidy"] = [p[1] for p in pairs]
+        else:
+            res["rows"].sort(key=lambda r: (_sort_num(r[0]), _sort_num(r[1])))
+        res["avto"] = len(res["rows"])
+    _ruchnye_v_result(conn, god, lesnichestvo, result)
+    result["svodnaya"] = svodnaya({n: result[n] for n in NOMERA})
     return result
 
 
@@ -330,18 +685,37 @@ def _tables_by_prilozhenie(doc) -> Dict[int, object]:
     return result
 
 
-def _update_headers(doc, god: int, data_zapolneniya: str) -> None:
+def _update_headers(doc, god: int, data_zapolneniya: str,
+                    ploshad_nachalo: str = "", ploshad_konec: str = "") -> None:
     for p in doc.paragraphs:
         text = _para_text(p)
         new = re.sub(r"(текущих изменений за\s*)(?:19|20)\d{2}", lambda m: f"{m.group(1)}{god}", text)
         new = re.sub(r"(Дата заполнения[_\s]*)\d{2}\.\d{2}\.\d{4}", lambda m: f"{m.group(1)}{data_zapolneniya}", new)
-        new = re.sub(r"(на 01\.01\.)(?:19|20)\d{2}", lambda m: f"{m.group(1)}{god}", new)
+        # Прил. 1: «Общая площадь лесничества на 01.01.ГГГГ года ___ га (начало/конец отчетного года)».
+        konec = "конец отчетного" in new
+        new = re.sub(r"(на 01\.01\.)(?:19|20)\d{2}", lambda m: f"{m.group(1)}{god + 1 if konec else god}", new)
+        ploshad = ploshad_konec if konec else ploshad_nachalo
+        if ploshad and "Общая площадь" in new:
+            new = re.sub(r"(года\s*)_+\s*(га)", lambda m: f"{m.group(1)}{ploshad} {m.group(2)}", new)
         if new != text:
             _set_para_text(p, new)
 
 
+def _fill_svodnaya(table, svod: Dict[int, Tuple[float, int]]) -> None:
+    rows = table.rows
+    for row_no, (area, count) in svod.items():
+        if row_no >= len(rows):
+            continue
+        cells = rows[row_no].cells
+        _set_cell(cells[1], fmt(area) if count else "")
+        _set_cell(cells[2], str(count) if count else "")
+
+
 def make_docx(data: dict, god: int, template: Optional[bytes] = None,
-              data_zapolneniya: Optional[str] = None) -> bytes:
+              data_zapolneniya: Optional[str] = None,
+              ploshad_nachalo: str = "", ploshad_konec: str = "") -> bytes:
+    """Заполняет таблицы прил. 3–15 строками из build(), прил. 2 — сводной,
+    в шапках меняет год и дату заполнения (в прил. 1 — и общую площадь)."""
     from docx import Document
 
     try:
@@ -349,12 +723,16 @@ def make_docx(data: dict, god: int, template: Optional[bytes] = None,
     except Exception as exc:  # noqa: BLE001
         raise TIError(f"Не удалось открыть шаблон Word: {exc}")
     tables = _tables_by_prilozhenie(doc)
-    missing = [n for n in data if n not in tables]
+    nomera = [n for n in data if isinstance(n, int)]
+    missing = [n for n in nomera + [2] if n not in tables]
     if missing:
-        raise TIError("В шаблоне не найдены таблицы приложений: " + ", ".join(str(n) for n in missing))
-    for n, part in data.items():
-        _fill_table(tables[n], part["rows"])
-    _update_headers(doc, god, data_zapolneniya or dt.date.today().strftime("%d.%m.%Y"))
+        raise TIError("В шаблоне не найдены таблицы приложений: " + ", ".join(str(n) for n in sorted(missing)))
+    for n in nomera:
+        _fill_table(tables[n], data[n]["rows"])
+    if "svodnaya" in data:
+        _fill_svodnaya(tables[2], data["svodnaya"])
+    _update_headers(doc, god, data_zapolneniya or dt.date.today().strftime("%d.%m.%Y"),
+                    str(ploshad_nachalo or "").strip(), str(ploshad_konec or "").strip())
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
