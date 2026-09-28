@@ -1502,9 +1502,107 @@ def get_tabel_day(conn, data):
     ).fetchall()
     result = [dict(r) for r in rows]
     mobile_status = _tabel_mobile_status_by_sotrudnik(conn, data)
+    brigada_by_sotrudnik = {
+        s["sotrudnik_id"]: b for b in list_tabel_brigady(conn, data) for s in b["sostav"]
+    }
     for r in result:
         r["mobile_status"] = mobile_status.get(r["sotrudnik_id"])
+        b = brigada_by_sotrudnik.get(r["sotrudnik_id"])
+        r["brigada_id"] = b["id"] if b else None
+        r["brigada_nazvanie"] = b["nazvanie"] if b else None
+        r["is_brigadir"] = bool(b and b["brigadir_sotrudnik_id"] == r["sotrudnik_id"])
     return result
+
+
+def list_tabel_brigady(conn, data):
+    """Бригады для ввода табеля «по бригаде» на дату data ("ГГГГ-ММ-ДД"):
+    состав НА ЭТУ ДАТУ (по истории brigada_sostav, а не только текущий),
+    бригадир и делянка, на которую бригада назначена в этот день
+    (brigada_naznachenie), с её выделами — чтобы место работы подставилось
+    само. Только активные бригады и активные сотрудники."""
+    brigady = conn.execute(
+        """SELECT b.id, b.nazvanie, b.brigadir_sotrudnik_id, s.fio
+           FROM brigada b LEFT JOIN sotrudniki s ON s.id = b.brigadir_sotrudnik_id
+           WHERE b.is_active = 1 ORDER BY b.nazvanie"""
+    ).fetchall()
+    result = []
+    for b_id, nazvanie, brigadir_id, brigadir_fio in brigady:
+        sostav = conn.execute(
+            """SELECT s.id, s.fio, s.dolzhnost
+               FROM brigada_sostav bs JOIN sotrudniki s ON s.id = bs.sotrudnik_id
+               WHERE bs.brigada_id = ? AND s.is_active = 1
+                 AND bs.data_vstupleniya <= ?
+                 AND (bs.data_vyhoda IS NULL OR bs.data_vyhoda > ?)
+               ORDER BY (s.id = ?) DESC, s.fio""",
+            (b_id, data, data, brigadir_id or -1),
+        ).fetchall()
+        naz = conn.execute(
+            """SELECT n.delyanka_id, d.nazvanie
+               FROM brigada_naznachenie n JOIN delyanka d ON d.id = n.delyanka_id
+               WHERE n.brigada_id = ? AND n.status NOT IN ('завершено', 'отменено')
+                 AND n.data_nachala <= ?
+                 AND (n.data_okonchaniya IS NULL OR n.data_okonchaniya = '' OR n.data_okonchaniya >= ?)
+               ORDER BY n.data_nachala DESC LIMIT 1""",
+            (b_id, data, data),
+        ).fetchone()
+        mesta = []
+        if naz:
+            mesta = [
+                {"item_id": r[0], "kvartal": r[1], "vydel": r[2], "lesoseka_nomer": r[3], "nazvanie": naz[1]}
+                for r in conn.execute(
+                    "SELECT id, kvartal, vydel, lesoseka_nomer FROM delyanka_item "
+                    "WHERE delyanka_id = ? ORDER BY poryadok, id",
+                    (naz[0],),
+                ).fetchall()
+            ]
+        result.append({
+            "id": b_id,
+            "nazvanie": nazvanie,
+            "brigadir_sotrudnik_id": brigadir_id,
+            "brigadir_fio": brigadir_fio,
+            "sostav": [{"sotrudnik_id": r[0], "fio": r[1], "dolzhnost": r[2]} for r in sostav],
+            "delyanka_id": naz[0] if naz else None,
+            "delyanka_nazvanie": naz[1] if naz else None,
+            "mesta": mesta,
+        })
+    return result
+
+
+def search_tabel_delyanki(conn, search=None, include_archived=False, limit=50):
+    """Поиск делянки (конкретного выдела — delyanka_item) для табеля.
+    Регистронезависимо и по кириллице (фильтр в Python: SQLite LIKE
+    приводит к одному регистру только латиницу). Понимает «12/5» и
+    «12 5» как квартал/выдел; иначе ищет подстроку в названии делянки,
+    лесничестве, номере лесосеки, квартале, выделе."""
+    rows = conn.execute(
+        """SELECT i.id, i.delyanka_id, d.nazvanie, i.lesnichestvo, i.kvartal, i.vydel,
+                  i.lesoseka_nomer, d.status
+           FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id
+           ORDER BY d.id DESC, i.poryadok, i.id"""
+    ).fetchall()
+    items = [
+        {"item_id": r[0], "delyanka_id": r[1], "nazvanie": r[2], "lesnichestvo": r[3],
+         "kvartal": r[4], "vydel": r[5], "lesoseka_nomer": r[6], "status": r[7]}
+        for r in rows
+        if include_archived or r[7] != "архив"
+    ]
+    q = (search or "").strip().casefold()
+    if not q:
+        return items[:limit]
+    parts = [p for p in q.replace("/", " ").replace(",", " ").split() if p]
+    if len(parts) == 2 and all(p.isalnum() for p in parts):
+        kv, vd = parts
+        exact = [i for i in items
+                 if (i["kvartal"] or "").strip().casefold() == kv and (i["vydel"] or "").strip().casefold() == vd]
+        if exact:
+            return exact[:limit]
+
+    def haystack(i):
+        return " ".join(str(i[k] or "") for k in ("nazvanie", "lesnichestvo", "kvartal", "vydel", "lesoseka_nomer")).casefold()
+
+    kv_first = [i for i in items if (i["kvartal"] or "").strip().casefold() == q]
+    rest = [i for i in items if i not in kv_first and all(p in haystack(i) for p in parts)]
+    return (kv_first + rest)[:limit]
 
 
 def save_tabel_day(conn, data, entries, entered_by):
@@ -1524,6 +1622,14 @@ def save_tabel_day(conn, data, entries, entered_by):
             "SELECT 1 FROM sotrudniki WHERE id=? AND is_active=1", (e["sotrudnik_id"],)
         ).fetchone():
             raise ValueError(f"Сотрудник id={e['sotrudnik_id']} не найден или отключён")
+        if e.get("delyanka_item_id") and not conn.execute(
+            "SELECT 1 FROM delyanka_item WHERE id=?", (e["delyanka_item_id"],)
+        ).fetchone():
+            raise ValueError(f"Делянка (выдел) id={e['delyanka_item_id']} не найдена")
+        if e.get("lesokultury_uchastok_id") and not conn.execute(
+            "SELECT 1 FROM lesokultury_uchastok WHERE id=?", (e["lesokultury_uchastok_id"],)
+        ).fetchone():
+            raise ValueError(f"Участок лесных культур id={e['lesokultury_uchastok_id']} не найден")
         conn.execute(
             """
             INSERT INTO tabel_zapis

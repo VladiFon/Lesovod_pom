@@ -12,8 +12,6 @@ python-docx>=1.1
 # (requests тянет его), но фиксируем явно, чтобы не зависеть от этого.
 certifi>=2024.0
 
-# Telegram-бот (legacy/telegram_bot.py, import telebot)
-pyTelegramBotAPI>=4.14
 
 # Нужны для forest_map.py (карта леса, Блок 2 доработки — bbox-стриминг
 # для живой карты + /api/map/generate). Раньше были закомментированы —

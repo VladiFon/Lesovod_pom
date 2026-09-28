@@ -10,8 +10,6 @@ REM если положили в другое место).
 set "NSSM=C:\lesovod\nssm\nssm.exe"
 set "SERVICE_NAME=LesovodBackend"
 set "RUN_SCRIPT=%~dp0run_server.bat"
-set "BOT_SERVICE_NAME=LesovodBot"
-set "BOT_RUN_SCRIPT=%~dp0run_bot.bat"
 set "LOG_DIR=C:\lesovod\logs"
 
 if not exist "%NSSM%" (
@@ -60,47 +58,8 @@ echo Запуск:  net start %SERVICE_NAME%
 echo Логи:    %LOG_DIR%\backend.out.log / backend.err.log
 echo Удаление службы (если понадобится): %NSSM% remove %SERVICE_NAME% confirm
 
-REM ---------------------------------------------------------------------
-REM   Служба №2 — телеграм-бот (Блок C.1 плана доработки).
-REM   backend\legacy\telegram_bot.py — это отдельный процесс с
-REM   bot.infinity_polling(), не часть uvicorn/backend'а (см. app/routers/
-REM   bot.py — это только HTTP API, которым бот пользуется, сам процесс
-REM   бота живёт своей жизнью). Раньше нигде не регистрировался как
-REM   служба и не имел автозапуска/автоперезапуска — отсюда "бот не
-REM   запускается" (запускался только если кто-то вручную держал открытой
-REM   консоль). Регистрируем тем же способом, что и backend выше: через
-REM   отдельный run_bot.bat, который сам читает deploy\.env.
-REM ---------------------------------------------------------------------
-%NSSM% install %BOT_SERVICE_NAME% cmd.exe /c "\"%BOT_RUN_SCRIPT%\""
-%NSSM% set %BOT_SERVICE_NAME% AppDirectory "%~dp0"
-%NSSM% set %BOT_SERVICE_NAME% DisplayName "Lesovod — телеграм-бот"
-%NSSM% set %BOT_SERVICE_NAME% Description "Цифровой помощник лесовода — телеграм-бот для полевых работников. Настройки — в deploy\.env (LESOVOD_TELEGRAM_BOT_TOKEN / LESOVOD_BOT_SERVICE_TOKEN)."
-
-%NSSM% set %BOT_SERVICE_NAME% AppStdout "%LOG_DIR%\bot.out.log"
-%NSSM% set %BOT_SERVICE_NAME% AppStderr "%LOG_DIR%\bot.err.log"
-%NSSM% set %BOT_SERVICE_NAME% AppRotateFiles 1
-%NSSM% set %BOT_SERVICE_NAME% AppRotateOnline 1
-%NSSM% set %BOT_SERVICE_NAME% AppRotateBytes 10485760
-
-REM Автозапуск + автоперезапуск при падении — как у backend'а. Бот
-REM зависит от backend'а (ходит в /api/bot/... с LESOVOD_BOT_SERVICE_TOKEN),
-REM но явной зависимости служб (DependOnService) не выставляем: если
-REM backend ещё не поднялся, бот просто получит ошибку сети на первом
-REM запросе, распознает её как временную (requests.exceptions) и продолжит
-REM опрос Telegram — жёсткая зависимость службы означала бы, что nssm не
-REM запустит бота вообще, пока backend не в статусе "запущена", что
-REM избыточно и ломается на ровном месте при ручном рестарте backend'а.
-%NSSM% set %BOT_SERVICE_NAME% Start SERVICE_AUTO_START
-%NSSM% set %BOT_SERVICE_NAME% AppExit Default Restart
-%NSSM% set %BOT_SERVICE_NAME% AppRestartDelay 5000
-
-echo.
-echo Служба %BOT_SERVICE_NAME% установлена. Перед запуском:
-echo   1. Проверьте LESOVOD_TELEGRAM_BOT_TOKEN и LESOVOD_BOT_SERVICE_TOKEN
-echo      в deploy\.env — это ДВА РАЗНЫХ токена (см. .env.example), оба
-echo      обязательны.
-echo   2. Служба %SERVICE_NAME% (backend) должна быть установлена и
-echo      желательно уже запущена — бот ходит в её API.
-echo Запуск:  net start %BOT_SERVICE_NAME%
-echo Логи:    %LOG_DIR%\bot.out.log / bot.err.log
-echo Удаление службы (если понадобится): %NSSM% remove %BOT_SERVICE_NAME% confirm
+REM Телеграм-бот удалён (28.09.2026): отчёты идут только из мобильного
+REM приложения. Если на сервере осталась старая служба LesovodBot —
+REM останавливаем и удаляем её (ошибки, если её нет, не страшны).
+net stop LesovodBot >nul 2>&1
+%NSSM% remove LesovodBot confirm >nul 2>&1

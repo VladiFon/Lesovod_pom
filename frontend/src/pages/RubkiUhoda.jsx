@@ -235,6 +235,8 @@ export default function RubkiUhoda() {
   // Какие фото приложил рабочий из мобильного приложения (сами файлы —
   // GET /uhody/proby/{id}/photo/{kind}, см. AuthImage).
   const [photos, setPhotos] = useState({ stolb_delyanki: false, stolb_proby: false });
+  // Кто прислал пробу из мобильного приложения (null — завёл офис).
+  const [avtorFio, setAvtorFio] = useState(null);
   const [lesokulturyUchastokIds, setLesokulturyUchastokIds] = useState([]);
   const [lesokulturySelectedInfo, setLesokulturySelectedInfo] = useState([]);
   const [lesokulturyOptions, setLesokulturyOptions] = useState([]);
@@ -352,6 +354,7 @@ export default function RubkiUhoda() {
     setLesokulturyUchastokIds([]);
     setLesokulturySelectedInfo([]);
     setPhotos({ stolb_delyanki: false, stolb_proby: false });
+    setAvtorFio(null);
   };
 
   const openProba = async (id) => {
@@ -403,6 +406,7 @@ export default function RubkiUhoda() {
       setLesokulturyUchastokIds(record.lesokultury_uchastok_ids || []);
       setLesokulturySelectedInfo(record.lesokultury_uchastki || []);
       setPhotos(record.photos || { stolb_delyanki: false, stolb_proby: false });
+      setAvtorFio(record.avtor_fio || null);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось открыть пробу", description: e.message });
     }
@@ -638,6 +642,12 @@ export default function RubkiUhoda() {
                       {p.data_zamera || "дата не указана"}
                       {p.ploshad_proby ? ` · проба ${p.ploshad_proby} га` : ""}
                     </div>
+                    {p.avtor_fio && (
+                      <div className="text-xs text-muted mt-0.5 truncate" title="Прислано из мобильного приложения">
+                        📱 {p.avtor_fio}
+                        {p.est_foto ? " · 📷 фото" : ""}
+                      </div>
+                    )}
                   </button>
                 </li>
               ))}
@@ -679,10 +689,43 @@ export default function RubkiUhoda() {
           )}
         </Card>
 
+        {/* Фото пробы — приложены рабочим в мобильном приложении */}
+        {isEditing && (
+          <Card
+            title="Фото пробы"
+            subtitle="Столб границы делянки, где идёт уход, и столб пробной площадки — снимает рабочий в мобильном приложении"
+          >
+            <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+              {[
+                ["stolb_delyanki", "Столб делянки"],
+                ["stolb_proby", "Столб пробной площадки"],
+              ].map(([kind, label]) =>
+                photos[kind] ? (
+                  <AuthImage key={`${selectedId}-${kind}`} path={`/uhody/proby/${selectedId}/photo/${kind}`} caption={label} />
+                ) : (
+                  <div key={kind} className="flex flex-col gap-1.5">
+                    <div
+                      className="rounded-md border border-dashed border-border bg-surface-alt flex items-center justify-center text-[12.5px] text-muted"
+                      style={{ height: 160 }}
+                    >
+                      Фото не приложено
+                    </div>
+                    <div className="text-[12.5px] font-semibold text-muted">{label}</div>
+                  </div>
+                )
+              )}
+            </div>
+          </Card>
+        )}
+
         {/* Шапка ведомости */}
         <Card
           title={isEditing ? `Ведомость перечёта — проба №${selectedId}` : "Ведомость перечёта — новая проба"}
-          subtitle="Ведомость перечёта и обмера древесины на пробных площадях"
+          subtitle={
+            isEditing && avtorFio
+              ? `Прислал с телефона: ${avtorFio}`
+              : "Ведомость перечёта и обмера древесины на пробных площадях"
+          }
         >
           <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
             <TextField label="Квартал" value={kvartal} onChange={(e) => setKvartal(e.target.value)} />
@@ -780,34 +823,6 @@ export default function RubkiUhoda() {
         </Card>
 
         {/* Обмер укладок хвороста */}
-        {/* Фото пробы — приложены рабочим в мобильном приложении */}
-        {isEditing && (
-          <Card
-            title="Фото пробы"
-            subtitle="Столб границы делянки, где идёт уход, и столб пробной площадки — снимает рабочий в мобильном приложении"
-          >
-            <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
-              {[
-                ["stolb_delyanki", "Столб делянки"],
-                ["stolb_proby", "Столб пробной площадки"],
-              ].map(([kind, label]) =>
-                photos[kind] ? (
-                  <AuthImage key={`${selectedId}-${kind}`} path={`/uhody/proby/${selectedId}/photo/${kind}`} caption={label} />
-                ) : (
-                  <div key={kind} className="flex flex-col gap-1.5">
-                    <div
-                      className="rounded-md border border-dashed border-border bg-surface-alt flex items-center justify-center text-[12.5px] text-muted"
-                      style={{ height: 160 }}
-                    >
-                      Фото не приложено
-                    </div>
-                    <div className="text-[12.5px] font-semibold text-muted">{label}</div>
-                  </div>
-                )
-              )}
-            </div>
-          </Card>
-        )}
 
         <Card title="Обмер укладок хвороста" subtitle="Фронт не считает сам — расчёт делает сервер по нажатию «Рассчитать»">
           <div className="bg-surface border border-border rounded-[10px] overflow-hidden">

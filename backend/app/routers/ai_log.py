@@ -20,13 +20,36 @@ from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401
 
+from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/ai-log", tags=["ai_log"])
 
 
 @router.get("/raw-reports")
-def list_raw_reports(conn=Depends(get_conn)):
+def list_raw_reports(conn=Depends(get_conn), _user=Depends(get_current_user)):
+    cols = ["id", "ispolnitel_fio", "data_soobscheniya", "raw_text", "photo_path", "opisanie", "kvartal", "vydels", "tip_raboty"]
+    # lat/lon и привязку к делянке/участку л/к присылает мобильное приложение;
+    # на старой базе без этих колонок (миграция ещё не прошла) — без них.
+    extra = ["lat", "lon", "delyanka_id", "delyanka_nazvanie", "lesokultury_uchastok_id", "lesokultury_label", "lesnichestvo"]
+    try:
+        rows = conn.execute(
+            "SELECT r.id, r.ispolnitel_fio, r.data_soobscheniya, r.raw_text, r.photo_path, "
+            "r.opisanie, r.kvartal, r.vydels, r.tip_raboty, "
+            "r.lat, r.lon, r.delyanka_id, d.nazvanie, r.lesokultury_uchastok_id, "
+            "CASE WHEN lk.id IS NULL THEN NULL ELSE "
+            "'кв. ' || COALESCE(lk.kvartal,'') || ' выд. ' || COALESCE(lk.vydel,'') || "
+            "COALESCE(' · ' || lk.glavnaya_poroda, '') || COALESCE(' · ' || lk.god_sozdaniya, '') END, "
+            "lk.lesnichestvo "
+            "FROM raw_reports r "
+            "LEFT JOIN delyanka d ON d.id = r.delyanka_id "
+            "LEFT JOIN lesokultury_uchastok lk ON lk.id = r.lesokultury_uchastok_id "
+            "WHERE r.status='на проверке' ORDER BY r.id DESC"
+        ).fetchall()
+        return [dict(zip(cols + extra, r)) for r in rows]
+    except sqlite3.OperationalError:
+        pass
     try:
         rows = conn.execute(
             "SELECT id, ispolnitel_fio, data_soobscheniya, raw_text, photo_path, "
@@ -35,7 +58,6 @@ def list_raw_reports(conn=Depends(get_conn)):
         ).fetchall()
     except sqlite3.OperationalError:
         return []
-    cols = ["id", "ispolnitel_fio", "data_soobscheniya", "raw_text", "photo_path", "opisanie", "kvartal", "vydels", "tip_raboty"]
     return [dict(zip(cols, r)) for r in rows]
 
 
@@ -49,7 +71,7 @@ class ApproveIn(BaseModel):
 
 
 @router.post("/raw-reports/{report_id}/approve")
-def approve_report(report_id: int, body: ApproveIn, conn=Depends(get_conn)):
+def approve_report(report_id: int, body: ApproveIn, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     if not (body.kvartal.strip() and body.vydel.strip() and body.tip_raboty.strip() and body.lesnichestvo.strip()):
         raise HTTPException(400, "Заполните квартал, выдел, тип работы и лесничество")
 
@@ -76,7 +98,7 @@ def approve_report(report_id: int, body: ApproveIn, conn=Depends(get_conn)):
 
 
 @router.post("/raw-reports/{report_id}/reject")
-def reject_report(report_id: int, conn=Depends(get_conn)):
+def reject_report(report_id: int, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     cur = conn.execute("UPDATE raw_reports SET status='отклонено' WHERE id=?", (report_id,))
     conn.commit()
     if cur.rowcount == 0:
@@ -91,7 +113,7 @@ def list_completed(
     executor: Optional[str] = None,
     tip_raboty: Optional[str] = None,
     dolzhnost: Optional[str] = None,
-    conn=Depends(get_conn),
+    conn=Depends(get_conn), _user=Depends(get_current_user),
 ):
     conditions = ["date(data_vypolneniya) >= date(?)", "date(data_vypolneniya) <= date(?)"]
     params: list = [date_from, date_to]
@@ -119,7 +141,7 @@ def list_completed(
 
 
 @router.get("/completed/filters")
-def completed_filters(conn=Depends(get_conn)):
+def completed_filters(conn=Depends(get_conn), _user=Depends(get_current_user)):
     """Варианты для выпадающих списков фильтров — DISTINCT по всей таблице
     (без учёта текущих фильтров), как в _populate_completed_filter_options."""
     def distinct(col):
@@ -137,7 +159,7 @@ def completed_filters(conn=Depends(get_conn)):
 
 
 @router.delete("/completed/{record_id}")
-def delete_completed(record_id: int, conn=Depends(get_conn)):
+def delete_completed(record_id: int, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     cur = conn.execute("DELETE FROM completed_works WHERE id=?", (record_id,))
     conn.commit()
     if cur.rowcount == 0:
@@ -146,7 +168,7 @@ def delete_completed(record_id: int, conn=Depends(get_conn)):
 
 
 @router.get("/photo")
-def get_photo(path: str, conn=Depends(get_conn)):
+def get_photo(path: str, conn=Depends(get_conn), _user=Depends(get_current_user)):
     """Фото присланы telegram-ботом и лежат абсолютным путём в photo_path
     (raw_reports/completed_works) — не в app.paths.UPLOADS_DIR. Отдаём по
     пути, но только если он реально числится в одной из этих таблиц (иначе
@@ -156,6 +178,12 @@ def get_photo(path: str, conn=Depends(get_conn)):
         "UNION SELECT 1 FROM completed_works WHERE photo_path=?",
         (path, path),
     ).fetchone()
-    if not known or not os.path.exists(path):
+    # Путь в таблицу пишет клиент (photo_path в теле отчёта), поэтому
+    # дополнительно отдаём только картинки: иначе отчёт с photo_path на
+    # .env/.db сделал бы этот файл скачиваемым.
+    if not known or not os.path.isfile(path) or os.path.splitext(path)[1].lower() not in _IMAGE_SUFFIXES:
         raise HTTPException(404, "Файл не найден")
-    return FileResponse(path)
+    return FileResponse(path, headers={"X-Content-Type-Options": "nosniff"})
+
+
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}

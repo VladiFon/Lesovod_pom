@@ -87,21 +87,7 @@ else:
 #   like сценарий (Блок 4), где .env уже парсится построчно в окружение —
 #   ничего нового изобретать не пришлось.
 # ============================================================================
-def get_telegram_bot_token() -> str | None:
-    """Токен бота у @BotFather. None, если LESOVOD_TELEGRAM_BOT_TOKEN не
-    задана — вызывающий код (telegram_bot.py) должен сам решить, что
-    делать (сейчас — падать с понятным RuntimeError, см. его исходник)."""
-    return os.environ.get("LESOVOD_TELEGRAM_BOT_TOKEN") or None
-
-
-def get_bot_service_token() -> str | None:
-    """Токен, которым процесс бота авторизуется перед этим backend'ом
-    (Authorization: Bearer <токен>) — см. app/auth.py:get_current_user_optional.
-    None, если LESOVOD_BOT_SERVICE_TOKEN не задана — в этом случае служебная
-    роль "bot" в принципе недостижима ни для какого запроса (безопасно по
-    умолчанию: сравнение с None никогда не проходит, а не "сравнение с
-    пустой строкой", которое мог бы случайно пройти запрос без заголовка)."""
-    return os.environ.get("LESOVOD_BOT_SERVICE_TOKEN") or None
+# get_telegram_bot_token / get_bot_service_token удалены вместе с Telegram-ботом (28.09.2026).
 
 
 def get_map_import_service_token() -> str | None:

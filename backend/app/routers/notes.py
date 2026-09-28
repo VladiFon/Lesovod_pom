@@ -22,6 +22,10 @@ from app.database import get_conn
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 
 
+# Без слеша тоже: мобильное приложение ходит на /api/…без "/" на конце, а
+# автоматический 307-редирект FastAPI за прокси уводил на http:// — Android
+# такой редирект блокирует и показывал «Нет соединения с интернетом».
+@router.get("", include_in_schema=False)
 @router.get("/")
 def list_notes(
     user=Depends(require_office_or_master),

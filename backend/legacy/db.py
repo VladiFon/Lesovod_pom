@@ -922,6 +922,12 @@ def migrate_schema(conn):
     # если база была создана до перехода на пошаговый опрос без ИИ
     if "tip_raboty" not in existing_raw_cols:
         conn.execute("ALTER TABLE raw_reports ADD COLUMN tip_raboty TEXT")
+    # координаты телефона и привязка к делянке / участку лесных культур —
+    # присылает мобильное приложение вместе с отчётом о работе
+    for col, col_type in (("lat", "REAL"), ("lon", "REAL"),
+                          ("delyanka_id", "INTEGER"), ("lesokultury_uchastok_id", "INTEGER")):
+        if col not in existing_raw_cols:
+            conn.execute(f"ALTER TABLE raw_reports ADD COLUMN {col} {col_type}")
 
     # независимая таблица выполненных работ (полностью отвязана от delyanka_item) —
     # создаём на случай, если база была создана до этого пивота
@@ -1806,7 +1812,8 @@ def complete_sluzhebnaya_zametka(conn, zametka_id):
 # --------------------------------------------------------------------------- #
 #   RAW_REPORTS — дедуп и отмена последнего отчёта (этап 10, telegram_bot.py)
 # --------------------------------------------------------------------------- #
-def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_path, opisanie):
+def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_path, opisanie,
+                    lat=None, lon=None, delyanka_id=None, lesokultury_uchastok_id=None):
     """Кладёт отчёт рабочего в буферную таблицу raw_reports на проверку
     лесничим (экран "Журнал ИИ"). Восстановлено в рамках подчасти 3.2
     доработки (перенос из telegram_bot.py, где раньше принимала общий
@@ -1822,8 +1829,9 @@ def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_p
     cur = conn.execute(
         """INSERT INTO raw_reports
                (ispolnitel_viber_id, ispolnitel_fio, kvartal, vydels,
-                data_soobscheniya, status, photo_path, opisanie, tip_raboty)
-           VALUES (?, ?, ?, ?, ?, 'на проверке', ?, ?, ?)""",
+                data_soobscheniya, status, photo_path, opisanie, tip_raboty,
+                lat, lon, delyanka_id, lesokultury_uchastok_id)
+           VALUES (?, ?, ?, ?, ?, 'на проверке', ?, ?, ?, ?, ?, ?, ?)""",
         (
             telegram_id,
             fio,
@@ -1833,6 +1841,10 @@ def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_p
             photo_path,
             opisanie,
             tip_raboty,
+            lat,
+            lon,
+            delyanka_id,
+            lesokultury_uchastok_id,
         ),
     )
     conn.commit()
@@ -1989,18 +2001,25 @@ def get_uhody_proba_photo_path(conn, proba_id, kind):
     return row[0] if row and row[0] else None
 
 
-def list_uhody_proby(conn):
+def list_uhody_proby(conn, sotrudnik_id=None):
     """Возвращает краткий список всех независимых проб рубок ухода
     (без data_json — для отображения в списке слева на экране
-    "Рубки ухода"), самые новые сверху."""
+    "Рубки ухода"), самые новые сверху. sotrudnik_id — только пробы этого
+    автора (рабочий видит свои, а не чужие). avtor_fio — кто прислал пробу
+    из мобильного приложения (NULL — завёл офис)."""
+    where = "WHERE p.sotrudnik_id = ?" if sotrudnik_id is not None else ""
     rows = conn.execute(
-        """
-        SELECT id, kvartal, vydel, ploshad_vydela, ploshad_proby, data_zamera,
-               created_at, completed_at, ispolniteli_json, lesokultury_uchastok_ids_json,
-               sotrudnik_id
-        FROM uhody_proby
-        ORDER BY id DESC
-        """
+        f"""
+        SELECT p.id, p.kvartal, p.vydel, p.ploshad_vydela, p.ploshad_proby, p.data_zamera,
+               p.created_at, p.completed_at, p.ispolniteli_json, p.lesokultury_uchastok_ids_json,
+               p.sotrudnik_id, s.fio,
+               (p.foto_stolb_delyanki IS NOT NULL OR p.foto_stolb_proby IS NOT NULL)
+        FROM uhody_proby p
+        LEFT JOIN sotrudniki s ON s.id = p.sotrudnik_id
+        {where}
+        ORDER BY p.id DESC
+        """,
+        (sotrudnik_id,) if sotrudnik_id is not None else (),
     ).fetchall()
     return [
         {
@@ -2015,6 +2034,8 @@ def list_uhody_proby(conn):
             "ispolniteli": json.loads(row[8]) if row[8] else [],
             "lesokultury_uchastok_ids": json.loads(row[9]) if row[9] else [],
             "sotrudnik_id": row[10],
+            "avtor_fio": row[11],
+            "est_foto": bool(row[12]),
         }
         for row in rows
     ]
@@ -2028,7 +2049,8 @@ def get_uhody_proba(conn, proba_id):
         SELECT id, kvartal, vydel, ploshad_vydela, ploshad_proby, data_zamera,
                data_json, created_at, completed_at, ispolniteli_json,
                lesokultury_uchastok_ids_json, sotrudnik_id,
-               foto_stolb_delyanki, foto_stolb_proby
+               foto_stolb_delyanki, foto_stolb_proby,
+               (SELECT fio FROM sotrudniki WHERE sotrudniki.id = uhody_proby.sotrudnik_id)
         FROM uhody_proby
         WHERE id = ?
         """,
@@ -2070,6 +2092,8 @@ def get_uhody_proba(conn, proba_id):
         # какие фото приложены (сами пути наружу не отдаём) — файл берётся
         # через GET /api/uhody/proby/{id}/photo/{kind}
         "photos": {"stolb_delyanki": bool(row[12]), "stolb_proby": bool(row[13])},
+        # кто прислал пробу из мобильного приложения (NULL — завёл офис)
+        "avtor_fio": row[14],
     }
 
 
@@ -2818,13 +2842,8 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
     if god:
         where.append("lk.god_sozdaniya LIKE ?")
         params.append(f"%{god}%")
-    if search:
-        where.append(
-            "(lk.kvartal LIKE ? OR lk.vydel LIKE ? OR lk.lesnichestvo LIKE ? "
-            "OR lk.glavnaya_poroda LIKE ? OR d.nazvanie LIKE ?)"
-        )
-        like = f"%{search}%"
-        params.extend([like, like, like, like, like])
+    # search фильтруется ниже в Python: SQLite LIKE без учёта регистра
+    # работает только для латиницы, «сосна» не находила «Сосна».
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     try:
         rows = conn.execute(
@@ -2855,6 +2874,10 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
     result = [dict(zip(columns, row)) for row in rows]
     if not include_spisannye:
         result = [r for r in result if r["status"] == "активен"]
+    q = (search or "").strip().casefold()
+    if q:
+        fields = ("kvartal", "vydel", "lesnichestvo", "glavnaya_poroda", "delyanka_nazvanie")
+        result = [r for r in result if any(q in str(r[f] or "").casefold() for f in fields)]
     return result
 
 
@@ -2940,7 +2963,8 @@ def list_lesokultury_meropriyatiya(conn, uchastok_id):
     dannye — разобранный dannye_json (None для записей с веба)."""
     rows = conn.execute(
         "SELECT id, tip, data, prizhivaemost_pct, kolichestvo_na_ga, sostav_fakt, "
-        "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id "
+        "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id, "
+        "(SELECT fio FROM sotrudniki s WHERE s.id = lesokultury_meropriyatiya.sotrudnik_id) "
         "FROM lesokultury_meropriyatiya WHERE uchastok_id = ? ORDER BY id DESC",
         (uchastok_id,),
     ).fetchall()
@@ -2948,7 +2972,8 @@ def list_lesokultury_meropriyatiya(conn, uchastok_id):
         {"id": r[0], "tip": r[1], "data": r[2], "prizhivaemost_pct": r[3],
          "kolichestvo_na_ga": r[4], "sostav_fakt": r[5], "primechaniya": r[6],
          "proba_id": r[7], "created_at": r[8],
-         "dannye": json.loads(r[9]) if r[9] else None, "sotrudnik_id": r[10]}
+         "dannye": json.loads(r[9]) if r[9] else None, "sotrudnik_id": r[10],
+         "avtor_fio": r[11]}
         for r in rows
     ]
 

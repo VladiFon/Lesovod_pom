@@ -38,6 +38,26 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Выбор для каждого члена бригады в окне «Заполнить по бригаде».
+const BRIGADA_CHOICES = [
+  { value: "с бригадой", label: "Работал с бригадой" },
+  { value: "в другом месте", label: "Работал в другом месте" },
+  { value: "выходной", label: "Выходной" },
+  { value: "больничный", label: "Больничный" },
+  { value: "отпуск", label: "Отпуск" },
+  { value: "не работал", label: "Не работал" },
+];
+
+function delyankaItemLabel(i) {
+  return [
+    `кв. ${i.kvartal || "—"} / выд. ${i.vydel || "—"}`,
+    i.lesoseka_nomer ? `лесосека ${i.lesoseka_nomer}` : null,
+    i.nazvanie || null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function serverRowToLocal(r) {
   const targetType = r.lesokultury_uchastok_id ? "lesokultury" : r.delyanka_item_id ? "delyanka" : null;
   return {
@@ -45,6 +65,8 @@ function serverRowToLocal(r) {
     fio: r.fio,
     dolzhnost: r.dolzhnost,
     mobile_status: r.mobile_status,
+    brigada_nazvanie: r.brigada_nazvanie || null,
+    is_brigadir: !!r.is_brigadir,
     status: r.status || "",
     vid_raboty_id: r.vid_raboty_id || "",
     kommentariy: r.kommentariy || "",
@@ -73,6 +95,7 @@ export default function TabelRuchnoy() {
   const [newVidSotrudnikId, setNewVidSotrudnikId] = useState(null);
   const [newVidName, setNewVidName] = useState("");
   const [savingVid, setSavingVid] = useState(false);
+  const [brigadaModal, setBrigadaModal] = useState(null);
 
   useEffect(() => {
     api.get("/tabel/vidy-rabot").then(setVidyRabot).catch(() => {});
@@ -140,10 +163,10 @@ export default function TabelRuchnoy() {
     setLocModal({
       sotrudnikId: row.sotrudnik_id,
       targetType: row.targetType || "delyanka",
-      kvartal: row.delyankaKvartal || "",
-      vydel: row.delyankaVydel || "",
-      delyankaLookup: row.delyanka_item_id ? { item_id: row.delyanka_item_id, nazvanie: row.delyankaLabel } : null,
-      lookingUp: false,
+      delyankaSearch: row.delyankaKvartal && row.delyankaVydel ? `${row.delyankaKvartal}/${row.delyankaVydel}` : "",
+      delyankaOptions: [],
+      delyankaLoading: false,
+      delyanka: row.delyanka_item_id ? { item_id: row.delyanka_item_id, label: row.delyankaLabel } : null,
       lesokulturySearch: "",
       lesokulturyOptions: [],
       lesokulturyLoading: false,
@@ -164,33 +187,34 @@ export default function TabelRuchnoy() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locModal?.targetType, locModal?.lesokulturySearch]);
 
-  const handleLocLookupDelyanka = async () => {
-    if (!locModal.kvartal.trim() || !locModal.vydel.trim()) {
-      setLocModal((m) => ({ ...m, delyankaLookup: null }));
-      return;
-    }
-    setLocModal((m) => ({ ...m, lookingUp: true }));
-    try {
-      const results = await api.get("/delyanki/by-location", { kvartal: locModal.kvartal.trim(), vydel: locModal.vydel.trim() });
-      setLocModal((m) => ({
-        ...m,
-        lookingUp: false,
-        delyankaLookup: results.length === 0 ? "not_found" : { item_id: results[0].item_id, nazvanie: results[0].nazvanie },
-      }));
-    } catch {
-      setLocModal((m) => ({ ...m, lookingUp: false, delyankaLookup: "not_found" }));
-    }
-  };
+  // Поиск делянки по мере ввода (GET /tabel/delyanki): «12/5», лесосека,
+  // название, лесничество. Раньше — точный квартал+выдел и первая найденная.
+  useEffect(() => {
+    if (!locModal || locModal.targetType !== "delyanka") return;
+    setLocModal((m) => (m ? { ...m, delyankaLoading: true } : m));
+    const t = setTimeout(() => {
+      api
+        .get("/tabel/delyanki", { search: locModal.delyankaSearch.trim() || undefined })
+        .then((opts) => setLocModal((m) => (m ? { ...m, delyankaOptions: opts, delyankaLoading: false } : m)))
+        .catch(() => setLocModal((m) => (m ? { ...m, delyankaLoading: false } : m)));
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locModal?.targetType, locModal?.delyankaSearch]);
 
   const handleLocationConfirm = () => {
     if (locModal.targetType === "delyanka") {
-      const ok = locModal.delyankaLookup && locModal.delyankaLookup !== "not_found";
+      const d = locModal.delyanka;
+      if (!d?.item_id) {
+        toast.show({ tone: "warning", title: "Выберите делянку из списка" });
+        return;
+      }
       updateRow(locModal.sotrudnikId, {
         targetType: "delyanka",
-        delyanka_item_id: ok ? locModal.delyankaLookup.item_id : null,
-        delyankaLabel: ok ? locModal.delyankaLookup.nazvanie || `делянка №${locModal.delyankaLookup.item_id}` : null,
-        delyankaKvartal: locModal.kvartal,
-        delyankaVydel: locModal.vydel,
+        delyanka_item_id: d.item_id,
+        delyankaLabel: d.label,
+        delyankaKvartal: d.kvartal || "",
+        delyankaVydel: d.vydel || "",
         lesokultury_uchastok_id: null,
         lesokulturyLabel: null,
       });
@@ -220,6 +244,74 @@ export default function TabelRuchnoy() {
       lesokulturyLabel: null,
     });
     setLocModal(null);
+  };
+
+  // --- «Заполнить по бригаде»: выбираешь бригаду (бригадира) — весь её
+  // состав на эту дату получает «работал» с местом из назначения бригады;
+  // отсутствующим ставишь причину. Попадает в таблицу, сохраняется общей
+  // кнопкой «Сохранить табель».
+  const openBrigadaModal = async () => {
+    setBrigadaModal({ loading: true, brigady: [], brigadaId: null, choices: {}, itemId: "", vidId: "" });
+    try {
+      const brigady = await api.get("/tabel/brigady", { data: date });
+      setBrigadaModal((m) => (m ? { ...m, loading: false, brigady } : m));
+    } catch (err) {
+      setBrigadaModal(null);
+      toast.show({ tone: "danger", title: "Не удалось загрузить бригады", description: err instanceof ApiError ? err.message : "Неизвестная ошибка" });
+    }
+  };
+
+  const pickBrigada = (id) => {
+    setBrigadaModal((m) => {
+      const b = m.brigady.find((x) => x.id === Number(id));
+      const choices = {};
+      (b?.sostav || []).forEach((s) => { choices[s.sotrudnik_id] = "с бригадой"; });
+      return { ...m, brigadaId: b ? b.id : null, choices, itemId: b?.mesta?.[0]?.item_id || "" };
+    });
+  };
+
+  const applyBrigada = () => {
+    const b = brigadaModal.brigady.find((x) => x.id === brigadaModal.brigadaId);
+    if (!b) return;
+    const mesto = b.mesta.find((m) => m.item_id === Number(brigadaModal.itemId));
+    b.sostav.forEach((s) => {
+      const choice = brigadaModal.choices[s.sotrudnik_id] || "с бригадой";
+      if (choice === "с бригадой") {
+        updateRow(s.sotrudnik_id, {
+          status: "работал",
+          targetType: mesto ? "delyanka" : null,
+          delyanka_item_id: mesto ? mesto.item_id : null,
+          delyankaLabel: mesto ? delyankaItemLabel(mesto) : null,
+          delyankaKvartal: mesto?.kvartal || "",
+          delyankaVydel: mesto?.vydel || "",
+          lesokultury_uchastok_id: null,
+          lesokulturyLabel: null,
+          vid_raboty_id: brigadaModal.vidId ? Number(brigadaModal.vidId) : "",
+        });
+      } else if (choice === "в другом месте") {
+        updateRow(s.sotrudnik_id, {
+          status: "работал",
+          targetType: null,
+          delyanka_item_id: null,
+          delyankaLabel: null,
+          lesokultury_uchastok_id: null,
+          lesokulturyLabel: null,
+          kommentariy: "работал не с бригадой — укажите место",
+        });
+      } else {
+        updateRow(s.sotrudnik_id, {
+          status: choice,
+          targetType: null,
+          delyanka_item_id: null,
+          delyankaLabel: null,
+          lesokultury_uchastok_id: null,
+          lesokulturyLabel: null,
+          vid_raboty_id: "",
+        });
+      }
+    });
+    setBrigadaModal(null);
+    toast.show({ tone: "success", title: `Заполнено по бригаде: ${b.sostav.length} чел.`, description: "Проверьте и нажмите «Сохранить табель»" });
   };
 
   // --- Новый вид работы на месте
@@ -254,6 +346,9 @@ export default function TabelRuchnoy() {
           <TextField label="Дата" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           <TextField label="Поиск сотрудника" placeholder="ФИО или должность…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="ml-auto flex items-center gap-3">
+            <Button variant="secondary" onClick={openBrigadaModal}>
+              Заполнить по бригаде
+            </Button>
             <span className="text-[12.5px] text-muted">Заполнено: {filledCount} из {rows?.length ?? 0}</span>
             <Button variant="primary" onClick={handleSave} loading={saving}>
               Сохранить табель
@@ -285,6 +380,11 @@ export default function TabelRuchnoy() {
                       <td className="sticky left-0 z-10 bg-surface px-3 py-2 border-b border-border group-hover:bg-hover align-top">
                         <div className="font-medium text-ink leading-4">{row.fio}</div>
                         <div className="text-muted-2 text-[11px]">{row.dolzhnost || "—"}</div>
+                        {row.brigada_nazvanie && (
+                          <div className="text-muted-2 text-[10.5px]">
+                            👥 {row.brigada_nazvanie}{row.is_brigadir ? " · бригадир" : ""}
+                          </div>
+                        )}
                         {row.mobile_status && (
                           <div className="text-[10.5px] text-pine mt-0.5" title="Уже отметился в мобильном приложении">
                             📱 {MOBILE_STATUS_LABEL[row.mobile_status] || row.mobile_status}
@@ -394,31 +494,36 @@ export default function TabelRuchnoy() {
 
             {locModal.targetType === "delyanka" ? (
               <>
-                <div className="flex items-end gap-2">
-                  <TextField
-                    label="Квартал"
-                    value={locModal.kvartal}
-                    onChange={(e) => setLocModal((m) => ({ ...m, kvartal: e.target.value }))}
-                    onBlur={handleLocLookupDelyanka}
-                  />
-                  <TextField
-                    label="Выдел"
-                    value={locModal.vydel}
-                    onChange={(e) => setLocModal((m) => ({ ...m, vydel: e.target.value }))}
-                    onBlur={handleLocLookupDelyanka}
-                  />
-                  <Button variant="secondary" onClick={handleLocLookupDelyanka} loading={locModal.lookingUp}>
-                    Найти
-                  </Button>
+                {locModal.delyanka?.label && <p className="text-pine text-sm">Выбрана: {locModal.delyanka.label}</p>}
+                <TextField
+                  placeholder="Поиск: 12/5, номер лесосеки, название делянки, лесничество"
+                  value={locModal.delyankaSearch}
+                  onChange={(e) => setLocModal((m) => ({ ...m, delyankaSearch: e.target.value }))}
+                />
+                <div className="max-h-56 overflow-y-auto border border-border rounded-md">
+                  {locModal.delyankaLoading ? (
+                    <div className="p-3 flex justify-center">
+                      <div className="h-4 w-4 rounded-full border-2 border-pine border-t-transparent animate-spin" />
+                    </div>
+                  ) : locModal.delyankaOptions.length === 0 ? (
+                    <div className="p-3 text-sm text-muted text-center">Ничего не найдено</div>
+                  ) : (
+                    locModal.delyankaOptions.map((i) => (
+                      <button
+                        type="button"
+                        key={i.item_id}
+                        onClick={() => setLocModal((m) => ({ ...m, delyanka: { ...i, label: delyankaItemLabel(i) } }))}
+                        className={[
+                          "w-full text-left px-3 py-2 border-b border-hover last:border-b-0 hover:bg-hover",
+                          locModal.delyanka?.item_id === i.item_id ? "bg-mint" : "",
+                        ].join(" ")}
+                      >
+                        <div className="text-sm text-ink">Кв. {i.kvartal || "—"} / Выд. {i.vydel || "—"}{i.lesoseka_nomer ? ` · лесосека ${i.lesoseka_nomer}` : ""}</div>
+                        <div className="text-xs text-muted">{[i.nazvanie, i.lesnichestvo, i.status].filter(Boolean).join(" · ") || "—"}</div>
+                      </button>
+                    ))
+                  )}
                 </div>
-                {locModal.delyankaLookup === "not_found" && (
-                  <p className="text-warning text-sm">Делянка с таким кварталом/выделом не найдена.</p>
-                )}
-                {locModal.delyankaLookup && locModal.delyankaLookup !== "not_found" && (
-                  <p className="text-pine text-sm">
-                    Найдена: {locModal.delyankaLookup.nazvanie || `делянка №${locModal.delyankaLookup.item_id}`}
-                  </p>
-                )}
               </>
             ) : (
               <>
@@ -460,6 +565,105 @@ export default function TabelRuchnoy() {
             )}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={!!brigadaModal}
+        onClose={() => setBrigadaModal(null)}
+        title="Заполнить по бригаде"
+        size="md"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setBrigadaModal(null)}>Отмена</Button>
+            <Button variant="primary" onClick={applyBrigada} disabled={!brigadaModal?.brigadaId}>Заполнить</Button>
+          </div>
+        }
+      >
+        {brigadaModal && (brigadaModal.loading ? (
+          <div className="p-3 flex justify-center">
+            <div className="h-4 w-4 rounded-full border-2 border-pine border-t-transparent animate-spin" />
+          </div>
+        ) : brigadaModal.brigady.length === 0 ? (
+          <p className="text-sm text-muted">Бригад нет — заведите их на экране «Распределение бригад».</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1 text-[12.5px] text-muted">
+              Бригадир / бригада
+              <select
+                value={brigadaModal.brigadaId || ""}
+                onChange={(e) => pickBrigada(e.target.value)}
+                className="bg-surface border border-border focus:border-pine rounded-[10px] px-2 h-9 text-[13px] text-ink outline-none"
+              >
+                <option value="">— выберите —</option>
+                {brigadaModal.brigady.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.brigadir_fio ? `${b.brigadir_fio} — ${b.nazvanie}` : b.nazvanie} ({b.sostav.length} чел.)
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(() => {
+              const b = brigadaModal.brigady.find((x) => x.id === brigadaModal.brigadaId);
+              if (!b) return null;
+              return (
+                <>
+                  <label className="flex flex-col gap-1 text-[12.5px] text-muted">
+                    Где работала бригада
+                    <select
+                      value={brigadaModal.itemId || ""}
+                      onChange={(e) => setBrigadaModal((m) => ({ ...m, itemId: e.target.value }))}
+                      className="bg-surface border border-border focus:border-pine rounded-[10px] px-2 h-9 text-[13px] text-ink outline-none"
+                    >
+                      <option value="">— не указывать (указать потом в строке) —</option>
+                      {b.mesta.map((m) => (
+                        <option key={m.item_id} value={m.item_id}>{delyankaItemLabel(m)}</option>
+                      ))}
+                    </select>
+                    {b.mesta.length === 0 && <span className="text-[11.5px]">У бригады нет назначения на эту дату — место можно указать в строках.</span>}
+                  </label>
+                  <label className="flex flex-col gap-1 text-[12.5px] text-muted">
+                    Вид работы
+                    <select
+                      value={brigadaModal.vidId || ""}
+                      onChange={(e) => setBrigadaModal((m) => ({ ...m, vidId: e.target.value }))}
+                      className="bg-surface border border-border focus:border-pine rounded-[10px] px-2 h-9 text-[13px] text-ink outline-none"
+                    >
+                      <option value="">— не указано —</option>
+                      {vidyRabot.map((v) => (
+                        <option key={v.id} value={v.id}>{v.nazvanie}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="text-[12.5px] text-muted">Состав на {date} — отметьте, кого не было:</div>
+                  <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
+                    {b.sostav.map((s) => (
+                      <div key={s.sotrudnik_id} className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] text-ink truncate">
+                            {s.fio}{s.sotrudnik_id === b.brigadir_sotrudnik_id ? " · бригадир" : ""}
+                          </div>
+                          <div className="text-[11px] text-muted-2 truncate">{s.dolzhnost || "—"}</div>
+                        </div>
+                        <select
+                          value={brigadaModal.choices[s.sotrudnik_id] || "с бригадой"}
+                          onChange={(e) =>
+                            setBrigadaModal((m) => ({ ...m, choices: { ...m.choices, [s.sotrudnik_id]: e.target.value } }))
+                          }
+                          className="bg-surface border border-border focus:border-pine rounded-[10px] px-2 h-8 text-[12.5px] text-ink outline-none"
+                        >
+                          {BRIGADA_CHOICES.map((c) => (
+                            <option key={c.value} value={c.value}>{c.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                    {b.sostav.length === 0 && <span className="text-[12.5px] text-muted">В бригаде на эту дату никого нет.</span>}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        ))}
       </Modal>
 
       <Modal

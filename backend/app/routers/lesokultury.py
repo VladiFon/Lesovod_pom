@@ -12,6 +12,8 @@ from app import legacy_bridge  # noqa: F401
 import db as legacy_db
 
 from app.auth import require_office_writer_or_master
+from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/lesokultury", tags=["lesokultury"])
@@ -22,7 +24,7 @@ def list_uchastki(
     include_spisannye: bool = False,
     god: Optional[str] = None,
     search: Optional[str] = None,
-    conn=Depends(get_conn),
+    conn=Depends(get_conn), _user=Depends(get_current_user),
 ):
     return legacy_db.get_lesokultury_uchastki(
         conn, include_spisannye=include_spisannye, god=god, search=search,
@@ -30,14 +32,14 @@ def list_uchastki(
 
 
 @router.get("/gody")
-def list_gody(conn=Depends(get_conn)):
+def list_gody(conn=Depends(get_conn), _user=Depends(get_current_user)):
     """Различные годы создания культур, встречающиеся в базе — для
     выпадающего фильтра «Год» на экране (вместо свободного текста)."""
     return legacy_db.get_lesokultury_gody(conn)
 
 
 @router.get("/uchastki/{uchastok_id}")
-def get_uchastok(uchastok_id: int, conn=Depends(get_conn)):
+def get_uchastok(uchastok_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
     u = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
     if u is None:
         raise HTTPException(404, "Участок не найден")
@@ -45,13 +47,13 @@ def get_uchastok(uchastok_id: int, conn=Depends(get_conn)):
 
 
 @router.post("/uchastki")
-def create_uchastok(fields: Dict[str, Any], conn=Depends(get_conn)):
+def create_uchastok(fields: Dict[str, Any], conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit"))):
     uchastok_id = legacy_db.create_lesokultury_uchastok(conn, **fields)
     return {"id": uchastok_id}
 
 
 @router.patch("/uchastki/{uchastok_id}")
-def update_uchastok(uchastok_id: int, fields: Dict[str, Any], conn=Depends(get_conn)):
+def update_uchastok(uchastok_id: int, fields: Dict[str, Any], conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit"))):
     u = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
     if u is None:
         raise HTTPException(404, "Участок не найден")
@@ -60,7 +62,7 @@ def update_uchastok(uchastok_id: int, fields: Dict[str, Any], conn=Depends(get_c
 
 
 @router.delete("/uchastki/{uchastok_id}")
-def delete_uchastok(uchastok_id: int, conn=Depends(get_conn)):
+def delete_uchastok(uchastok_id: int, conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit"))):
     u = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
     if u is None:
         raise HTTPException(404, "Участок не найден")
@@ -69,7 +71,7 @@ def delete_uchastok(uchastok_id: int, conn=Depends(get_conn)):
 
 
 @router.get("/uchastki/{uchastok_id}/meropriyatiya")
-def list_meropriyatiya(uchastok_id: int, conn=Depends(get_conn)):
+def list_meropriyatiya(uchastok_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
     return legacy_db.list_lesokultury_meropriyatiya(conn, uchastok_id)
 
 
@@ -82,7 +84,7 @@ def add_meropriyatie(
     kolichestvo_na_ga: Optional[float] = None,
     sostav_fakt: str = "",
     primechaniya: str = "",
-    conn=Depends(get_conn),
+    conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit")),
 ):
     meropriyatie_id = legacy_db.add_lesokultury_meropriyatie(
         conn, uchastok_id, tip, data,

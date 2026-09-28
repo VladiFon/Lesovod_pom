@@ -37,7 +37,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -178,7 +178,27 @@ def calculate_lesoseka(payload: RecalculateAreaRequest) -> dict:
 # --------------------------------------------------------------------------- #
 @router.get("/proby")
 def list_proby(user=Depends(get_current_user), conn=Depends(get_conn)) -> list[dict]:
+    # Рабочему — только его собственные пробы, а не пробы всех коллег.
+    if user.get("role") == "worker":
+        return legacy_db.list_uhody_proby(conn, sotrudnik_id=user["sotrudnik_id"])
     return legacy_db.list_uhody_proby(conn)
+
+
+@router.get("/proby/mine")
+def list_my_proby(
+    limit: int = Query(50, ge=1, le=200),
+    user=Depends(require_permission("uhody.submit")),
+    conn=Depends(get_conn),
+) -> list[dict]:
+    """«Мои пробы» для мобильного приложения — полные записи (с расчётом
+    в data), чтобы рабочий мог потом посмотреть, что отправил. Офисному
+    логину без sotrudnik_id — пустой список. Объявлен раньше
+    /proby/{proba_id}, иначе "mine" читался бы как id."""
+    sotrudnik_id = user.get("sotrudnik_id")
+    if sotrudnik_id is None:
+        return []
+    kratko = legacy_db.list_uhody_proby(conn, sotrudnik_id=sotrudnik_id)[:limit]
+    return [legacy_db.get_uhody_proba(conn, p["id"]) for p in kratko]
 
 
 @router.get("/proby/{proba_id}")
@@ -309,6 +329,7 @@ def create_proba(
     if user.get("role") == "worker":
         legacy_db.set_uhody_proba_author(conn, record["id"], user["sotrudnik_id"])
         record["sotrudnik_id"] = user["sotrudnik_id"]
+        record["avtor_fio"] = user.get("fio")
         # Уведомление руководителям — только для проб от рабочего (у пробы
         # офиса автор NULL, уведомлять некого: её завёл сам руководитель).
         webext.notify(

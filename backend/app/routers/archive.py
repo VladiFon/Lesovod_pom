@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse
 from app import legacy_bridge  # noqa: F401
 import db as legacy_db
 
+from app.auth import require_permission
 from app.database import get_conn
 from app.paths import UPLOADS_DIR
 
@@ -53,7 +54,7 @@ def add_document(
     doc_date: str = "",
     tags: str = "",
     file: UploadFile = File(...),
-    conn=Depends(get_conn),
+    conn=Depends(get_conn), _user=Depends(require_permission("documents.generate")),
 ):
     """title/doc_type/doc_date/tags вводятся лесничим вручную (см. докстринг
     screen_logic.py — Этап F desktop-версии убрал автозаполнение через
@@ -77,7 +78,7 @@ def download_document(document_id: int, conn=Depends(get_conn)):
 
 
 @router.delete("/documents/{document_id}")
-def delete_document(document_id: int, conn=Depends(get_conn)):
+def delete_document(document_id: int, conn=Depends(get_conn), _user=Depends(require_permission("documents.delete"))):
     rows = legacy_db.search_archive_documents(conn)
     doc = next((d for d in rows if d["id"] == document_id), None)
     if doc is None:

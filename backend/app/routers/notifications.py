@@ -30,6 +30,10 @@ def _reader(user: dict) -> tuple[str, int]:
     return "user", user["id"]
 
 
+# Без слеша тоже: мобильное приложение ходит на /api/…без "/" на конце, а
+# автоматический 307-редирект FastAPI за прокси уводил на http:// — Android
+# такой редирект блокирует и показывал «Нет соединения с интернетом».
+@router.get("", include_in_schema=False)
 @router.get("/")
 def list_notifications(
     unread_only: bool = False,

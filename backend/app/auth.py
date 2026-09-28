@@ -22,17 +22,8 @@ sessions на каждый запрос).
 /api/auth/* (app/routers/auth.py) уже требуют реальный логин/пароль и
 реальные права.
 
-Этап 4 доработки, Блок 3/часть 2 (авторизация телеграм-бота) добавила
-второй, отдельный от users/sessions способ пройти через
-get_current_user_optional: статический сервисный токен всего процесса
-бота (config.get_bot_service_token(), переменная окружения
-LESOVOD_BOT_SERVICE_TOKEN — см. deploy/.env.example). Бот — не человек за
-экраном логина, у него нет ни логина/пароля, ни строки в users, поэтому
-обычный логин/сессия ему не подходят (см. находку №3 аудита Блока 3);
-вместо этого он на каждый запрос кладёт один и тот же токен в тот же
-заголовок Authorization: Bearer, что и обычные пользователи, а этот
-модуль сам решает — это токен сессии человека или токен бота — не
-заставляя роутеры знать о разнице.
+Сервисный токен Telegram-бота (LESOVOD_BOT_SERVICE_TOKEN) удалён вместе
+с ботом 28.09.2026; остался только статический токен QGIS-моста ниже.
 """
 import hmac
 from typing import Optional
@@ -46,33 +37,8 @@ import webext
 from app.database import get_conn
 
 
-def _bot_user_from_token(token: str) -> Optional[dict]:
-    """Возвращает синтетический dict служебного пользователя-бота, если
-    token совпадает с config.get_bot_service_token(), иначе None.
-
-    hmac.compare_digest — сравнение за постоянное время (не даёт узнать
-    правильный токен по времени ответа, посимвольным перебором), тот же
-    подход, что verify_password() в webext.py использует для паролей.
-    Явная проверка на пустой service_token — если переменная окружения не
-    задана, сравнивать вообще не с чем: hmac.compare_digest("", "") дал бы
-    True, а значит запрос БЕЗ Authorization не должен доходить сюда как
-    "" == "" (см. вызывающий код — сюда попадает только непустой token)."""
-    service_token = config.get_bot_service_token()
-    if not service_token or not token:
-        return None
-    if not hmac.compare_digest(token, service_token):
-        return None
-    return {
-        "id": None,
-        "login": "telegram_bot",
-        "fio": "Telegram-бот (служебная учётная запись)",
-        "role": webext.BOT_ROLE,
-        "is_active": 1,
-    }
-
-
 def _map_import_user_from_token(token: str) -> Optional[dict]:
-    """То же самое, что _bot_user_from_token() выше, только для QGIS-моста
+    """Служебный пользователь для QGIS-моста
     ("Лесовод-мост") — отдельный статический токен
     (config.get_map_import_service_token()), отдельная синтетическая роль
     "map_import" (см. webext.PERMISSIONS["map.import"]). Заведена
@@ -101,18 +67,14 @@ def get_current_user_optional(
     """Возвращает dict пользователя, если передан валидный Bearer-токен,
     иначе None (не кидает 401) — для эндпоинтов, где авторизация опциональна
     (например, чтобы response включал "кто сейчас смотрит", не требуя
-    логина). Сначала пробует токен бота (сравнение со строкой из
-    переменной окружения, без похода в БД); если не совпал — токен
-    QGIS-моста тем же способом; если и он не совпал — обычная проверка
+    логина). Сначала пробует токен QGIS-моста (сравнение со строкой из
+    переменной окружения, без похода в БД); если не совпал — обычная проверка
     через таблицу sessions, как и раньше."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
     token = authorization[len("Bearer "):].strip()
     if not token:
         return None
-    bot_user = _bot_user_from_token(token)
-    if bot_user is not None:
-        return bot_user
     map_import_user = _map_import_user_from_token(token)
     if map_import_user is not None:
         return map_import_user
