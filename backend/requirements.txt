@@ -3,6 +3,9 @@ uvicorn[standard]>=0.29,<1.0
 python-multipart>=0.0.9
 pydantic>=2.0,<3.0
 openpyxl>=3.1
+# .xls (старый формат Excel) — загрузка «Книги производства л/к» в
+# «Лесные культуры» (app/lesokultury_kniga.py); .xlsx читает openpyxl.
+xlrd>=2.0
 python-docx>=1.1
 
 # Нужен явно для legacy/key_test.py (проверка ключей/токенов в

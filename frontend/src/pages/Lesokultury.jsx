@@ -30,6 +30,7 @@ const MEROPRIYATIE_TYPES = [
   "Химический уход",
   "Дополнение",
   "Перевод в покрытые лесом земли",
+  "Доращивание",
   "Списание",
 ];
 
@@ -46,10 +47,48 @@ const STATUS_TRIGGER_TYPES = {
 };
 
 const UCHASTOK_FIELDS = [
-  "lesnichestvo", "kvartal", "vydel", "ploshad", "kategoriya_ploshadi",
-  "tlu", "god_sozdaniya", "metod_sozdaniya", "glavnaya_poroda",
-  "sostav_formula", "gustota_posadki", "normativ_perevoda", "primechaniya",
+  "lesnichestvo", "kvartal", "vydel", "vydel_staryy", "podvydel", "ploshad", "kategoriya_ploshadi",
+  "tlu", "god_sozdaniya", "metod_sozdaniya", "sposob_obrabotki", "glavnaya_poroda",
+  "sostav_formula", "shema_mezhdu_ryadami", "shema_v_ryadu", "gustota_posadki",
+  "posadochnyy_material", "normativ_perevoda", "naznachenie_plantatsii", "primechaniya",
 ];
+
+const NUMERIC_FIELDS = new Set([
+  "ploshad", "gustota_posadki", "normativ_perevoda", "shema_mezhdu_ryadami", "shema_v_ryadu",
+]);
+
+// Значения — как в графах ведомостей текущих изменений (прил. 7 к приказу №130).
+const METOD_SOZDANIYA = [
+  "посадка",
+  "посадка механизированная",
+  "посадка ручная",
+  "посев механизированный",
+  "посев ручной",
+  "аэросев",
+  "созданы ЗКС",
+  "селекционным материалом",
+];
+
+const SPOSOB_OBRABOTKI = ["сплошная", "полосами", "бороздами", "площадками", "без обработки"];
+
+const SELECT_CLASS =
+  "w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors";
+
+/** Выпадающий список, который не теряет значение не из списка (старые записи). */
+function SelectField({ label, value, onChange, options }) {
+  const all = value && !options.includes(value) ? [value, ...options] : options;
+  return (
+    <div>
+      <label className="block text-[11.5px] font-semibold text-muted mb-1">{label}</label>
+      <select value={value} onChange={onChange} className={SELECT_CLASS}>
+        <option value="">—</option>
+        {all.map((o) => (
+          <option key={o} value={o}>{o}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 function emptyUchastokForm() {
   return Object.fromEntries(UCHASTOK_FIELDS.map((k) => [k, ""]));
@@ -61,11 +100,10 @@ function fieldsFromUchastok(u) {
 
 /** Числовые поля отправляем как числа (или null, если пусто) — остальные как строки. */
 function payloadFromForm(form) {
-  const numeric = new Set(["ploshad", "gustota_posadki", "normativ_perevoda"]);
   const out = {};
   for (const k of UCHASTOK_FIELDS) {
     const v = form[k];
-    if (numeric.has(k)) {
+    if (NUMERIC_FIELDS.has(k)) {
       out[k] = v === "" ? null : Number(v);
     } else {
       out[k] = v;
@@ -76,12 +114,19 @@ function payloadFromForm(form) {
 
 function UchastokFormFields({ form, setForm }) {
   const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const a = Number(form.shema_mezhdu_ryadami);
+  const b = Number(form.shema_v_ryadu);
+  const gustotaPoShema = a > 0 && b > 0 ? Math.round(10000 / (a * b)) : null;
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Лесничество" value={form.lesnichestvo} onChange={setField("lesnichestvo")} />
         <TextField label="Квартал" value={form.kvartal} onChange={setField("kvartal")} />
-        <TextField label="Выдел" value={form.vydel} onChange={setField("vydel")} />
+        <TextField label="Выдел (по действующей таксации)" value={form.vydel} onChange={setField("vydel")} />
+      </div>
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+        <TextField label="Старый выдел (до таксации)" value={form.vydel_staryy} onChange={setField("vydel_staryy")} />
+        <TextField label="Подвыдел" placeholder="например, 15.1" value={form.podvydel} onChange={setField("podvydel")} />
       </div>
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Площадь, га" type="number" step="0.01" value={form.ploshad} onChange={setField("ploshad")} />
@@ -90,15 +135,29 @@ function UchastokFormFields({ form, setForm }) {
       </div>
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Год создания" value={form.god_sozdaniya} onChange={setField("god_sozdaniya")} />
-        <TextField label="Метод создания" value={form.metod_sozdaniya} onChange={setField("metod_sozdaniya")} />
+        <SelectField label="Метод создания" value={form.metod_sozdaniya} onChange={setField("metod_sozdaniya")} options={METOD_SOZDANIYA} />
+        <SelectField label="Способ обработки почвы" value={form.sposob_obrabotki} onChange={setField("sposob_obrabotki")} options={SPOSOB_OBRABOTKI} />
       </div>
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Главная порода" value={form.glavnaya_poroda} onChange={setField("glavnaya_poroda")} />
         <TextField label="Формула состава" value={form.sostav_formula} onChange={setField("sostav_formula")} />
       </div>
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
-        <TextField label="Густота посадки, шт/га" type="number" step="1" value={form.gustota_posadki} onChange={setField("gustota_posadki")} />
+        <TextField label="Схема: между рядами, м" type="number" step="0.1" value={form.shema_mezhdu_ryadami} onChange={setField("shema_mezhdu_ryadami")} />
+        <TextField label="Схема: в ряду, м" type="number" step="0.1" value={form.shema_v_ryadu} onChange={setField("shema_v_ryadu")} />
+        <TextField
+          label="Густота посадки, шт/га"
+          type="number"
+          step="1"
+          value={form.gustota_posadki}
+          onChange={setField("gustota_posadki")}
+          hint={gustotaPoShema ? `По схеме: ${gustotaPoShema}` : undefined}
+        />
+      </div>
+      <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+        <TextField label="Посадочный материал" placeholder="например, Е сн ЗКС, Б сн" value={form.posadochnyy_material} onChange={setField("posadochnyy_material")} />
         <TextField label="Норматив перевода, шт/га" type="number" step="1" value={form.normativ_perevoda} onChange={setField("normativ_perevoda")} />
+        <TextField label="Назначение плантации" placeholder="только для плантаций" value={form.naznachenie_plantatsii} onChange={setField("naznachenie_plantatsii")} />
       </div>
       <TextAreaField label="Примечания" rows={2} value={form.primechaniya} onChange={setField("primechaniya")} />
     </div>
@@ -149,6 +208,55 @@ function CreateUchastokModal({ open, onClose, onCreated }) {
   );
 }
 
+// Доп. поля мероприятий для ведомостей текущих изменений (приказ №130):
+// «Перевод» — графы прил. 4, «Списание» — прил. 14. Уходят в dannye.
+const EXTRA_FIELDS = {
+  "Перевод в покрытые лесом земли": {
+    group: "taksatsiya",
+    title: "Таксация при переводе",
+    fields: [
+      { key: "nomer_kartochki", label: "№ полевой карточки" },
+      { key: "ploshad", label: "Площадь перевода, га", numeric: true },
+      { key: "podvydel", label: "Подвыдел" },
+      { key: "sostav", label: "Состав" },
+      { key: "vozrast", label: "Возраст, лет", numeric: true },
+      { key: "vysota", label: "Высота, м", numeric: true },
+      { key: "diametr", label: "Диаметр, см", numeric: true },
+      { key: "polnota", label: "Полнота", numeric: true },
+    ],
+  },
+  "Доращивание": {
+    title: "Доращивание",
+    fields: [{ key: "do_goda", label: "До какого года", numeric: true }],
+  },
+  "Списание": {
+    title: "Списание",
+    fields: [
+      { key: "prichina", label: "Причина списания" },
+      { key: "akt_nomer", label: "№ акта" },
+      { key: "akt_data", label: "Дата акта", placeholder: "ДД.ММ.ГГГГ" },
+      { key: "vid_zemel", label: "Вид земель после списания" },
+    ],
+  },
+};
+
+const EXTRA_LABELS = Object.fromEntries(
+  Object.values(EXTRA_FIELDS).flatMap((g) => g.fields.map((f) => [f.key, f.label]))
+);
+
+function dannyeFromExtra(tip, extra) {
+  const spec = EXTRA_FIELDS[tip];
+  if (!spec) return undefined;
+  const values = {};
+  for (const f of spec.fields) {
+    const v = (extra[f.key] ?? "").toString().trim();
+    if (v === "") continue;
+    values[f.key] = f.numeric ? Number(v.replace(",", ".")) : v;
+  }
+  if (Object.keys(values).length === 0) return undefined;
+  return spec.group ? { [spec.group]: values } : values;
+}
+
 function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
   const toast = useToast();
   const [tip, setTip] = useState(MEROPRIYATIE_TYPES[0]);
@@ -157,9 +265,11 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
   const [kolichestvo, setKolichestvo] = useState("");
   const [sostavFakt, setSostavFakt] = useState("");
   const [primechaniya, setPrimechaniya] = useState("");
+  const [extra, setExtra] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
   const isInventory = INVENTORY_TYPES.has(tip);
+  const extraSpec = EXTRA_FIELDS[tip];
 
   const handleAdd = async () => {
     if (!data.trim()) {
@@ -168,7 +278,8 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
     }
     setSubmitting(true);
     try {
-      await api.post(`/lesokultury/uchastki/${uchastokId}/meropriyatiya`, undefined, {
+      const dannye = dannyeFromExtra(tip, extra);
+      await api.post(`/lesokultury/uchastki/${uchastokId}/meropriyatiya`, dannye ? { dannye } : undefined, {
         tip,
         data: data.trim(),
         prizhivaemost_pct: isInventory && prizhivaemost !== "" ? Number(prizhivaemost) : undefined,
@@ -187,6 +298,7 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
       setKolichestvo("");
       setSostavFakt("");
       setPrimechaniya("");
+      setExtra({});
       onAdded();
       if (STATUS_TRIGGER_TYPES[tip]) onStatusChanged();
     } catch (e) {
@@ -204,7 +316,7 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
           <select
             value={tip}
             onChange={(e) => setTip(e.target.value)}
-            className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors"
+            className={SELECT_CLASS}
           >
             {MEROPRIYATIE_TYPES.map((t) => (
               <option key={t} value={t}>{t}</option>
@@ -235,6 +347,23 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
           disabled={!isInventory}
         />
       </div>
+      {extraSpec && (
+        <div>
+          <div className="text-[11.5px] font-semibold text-pine mb-1.5">{extraSpec.title}</div>
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+            {extraSpec.fields.map((f) => (
+              <TextField
+                key={f.key}
+                label={f.label}
+                placeholder={f.placeholder}
+                inputMode={f.numeric ? "decimal" : undefined}
+                value={extra[f.key] ?? ""}
+                onChange={(e) => setExtra((x) => ({ ...x, [f.key]: e.target.value }))}
+              />
+            ))}
+          </div>
+        </div>
+      )}
       <TextAreaField label="Примечания" rows={2} value={primechaniya} onChange={(e) => setPrimechaniya(e.target.value)} />
       <div>
         <Button variant="secondary" size="sm" onClick={handleAdd} loading={submitting}>Добавить запись</Button>
@@ -410,9 +539,34 @@ function UchastokDetail({ uchastokId, onListChanged }) {
 // Полевая карточка с телефона (инвентаризация/перевод): таблица проб и
 // результаты по породам лежат в dannye — раньше на вебе видна была только
 // текстовая сводка в «Примечаниях».
+function DannyeValues({ values }) {
+  const entries = Object.entries(values || {}).filter(([, v]) => v !== null && v !== undefined && v !== "");
+  if (entries.length === 0) return null;
+  return (
+    <div className="text-xs text-ink mt-0.5">
+      {entries.map(([k, v]) => `${EXTRA_LABELS[k] || k}: ${v}`).join(" · ")}
+    </div>
+  );
+}
+
 function FieldCardDetails({ dannye }) {
   const proby = dannye.proby || [];
   const rezultaty = dannye.rezultaty || [];
+  const { taksatsiya, do_goda, prichina, akt_nomer, akt_data, vid_zemel } = dannye;
+  const spisanie = { prichina, akt_nomer, akt_data, vid_zemel };
+  const hasCard = proby.length > 0 || rezultaty.length > 0 || dannye.reshenie;
+  return (
+    <>
+      {taksatsiya && <DannyeValues values={taksatsiya} />}
+      {do_goda && <DannyeValues values={{ do_goda }} />}
+      <DannyeValues values={spisanie} />
+      {dannye.istochnik && <div className="text-xs text-muted mt-0.5">{dannye.istochnik}</div>}
+      {hasCard && <FieldCardProby dannye={dannye} proby={proby} rezultaty={rezultaty} />}
+    </>
+  );
+}
+
+function FieldCardProby({ dannye, proby, rezultaty }) {
   return (
     <details className="mt-1">
       <summary className="text-xs text-pine cursor-pointer">Пробы и результаты с телефона</summary>
@@ -453,6 +607,257 @@ function FieldCardDetails({ dannye }) {
   );
 }
 
+// --------------------------------------------------------------------------- //
+//   Разовая загрузка «Книги производства л/к» (.xls, по листу на год).
+//   Сначала предпросмотр (в базу не пишет), потом «Загрузить». Повторная
+//   загрузка той же книги дублей не создаёт — см. app/lesokultury_kniga.py.
+// --------------------------------------------------------------------------- //
+const KNIGA_FILTERS = [
+  { key: "all", label: "Все", test: () => true },
+  { key: "new", label: "Новые", test: (r) => r.deystvie === "новый" },
+  { key: "est", label: "Уже в базе", test: (r) => r.deystvie !== "новый" },
+  { key: "problem", label: "С замечаниями", test: (r) => r.problemy.length > 0 },
+];
+
+function itogKnigi(r) {
+  if (r.status === "переведён") return `перевод ${r.perevod_god || ""}${r.perevod_kartochka ? `, карт. №${r.perevod_kartochka}` : ""}`;
+  if (r.status === "списан") return `списание${r.spisat ? ` ${r.spisat}` : ""}`;
+  if (r.dorashchivanie) return `доращивание ${r.dorashchivanie}`;
+  return "растёт";
+}
+
+function KnigaImportModal({ open, onClose, onDone }) {
+  const toast = useToast();
+  const [file, setFile] = useState(null);
+  const [lesnichestvo, setLesnichestvo] = useState("");
+  const [godFrom, setGodFrom] = useState("2017");
+  const [godTo, setGodTo] = useState(String(new Date().getFullYear()));
+  const [preview, setPreview] = useState(null);
+  const [overrides, setOverrides] = useState({});
+  const [skip, setSkip] = useState(() => new Set());
+  const [filter, setFilter] = useState("all");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const reset = () => {
+    setFile(null);
+    setLesnichestvo("");
+    setPreview(null);
+    setOverrides({});
+    setSkip(new Set());
+    setFilter("all");
+    setResult(null);
+  };
+
+  const handleClose = () => {
+    if (busy) return;
+    if (result) onDone();
+    reset();
+    onClose();
+  };
+
+  const formData = (withSkip) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("lesnichestvo", lesnichestvo.trim());
+    fd.append("god_from", godFrom || "2017");
+    fd.append("god_to", godTo || "2100");
+    const ov = Object.fromEntries(Object.entries(overrides).filter(([, v]) => v.trim()));
+    if (Object.keys(ov).length) fd.append("overrides", JSON.stringify(ov));
+    if (withSkip && skip.size) fd.append("skip", JSON.stringify([...skip]));
+    return fd;
+  };
+
+  const handlePreview = async () => {
+    if (!file) {
+      toast.show({ tone: "warning", title: "Выберите файл книги" });
+      return;
+    }
+    if (!lesnichestvo.trim()) {
+      toast.show({ tone: "warning", title: "Укажите лесничество" });
+      return;
+    }
+    setBusy(true);
+    try {
+      setPreview(await api.upload("/lesokultury/import-kniga/preview", formData(false)));
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось прочитать книгу", description: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleApply = async () => {
+    const count = preview.rows.length - skip.size;
+    if (!window.confirm(`Загрузить в базу ${count} участков из книги?`)) return;
+    setBusy(true);
+    try {
+      setResult(await api.upload("/lesokultury/import-kniga/apply", formData(true)));
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось загрузить", description: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleSkip = (key) =>
+    setSkip((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const onFile = (e) => {
+    const f = e.target.files?.[0] || null;
+    setFile(f);
+    setPreview(null);
+    if (f && !lesnichestvo.trim()) setLesnichestvo(f.name.replace(/\.[^.]+$/, ""));
+  };
+
+  const summary = preview?.summary;
+  const rows = preview ? preview.rows.filter(KNIGA_FILTERS.find((f) => f.key === filter).test) : [];
+  const overridesChanged = preview && Object.values(overrides).some((v) => v.trim());
+
+  let footer;
+  if (result) {
+    footer = <Button variant="primary" onClick={handleClose}>Готово</Button>;
+  } else if (preview) {
+    footer = (
+      <>
+        <Button variant="ghost" onClick={handleClose} disabled={busy}>Отмена</Button>
+        <Button variant="secondary" onClick={handlePreview} loading={busy && !result} disabled={!overridesChanged}>
+          Проверить с исправлениями
+        </Button>
+        <Button variant="primary" onClick={handleApply} loading={busy}>
+          Загрузить {preview.rows.length - skip.size} уч.
+        </Button>
+      </>
+    );
+  } else {
+    footer = (
+      <>
+        <Button variant="ghost" onClick={handleClose} disabled={busy}>Отмена</Button>
+        <Button variant="primary" onClick={handlePreview} loading={busy}>Проверить книгу</Button>
+      </>
+    );
+  }
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Загрузка книги производства лесных культур" size="xl" footer={footer}>
+      {result ? (
+        <div className="flex flex-col gap-2 text-sm">
+          <p>Создано участков: <b>{result.sozdano}</b></p>
+          <p>Дополнено существующих: <b>{result.obnovleno}</b> (заполнены только пустые поля)</p>
+          <p>Записей в журнал мероприятий: <b>{result.zapisey_v_zhurnal}</b></p>
+          {result.propushcheno > 0 && <p>Пропущено по вашему выбору: <b>{result.propushcheno}</b></p>}
+          <p className="text-muted">Повторная загрузка этой же книги дублей не создаст.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(170px,1fr))] items-end">
+            <div className="col-span-2">
+              <label className="block text-[11.5px] font-semibold text-muted mb-1">Файл книги (.xls, .xlsx)</label>
+              <input type="file" accept=".xls,.xlsx" onChange={onFile} className="text-sm" />
+            </div>
+            <TextField label="Лесничество" value={lesnichestvo} onChange={(e) => { setLesnichestvo(e.target.value); setPreview(null); }} />
+            <TextField label="С года" type="number" value={godFrom} onChange={(e) => { setGodFrom(e.target.value); setPreview(null); }} />
+            <TextField label="По год" type="number" value={godTo} onChange={(e) => { setGodTo(e.target.value); setPreview(null); }} />
+          </div>
+
+          {!preview && (
+            <p className="text-sm text-muted">
+              Сначала книга только проверяется: в базу ничего не пишется. Участки, которые уже есть в базе,
+              находятся по кварталу, выделу (новому по таксации или старому) и году посадки; у них будут
+              дописаны только пустые поля.
+            </p>
+          )}
+
+          {summary && (
+            <>
+              <div className="text-sm flex flex-col gap-1">
+                <div>
+                  В книге <b>{summary.vsego}</b> уч. ({summary.ploshad} га): новых <b>{summary.novyh}</b>, уже в базе{" "}
+                  <b>{summary.est_v_baze}</b>, с замечаниями <b>{summary.s_problemami}</b>.
+                </div>
+                <div className="text-muted">
+                  По книге переведено за все годы: {summary.perevod.uchastkov} уч. / {summary.perevod.ploshad} га;
+                  списано: {summary.spisanie.uchastkov} / {summary.spisanie.ploshad} га;
+                  на доращивании: {summary.dorashchivanie.uchastkov} / {summary.dorashchivanie.ploshad} га.
+                </div>
+                {!summary.taksatsiya_proverena && (
+                  <div className="text-oak">
+                    Таксация этого лесничества в программе не найдена, поэтому выделы не сверены с ней.
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {KNIGA_FILTERS.map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilter(f.key)}
+                    className={[
+                      "px-3 py-1 rounded-full text-xs border",
+                      filter === f.key ? "bg-mint text-pine border-pine font-bold" : "border-border text-muted hover:bg-hover",
+                    ].join(" ")}
+                  >
+                    {f.label} ({preview.rows.filter(f.test).length})
+                  </button>
+                ))}
+              </div>
+
+              <div className="max-h-[50vh] overflow-auto border border-border rounded-md">
+                <table className="w-full text-xs border-collapse">
+                  <thead className="sticky top-0 bg-surface-alt text-muted text-left">
+                    <tr>
+                      <th className="p-1.5 font-semibold" title="Загружать">✓</th>
+                      <th className="p-1.5 font-semibold">Лист / стр.</th>
+                      <th className="p-1.5 font-semibold">Кв.</th>
+                      <th className="p-1.5 font-semibold">Выдел</th>
+                      <th className="p-1.5 font-semibold">Старый выд.</th>
+                      <th className="p-1.5 font-semibold">Га</th>
+                      <th className="p-1.5 font-semibold">Состав</th>
+                      <th className="p-1.5 font-semibold">Итог по книге</th>
+                      <th className="p-1.5 font-semibold">В базе</th>
+                      <th className="p-1.5 font-semibold">Замечания</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.key} className={["border-t border-border", skip.has(r.key) ? "opacity-50" : ""].join(" ")}>
+                        <td className="p-1.5">
+                          <input type="checkbox" checked={!skip.has(r.key)} onChange={() => toggleSkip(r.key)} className="accent-pine" />
+                        </td>
+                        <td className="p-1.5 whitespace-nowrap">{r.list} / {r.stroka}</td>
+                        <td className="p-1.5">{r.kvartal}</td>
+                        <td className="p-1.5">
+                          <input
+                            value={overrides[r.key] ?? r.vydel ?? ""}
+                            onChange={(e) => setOverrides((o) => ({ ...o, [r.key]: e.target.value }))}
+                            className="w-24 bg-surface border border-border focus:border-pine rounded px-1.5 h-7 outline-none"
+                            title="Можно исправить выдел; затем «Проверить с исправлениями»"
+                          />
+                        </td>
+                        <td className="p-1.5">{r.vydel_staryy || "—"}</td>
+                        <td className="p-1.5">{r.ploshad}</td>
+                        <td className="p-1.5">{r.sostav || "—"}</td>
+                        <td className="p-1.5 whitespace-nowrap">{itogKnigi(r)}</td>
+                        <td className="p-1.5">{r.deystvie === "новый" ? "новый" : r.kak_nayden}</td>
+                        <td className="p-1.5 text-oak">{r.problemy.join("; ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export default function Lesokultury() {
   const toast = useToast();
   const [uchastki, setUchastki] = useState([]);
@@ -460,6 +865,7 @@ export default function Lesokultury() {
   const [includeSpisannye, setIncludeSpisannye] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [gody, setGody] = useState([]);
   const [god, setGod] = useState("");
   const [search, setSearch] = useState("");
@@ -500,6 +906,7 @@ export default function Lesokultury() {
       <Card padding={false} className="flex flex-col" style={{ flex: "1 1 260px", maxWidth: 380 }}>
         <div className="p-5 pb-3 flex flex-col gap-3 border-b border-border">
           <Button variant="primary" onClick={() => setCreateOpen(true)}>Новый участок</Button>
+          <Button variant="secondary" onClick={() => setImportOpen(true)}>Загрузить книгу л/к</Button>
           <TextField
             placeholder="Поиск: квартал, выдел, лесничество, порода, делянка"
             value={search}
@@ -576,6 +983,14 @@ export default function Lesokultury() {
         )}
       </div>
 
+      <KnigaImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onDone={() => {
+          loadList();
+          api.get("/lesokultury/gody").then((rows) => setGody(rows || [])).catch(() => {});
+        }}
+      />
       <CreateUchastokModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={(id) => { loadList(); setSelectedId(id); }} />
     </div>
   );

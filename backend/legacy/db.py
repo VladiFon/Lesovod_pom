@@ -15,6 +15,19 @@ import json
 import re
 from datetime import datetime
 from taksatsia_parser import extract_lines, parse, to_rows, Record
+# Доп. колонки lesokultury_uchastok (добавляются миграцией в init_db, см.
+# комментарий там): (имя, тип SQLite).
+LESOKULTURY_EXTRA_COLUMNS = [
+    ("vydel_staryy", "TEXT"),
+    ("podvydel", "TEXT"),
+    ("sposob_obrabotki", "TEXT"),
+    ("shema_mezhdu_ryadami", "REAL"),
+    ("shema_v_ryadu", "REAL"),
+    ("posadochnyy_material", "TEXT"),
+    ("naznachenie_plantatsii", "TEXT"),
+    ("istochnik", "TEXT"),
+]
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lesnichestvo (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1027,6 +1040,17 @@ def migrate_schema(conn):
             conn.execute(
                 "ALTER TABLE lesokultury_meropriyatiya ADD COLUMN sotrudnik_id INTEGER REFERENCES sotrudniki(id)"
             )
+    # Поля участка культур под текущие изменения (приказ Минлесхоза №130,
+    # прил. 7) и загрузку «Книги производства л/к»: старый номер выдела (до
+    # новой таксации), подвыдел, способ обработки почвы, схема посадки,
+    # посадочный материал, назначение плантации (прил. 8) и istochnik —
+    # откуда участок загружен ("книга л/к: 2017/стр.8"), чтобы повторная
+    # загрузка той же книги не создавала дублей.
+    existing_lku_cols = {row[1] for row in conn.execute("PRAGMA table_info(lesokultury_uchastok)").fetchall()}
+    if existing_lku_cols:
+        for col, sql_type in LESOKULTURY_EXTRA_COLUMNS:
+            if col not in existing_lku_cols:
+                conn.execute(f"ALTER TABLE lesokultury_uchastok ADD COLUMN {col} {sql_type}")
     # sluzhebnye_zametki и breakdown_reports создаются выше через
     # executescript(SCHEMA) (CREATE TABLE IF NOT EXISTS), но подстрахуемся
     # явной проверкой на случай баз, созданных до этого добавления.
@@ -2772,20 +2796,28 @@ def list_osvidetelstvovanie_acts_batch(conn, delyanka_ids):
 # --------------------------------------------------------------------------- #
 #   ЭКРАН "ЛЕСНЫЕ КУЛЬТУРЫ"
 # --------------------------------------------------------------------------- #
+LESOKULTURY_BASE_FIELDS = [
+    "lesnichestvo", "kvartal", "vydel", "delyanka_id", "ploshad",
+    "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
+    "glavnaya_poroda", "sostav_formula", "gustota_posadki",
+    "normativ_perevoda", "primechaniya",
+]
+LESOKULTURY_EXTRA_FIELDS = [col for col, _ in LESOKULTURY_EXTRA_COLUMNS]
+LESOKULTURY_FIELDS = LESOKULTURY_BASE_FIELDS + LESOKULTURY_EXTRA_FIELDS
+_LK_EXTRA_SELECT = ", ".join(f"lk.{col}" for col in LESOKULTURY_EXTRA_FIELDS)
+
+
 def create_lesokultury_uchastok(conn, **fields):
     """Создаёт участок лесных культур (заводится вручную лесничим, как и
     делянка — НЕ выводится из таксации, см. комментарий у CREATE TABLE
     lesokultury_uchastok в SCHEMA). Принимает именованные поля:
     lesnichestvo, kvartal, vydel, delyanka_id, ploshad, kategoriya_ploshadi,
     tlu, god_sozdaniya, metod_sozdaniya, glavnaya_poroda, sostav_formula,
-    gustota_posadki, normativ_perevoda, primechaniya — все необязательны
-    (кроме того, что решит вызывающий код на экране)."""
-    columns = [
-        "lesnichestvo", "kvartal", "vydel", "delyanka_id", "ploshad",
-        "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
-        "glavnaya_poroda", "sostav_formula", "gustota_posadki",
-        "normativ_perevoda", "primechaniya",
-    ]
+    gustota_posadki, normativ_perevoda, primechaniya, а также поля
+    LESOKULTURY_EXTRA_FIELDS (старый выдел, подвыдел, обработка почвы,
+    схема посадки, посадочный материал, назначение плантации, источник) —
+    все необязательны (кроме того, что решит вызывающий код на экране)."""
+    columns = LESOKULTURY_FIELDS
     values = [fields.get(col) for col in columns]
     placeholders = ", ".join("?" for _ in columns)
     cur = conn.execute(
@@ -2799,12 +2831,7 @@ def create_lesokultury_uchastok(conn, **fields):
 def update_lesokultury_uchastok(conn, uchastok_id, **fields):
     """Обновляет поля участка культур (те же поля, что и в
     create_lesokultury_uchastok, плюс status) — только переданные."""
-    allowed = {
-        "lesnichestvo", "kvartal", "vydel", "delyanka_id", "ploshad",
-        "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
-        "glavnaya_poroda", "sostav_formula", "gustota_posadki",
-        "normativ_perevoda", "status", "primechaniya",
-    }
+    allowed = set(LESOKULTURY_FIELDS) | {"status"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return
@@ -2851,6 +2878,7 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
             f"d.nazvanie, lk.ploshad, lk.kategoriya_ploshadi, lk.tlu, lk.god_sozdaniya, "
             f"lk.metod_sozdaniya, lk.glavnaya_poroda, lk.sostav_formula, lk.gustota_posadki, "
             f"lk.normativ_perevoda, lk.status, lk.primechaniya, lk.created_at, "
+            f"{_LK_EXTRA_SELECT}, "
             f"(SELECT tip FROM lesokultury_meropriyatiya m WHERE m.uchastok_id = lk.id "
             f" AND (m.tip LIKE '%уход%' OR m.tip LIKE '%Уход%' OR m.proba_id IS NOT NULL) "
             f" ORDER BY m.id DESC LIMIT 1) AS last_uhod_tip, "
@@ -2869,6 +2897,7 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
         "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
         "glavnaya_poroda", "sostav_formula", "gustota_posadki",
         "normativ_perevoda", "status", "primechaniya", "created_at",
+        *LESOKULTURY_EXTRA_FIELDS,
         "last_uhod_tip", "last_uhod_data",
     ]
     result = [dict(zip(columns, row)) for row in rows]
@@ -2903,7 +2932,7 @@ def get_lesokultury_uchastok(conn, uchastok_id):
         "SELECT lk.id, lk.lesnichestvo, lk.kvartal, lk.vydel, lk.delyanka_id, d.nazvanie, "
         "lk.ploshad, lk.kategoriya_ploshadi, lk.tlu, lk.god_sozdaniya, lk.metod_sozdaniya, "
         "lk.glavnaya_poroda, lk.sostav_formula, lk.gustota_posadki, lk.normativ_perevoda, "
-        "lk.status, lk.primechaniya, lk.created_at "
+        f"lk.status, lk.primechaniya, lk.created_at, {_LK_EXTRA_SELECT} "
         "FROM lesokultury_uchastok lk LEFT JOIN delyanka d ON d.id = lk.delyanka_id "
         "WHERE lk.id = ?",
         (uchastok_id,),
@@ -2915,6 +2944,7 @@ def get_lesokultury_uchastok(conn, uchastok_id):
         "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
         "glavnaya_poroda", "sostav_formula", "gustota_posadki",
         "normativ_perevoda", "status", "primechaniya", "created_at",
+        *LESOKULTURY_EXTRA_FIELDS,
     ]
     return dict(zip(columns, row))
 

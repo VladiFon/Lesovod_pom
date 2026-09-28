@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 """Роутер "Лесные культуры" (screens/lesokultury/) — оборачивает
 db.*_lesokultury_* без изменения их внутренней логики."""
+import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app import legacy_bridge  # noqa: F401
+from app import lesokultury_kniga
 import db as legacy_db
 
 from app.auth import require_office_writer_or_master
@@ -84,14 +86,72 @@ def add_meropriyatie(
     kolichestvo_na_ga: Optional[float] = None,
     sostav_fakt: str = "",
     primechaniya: str = "",
+    dannye: Optional[Dict[str, Any]] = Body(None, embed=True),
     conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit")),
 ):
+    """dannye (необязательно, в теле запроса) — поля мероприятия для
+    ведомостей текущих изменений: у «Перевода» {"taksatsiya": {nomer_kartochki,
+    ploshad, podvydel, sostav, vozrast, vysota, diametr, polnota}}, у
+    «Доращивания» {"do_goda"}, у «Списания» {"prichina", "akt_nomer",
+    "akt_data", "vid_zemel"}."""
     meropriyatie_id = legacy_db.add_lesokultury_meropriyatie(
         conn, uchastok_id, tip, data,
         prizhivaemost_pct=prizhivaemost_pct, kolichestvo_na_ga=kolichestvo_na_ga,
-        sostav_fakt=sostav_fakt, primechaniya=primechaniya,
+        sostav_fakt=sostav_fakt, primechaniya=primechaniya, dannye=dannye,
     )
     return {"id": meropriyatie_id}
+
+
+# --------------------------------------------------------------------------- #
+#   Загрузка «Книги производства л/к» (.xls/.xlsx): предпросмотр, потом запись
+# --------------------------------------------------------------------------- #
+async def _kniga_plan(conn, file: UploadFile, lesnichestvo: str, god_from: int, god_to: int, overrides: Optional[str]):
+    if not lesnichestvo.strip():
+        raise HTTPException(400, "Укажите лесничество")
+    content = await file.read()
+    try:
+        sheets = lesokultury_kniga.open_book(content, file.filename or "")
+        rows = lesokultury_kniga.parse_book(sheets, god_from, god_to)
+        return lesokultury_kniga.plan_import(
+            conn, rows, lesnichestvo.strip(), lesokultury_kniga.parse_overrides(overrides)
+        )
+    except lesokultury_kniga.KnigaError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/import-kniga/preview")
+async def import_kniga_preview(
+    file: UploadFile = File(...),
+    lesnichestvo: str = Form(...),
+    god_from: int = Form(2017),
+    god_to: int = Form(2100),
+    overrides: Optional[str] = Form(None),
+    conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit")),
+):
+    """Разбор книги и сверка с базой — В БАЗУ НЕ ПИШЕТ. overrides — JSON
+    {ключ строки: выдел}, если выдел в книге записан неверно."""
+    plan = await _kniga_plan(conn, file, lesnichestvo, god_from, god_to, overrides)
+    return {"summary": plan["summary"], "rows": lesokultury_kniga.public_rows(plan["rows"])}
+
+
+@router.post("/import-kniga/apply")
+async def import_kniga_apply(
+    file: UploadFile = File(...),
+    lesnichestvo: str = Form(...),
+    god_from: int = Form(2017),
+    god_to: int = Form(2100),
+    overrides: Optional[str] = Form(None),
+    skip: Optional[str] = Form(None),
+    conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit")),
+):
+    """Та же сверка + запись. skip — JSON-список ключей строк, которые не
+    загружать. Повторная загрузка той же книги дублей не создаёт."""
+    plan = await _kniga_plan(conn, file, lesnichestvo, god_from, god_to, overrides)
+    try:
+        skip_keys = json.loads(skip) if skip else []
+    except ValueError:
+        raise HTTPException(400, "skip: ожидается JSON-список")
+    return lesokultury_kniga.apply_import(conn, plan, lesnichestvo.strip(), skip_keys)
 
 
 # --------------------------------------------------------------------------- #
@@ -102,7 +162,10 @@ def add_meropriyatie(
 TIP_INVENTORY = {1: "Инвентаризация 1-го года", 3: "Инвентаризация 3-го года"}
 TIP_PEREVOD_INVENTORY = "Инвентаризация на перевод"
 TIP_PEREVOD = "Перевод в покрытые лесом земли"  # на вебе переводит статус в "переведён"
+TIP_DORASHCHIVANIE = "Доращивание"
+TIP_SPISANIE = "Списание"  # на вебе переводит статус в "списан"
 STATUS_PEREVEDEN = "переведён"
+STATUS_SPISAN = "списан"
 DATE_RE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
 
 
@@ -188,11 +251,34 @@ class InventarizatsiyaIn(FieldCardBase):
     god: Literal[1, 3]
 
 
+class TaksatsiyaIn(BaseModel):
+    """Таксация участка при переводе в покрытые лесом земли — колонки
+    прил. 4 ведомости текущих изменений (приказ Минлесхоза №130)."""
+
+    nomer_kartochki: str = Field(default="", max_length=50)
+    ploshad: Optional[float] = Field(default=None, gt=0)
+    podvydel: str = Field(default="", max_length=20)
+    sostav: str = Field(default="", max_length=50)
+    vozrast: Optional[int] = Field(default=None, ge=0, le=200)
+    vysota: Optional[float] = Field(default=None, ge=0, le=60)
+    diametr: Optional[float] = Field(default=None, ge=0, le=100)
+    polnota: Optional[float] = Field(default=None, ge=0, le=1.5)
+
+
 class PerevodIn(FieldCardBase):
     god: Optional[Literal[1, 3]] = None  # для перевода необязателен
     # Решение — ручной выбор человека; норматив (приложение 18) сервер НЕ
     # проверяет: этих таблиц в системе нет.
-    reshenie: Literal["перевести", "не переводить", "доработать"]
+    reshenie: Literal["перевести", "не переводить", "доработать", "доращивание", "списать"]
+    taksatsiya: Optional[TaksatsiyaIn] = None  # для «перевести»
+    do_goda: Optional[int] = Field(default=None, ge=2000, le=2100)  # для «доращивание»
+    prichina_spisaniya: str = Field(default="", max_length=500)  # для «списать»
+
+    @model_validator(mode="after")
+    def _decision_fields(self):
+        if self.reshenie == "списать" and not self.prichina_spisaniya.strip():
+            raise ValueError("Укажите причину списания")
+        return self
 
 
 def _calc_prizhivaemost(rezultaty: List[RezultatIn]) -> dict:
@@ -256,16 +342,40 @@ def _record_field_card(conn, uchastok_id: int, user: dict, body: FieldCardBase, 
 
     status = uchastok["status"]
     perevod_id = None
+    source = f"По инвентаризации на перевод (запись №{meropriyatie_id})"
     if reshenie == "перевести":
         # То же, что делает веб при добавлении мероприятия «Перевод в покрытые
         # лесом земли»: запись в журнал + статус участка «переведён».
+        taks = body.taksatsiya.model_dump() if getattr(body, "taksatsiya", None) else {}
+        if not taks.get("sostav") and body.sostav_fakt.strip():
+            taks["sostav"] = body.sostav_fakt.strip()
         perevod_id = legacy_db.add_lesokultury_meropriyatie(
             conn, uchastok_id, TIP_PEREVOD, data,
-            primechaniya=f"По инвентаризации на перевод (запись №{meropriyatie_id})",
+            sostav_fakt=taks.get("sostav") or "",
+            primechaniya=source,
+            dannye={"taksatsiya": taks} if taks else None,
             sotrudnik_id=sotrudnik_id,
         )
         legacy_db.update_lesokultury_uchastok(conn, uchastok_id, status=STATUS_PEREVEDEN)
         status = STATUS_PEREVEDEN
+    elif reshenie == "доращивание":
+        do_goda = getattr(body, "do_goda", None)
+        perevod_id = legacy_db.add_lesokultury_meropriyatie(
+            conn, uchastok_id, TIP_DORASHCHIVANIE, data,
+            primechaniya=source + (f"; до {do_goda} г." if do_goda else ""),
+            dannye={"do_goda": do_goda},
+            sotrudnik_id=sotrudnik_id,
+        )
+    elif reshenie == "списать":
+        prichina = body.prichina_spisaniya.strip()
+        perevod_id = legacy_db.add_lesokultury_meropriyatie(
+            conn, uchastok_id, TIP_SPISANIE, data,
+            primechaniya=f"{source}; причина: {prichina}",
+            dannye={"prichina": prichina},
+            sotrudnik_id=sotrudnik_id,
+        )
+        legacy_db.update_lesokultury_uchastok(conn, uchastok_id, status=STATUS_SPISAN)
+        status = STATUS_SPISAN
 
     return {
         "id": meropriyatie_id,
@@ -298,8 +408,41 @@ def create_perevod(
     user=Depends(require_office_writer_or_master),
 ):
     """Полевая карточка перевода: то же + решение человека. «перевести» —
-    запись «Перевод в покрытые лесом земли» и статус участка «переведён»
-    (как на вебе, без дополнительного подтверждения); «не переводить» /
-    «доработать» — статус не меняется. Соответствие нормативу
+    запись «Перевод в покрытые лесом земли» (с таксацией для прил. 4, если
+    передана) и статус участка «переведён» (как на вебе, без дополнительного
+    подтверждения); «доращивание» — запись «Доращивание» (до какого года),
+    статус не меняется; «списать» — запись «Списание» с причиной и статус
+    «списан»; «не переводить» / «доработать» — статус не меняется. Соответствие нормативу
     (приложение 18) сервер не проверяет — решение только ручное."""
     return _record_field_card(conn, uchastok_id, user, body, TIP_PEREVOD_INVENTORY, body.reshenie)
+
+
+class UchastokPolyaIn(BaseModel):
+    """Поля участка, которые дописывают в лесу с телефона (для прил. 7
+    ведомости текущих изменений). Не переданное (null) не меняется."""
+
+    podvydel: Optional[str] = Field(default=None, max_length=20)
+    metod_sozdaniya: Optional[str] = Field(default=None, max_length=100)
+    sposob_obrabotki: Optional[str] = Field(default=None, max_length=100)
+    shema_mezhdu_ryadami: Optional[float] = Field(default=None, gt=0, le=20)
+    shema_v_ryadu: Optional[float] = Field(default=None, gt=0, le=20)
+    gustota_posadki: Optional[float] = Field(default=None, gt=0, le=100000)
+    posadochnyy_material: Optional[str] = Field(default=None, max_length=200)
+
+
+@router.patch("/{uchastok_id}/polya")
+def update_polya(
+    uchastok_id: int,
+    body: UchastokPolyaIn,
+    conn=Depends(get_conn),
+    user=Depends(require_office_writer_or_master),
+):
+    """Правка полей участка с телефона — мастеру не нужно право
+    lesokultury.edit, но менять можно только эти поля (не статус,
+    не квартал/выдел)."""
+    if legacy_db.get_lesokultury_uchastok(conn, uchastok_id) is None:
+        raise HTTPException(404, "Участок не найден")
+    fields = {k: (v.strip() if isinstance(v, str) else v) for k, v in body.model_dump().items() if v is not None}
+    if fields:
+        legacy_db.update_lesokultury_uchastok(conn, uchastok_id, **fields)
+    return {"ok": True, "izmeneno": sorted(fields)}
