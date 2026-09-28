@@ -114,12 +114,14 @@ legacy/db.py — таблица geo_notes однострочная (нет UPDAT
 save_geo_note() и run_bot() в telegram_bot.py). Часть 3.5 закрывает
 Блок 3 плана целиком.
 """
+import json
 import sqlite3
 import uuid
 from pathlib import Path
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import db
@@ -127,6 +129,7 @@ import db as legacy_db
 import raskhod_v2
 import webext
 
+from app import map_features
 from app.database import get_conn
 from app.auth import get_current_user, require_permission
 from app.paths import UPLOADS_DIR
@@ -354,6 +357,11 @@ def create_report(
     ).fetchone() is None:
         raise HTTPException(400, "Участок лесных культур не найден")
 
+    if payload.delyanka_id is not None:
+        # первый отчёт по выделу делянки — выдел "в работе" (цвет на карте)
+        map_features.mark_items_in_progress(
+            conn, payload.kvartal, payload.vydels or [], delyanka_id=payload.delyanka_id,
+        )
     report_id = legacy_db.save_raw_report(
         conn,
         payload.telegram_id,
@@ -690,6 +698,8 @@ class GeoNoteIn(BaseModel):
     lon: float
     note_text: Optional[str] = None
     photo_path: Optional[str] = None
+    # тип метки (ветровал, пожар, ...) — см. map_features.GEO_NOTE_CATEGORIES
+    kategoriya: Optional[str] = None
 
 
 @router.post("/geo-notes")
@@ -726,14 +736,131 @@ def create_geo_note(
     чужим telegram_id, даже если этот telegram_id не зарегистрирован
     вовсе."""
     _check_own_identity(user, payload.telegram_id)
+    kategoriya = payload.kategoriya or "zametka"
+    if kategoriya not in map_features.GEO_NOTE_CODES:
+        raise HTTPException(400, "Неизвестный тип метки")
+    if not (-90 <= payload.lat <= 90 and -180 <= payload.lon <= 180):
+        raise HTTPException(400, "Координаты вне допустимого диапазона")
     conn.execute(
-        "INSERT INTO geo_notes (telegram_id, lat, lon, note_text, photo_path) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (payload.telegram_id, payload.lat, payload.lon, payload.note_text, _check_photo_path(payload.photo_path)),
+        "INSERT INTO geo_notes (telegram_id, lat, lon, note_text, photo_path, kategoriya) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (payload.telegram_id, payload.lat, payload.lon, payload.note_text,
+         _check_photo_path(payload.photo_path), kategoriya),
     )
     conn.commit()
     note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     return {"id": note_id}
+
+
+@router.get("/geo-note-categories")
+def list_geo_note_categories(_user=Depends(require_permission("bot.access"))):
+    return map_features.GEO_NOTE_CATEGORIES
+
+
+@router.get("/geo-notes")
+def list_geo_notes(conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+    """Метки на карте приложения (28.09.2026). Рабочий видит только свои
+    (решение Влада) — identity из токена, не из параметра. Раньше
+    приложение читало GET /api/map/geo-notes.geojson, который требует
+    токен QGIS-моста, получало ошибку и молча не показывало ничего."""
+    telegram_id = user.get("app_identity") if user.get("role") == "worker" else None
+    if user.get("role") == "worker" and not telegram_id:
+        return []
+    notes = map_features.list_geo_notes(conn, telegram_id)
+    for note in notes:
+        note["photo_url"] = f"/api/bot/geo-notes/{note['id']}/photo" if note["has_photo"] else None
+    return notes
+
+
+@router.get("/geo-notes/{note_id}/photo")
+def get_geo_note_photo(note_id: int, conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+    row = map_features.geo_note_photo_path(conn, note_id)
+    if row is None or not row[1]:
+        raise HTTPException(404, "Фото не найдено")
+    if user.get("role") == "worker" and row[0] != user.get("app_identity"):
+        raise HTTPException(404, "Фото не найдено")
+    path = Path(row[1])
+    if not path.is_file() or path.suffix.lower() not in _PHOTO_SUFFIXES:
+        raise HTTPException(404, "Фото не найдено")
+    return FileResponse(str(path), headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"})
+
+
+@router.delete("/geo-notes/{note_id}")
+def delete_geo_note(note_id: int, conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+    """Рабочий может убрать свою ошибочную метку."""
+    row = conn.execute("SELECT telegram_id FROM geo_notes WHERE id=?", (note_id,)).fetchone()
+    if row is None or (user.get("role") == "worker" and row[0] != user.get("app_identity")):
+        raise HTTPException(404, "Метка не найдена")
+    conn.execute("DELETE FROM geo_notes WHERE id=?", (note_id,))
+    conn.commit()
+    return {"deleted": True}
+
+
+# ------------------------------------------------------------ треки обмера ---
+class TrackIn(BaseModel):
+    """Контур, обмеренный обходом по границе с GPS: точки [lon, lat]."""
+    nazvanie: Optional[str] = None
+    points: List[List[float]]
+    closed: bool = True
+    kvartal: Optional[str] = None
+    vydel: Optional[str] = None
+    lesnichestvo: Optional[str] = None
+    note_text: Optional[str] = None
+
+
+def _track_metrics(points, closed):
+    """Площадь (га) и периметр (м) в метровой проекции UTM 35N — той же,
+    что у исходных слоёв карты (forest_map.FOREST_MAP_SOURCE_EPSG)."""
+    from pyproj import Transformer
+    from shapely.geometry import LineString, Polygon
+
+    transformer = Transformer.from_crs(4326, 32635, always_xy=True)
+    projected = [transformer.transform(lon, lat) for lon, lat in points]
+    if closed:
+        polygon = Polygon(projected)
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+        return polygon.area / 10000.0, polygon.exterior.length if hasattr(polygon, "exterior") else polygon.length
+    return None, LineString(projected).length
+
+
+@router.post("/tracks")
+def create_track(payload: TrackIn, conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+    if user.get("role") == "worker" and not user.get("app_identity"):
+        raise HTTPException(403, "Нет учётной записи рабочего")
+    points = [p for p in payload.points if len(p) >= 2 and -180 <= p[0] <= 180 and -90 <= p[1] <= 90]
+    if len(points) < (3 if payload.closed else 2):
+        raise HTTPException(400, "Слишком мало точек для контура")
+    if len(points) > 20000:
+        raise HTTPException(400, "Слишком много точек")
+    coords = [[p[0], p[1]] for p in points]
+    if payload.closed:
+        if coords[0] != coords[-1]:
+            coords.append(coords[0])
+        geometry = {"type": "Polygon", "coordinates": [coords]}
+    else:
+        geometry = {"type": "LineString", "coordinates": coords}
+    try:
+        area_ga, perimeter_m = _track_metrics([tuple(c) for c in coords], payload.closed)
+    except Exception:  # noqa: BLE001 — без pyproj/shapely сохраняем без площади
+        area_ga, perimeter_m = None, None
+    cur = conn.execute(
+        "INSERT INTO mobile_tracks (telegram_id, nazvanie, kvartal, vydel, lesnichestvo, ploshad_ga, perimetr_m, "
+        "geom_geojson, note_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user.get("app_identity") or user.get("login"), payload.nazvanie, payload.kvartal, payload.vydel,
+         map_features.canonical_lesnichestvo(payload.lesnichestvo), area_ga, perimeter_m,
+         json.dumps(geometry), payload.note_text),
+    )
+    conn.commit()
+    return {"id": cur.lastrowid, "ploshad_ga": area_ga, "perimetr_m": perimeter_m}
+
+
+@router.get("/tracks")
+def list_tracks(conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+    telegram_id = user.get("app_identity") if user.get("role") == "worker" else None
+    if user.get("role") == "worker" and not telegram_id:
+        return []
+    return map_features.list_tracks(conn, telegram_id)
 
 
 # ------------------------------------------------------------ фото (мобильное приложение) ---

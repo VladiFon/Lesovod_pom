@@ -981,10 +981,13 @@ def get_work_plan_for_sotrudnik(conn, sotrudnik_id):
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """SELECT work_plan.id, work_plan.data, work_plan.zadacha, work_plan.status,
-                  work_plan.created_at, delyanka_item.kvartal, delyanka_item.vydel,
-                  delyanka_item.lesnichestvo
+                  work_plan.created_at,
+                  COALESCE(delyanka_item.kvartal, lku.kvartal) AS kvartal,
+                  COALESCE(delyanka_item.vydel, lku.vydel) AS vydel,
+                  COALESCE(delyanka_item.lesnichestvo, lku.lesnichestvo) AS lesnichestvo
            FROM work_plan
            LEFT JOIN delyanka_item ON delyanka_item.id = work_plan.delyanka_item_id
+           LEFT JOIN lesokultury_uchastok lku ON lku.id = work_plan.lesokultury_uchastok_id
            WHERE work_plan.sotrudnik_id = ? AND work_plan.status = 'активна'
            ORDER BY work_plan.data""",
         (sotrudnik_id,),
@@ -993,12 +996,43 @@ def get_work_plan_for_sotrudnik(conn, sotrudnik_id):
 
 
 def complete_work_plan_item(conn, work_plan_id, sotrudnik_id):
+    """Задача выполнена. С 28.09.2026 это ещё и запись в completed_works
+    (вид работы = текст задачи) — раньше отметка жила только на телефоне и
+    карта (раскраска по видам работ) о ней не знала. Выдел делянки
+    переходит из 'ожидает' в 'в работе'."""
     cur = conn.execute(
         "UPDATE work_plan SET status='выполнена' WHERE id=? AND sotrudnik_id=? AND status='активна'",
         (work_plan_id, sotrudnik_id),
     )
+    done = cur.rowcount > 0
+    if done:
+        row = conn.execute(
+            """SELECT work_plan.zadacha, sotrudniki.fio, sotrudniki.dolzhnost,
+                      COALESCE(delyanka_item.kvartal, lku.kvartal),
+                      COALESCE(delyanka_item.vydel, lku.vydel),
+                      COALESCE(delyanka_item.lesnichestvo, lku.lesnichestvo),
+                      delyanka_item.delyanka_id
+               FROM work_plan
+               JOIN sotrudniki ON sotrudniki.id = work_plan.sotrudnik_id
+               LEFT JOIN delyanka_item ON delyanka_item.id = work_plan.delyanka_item_id
+               LEFT JOIN lesokultury_uchastok lku ON lku.id = work_plan.lesokultury_uchastok_id
+               WHERE work_plan.id = ?""",
+            (work_plan_id,),
+        ).fetchone()
+        if row is not None and row[3] and row[4]:
+            from app import map_features  # локально: legacy не зависит от app при импорте
+            zadacha, fio, dolzhnost, kvartal, vydel, lesnichestvo, delyanka_id = row
+            conn.execute(
+                "INSERT INTO completed_works "
+                "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, dolzhnost, opisanie) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (datetime.now().strftime("%Y-%m-%d"), fio, kvartal, vydel, zadacha,
+                 map_features.canonical_lesnichestvo(lesnichestvo), dolzhnost,
+                 f"Задача из плана работ №{work_plan_id}"),
+            )
+            map_features.mark_items_in_progress(conn, kvartal, [vydel], lesnichestvo, delyanka_id)
     conn.commit()
-    return cur.rowcount > 0
+    return done
 
 
 # --------------------------------------------------------------------------- #

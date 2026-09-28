@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401
 
+from app import map_features
 from app.auth import get_current_user
 from app.auth import require_permission
 from app.database import get_conn
@@ -41,13 +42,20 @@ def list_raw_reports(conn=Depends(get_conn), _user=Depends(get_current_user)):
             "CASE WHEN lk.id IS NULL THEN NULL ELSE "
             "'кв. ' || COALESCE(lk.kvartal,'') || ' выд. ' || COALESCE(lk.vydel,'') || "
             "COALESCE(' · ' || lk.glavnaya_poroda, '') || COALESCE(' · ' || lk.god_sozdaniya, '') END, "
-            "lk.lesnichestvo "
+            "COALESCE(lk.lesnichestvo, "
+            "  (SELECT di.lesnichestvo FROM delyanka_item di WHERE di.delyanka_id = r.delyanka_id "
+            "   AND di.lesnichestvo IS NOT NULL LIMIT 1), "
+            "  (SELECT ld.lesnichestvo FROM lesorub_directory ld WHERE ld.viber_id = r.ispolnitel_viber_id)) "
             "FROM raw_reports r "
             "LEFT JOIN delyanka d ON d.id = r.delyanka_id "
             "LEFT JOIN lesokultury_uchastok lk ON lk.id = r.lesokultury_uchastok_id "
             "WHERE r.status='на проверке' ORDER BY r.id DESC"
         ).fetchall()
-        return [dict(zip(cols + extra, r)) for r in rows]
+        result = [dict(zip(cols + extra, r)) for r in rows]
+        for r in result:
+            # подсказка для выпадающего списка на сайте — в написании LCH_MAP
+            r["lesnichestvo"] = map_features.canonical_lesnichestvo(r["lesnichestvo"])
+        return result
     except sqlite3.OperationalError:
         pass
     try:
@@ -85,13 +93,16 @@ def approve_report(report_id: int, body: ApproveIn, conn=Depends(get_conn), _use
     dolzhnost = dolzhnost_row[0] if dolzhnost_row else None
 
     today = datetime.now().strftime("%Y-%m-%d")
+    # лесничество — в написании LCH_MAP, иначе выдел не покрасится на карте
+    lesnichestvo = map_features.canonical_lesnichestvo(body.lesnichestvo)
     conn.execute(
         "INSERT INTO completed_works "
         "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, photo_path, lesnichestvo, opisanie, dolzhnost) "
         "VALUES (?,?,?,?,?,?,?,?,?)",
         (today, ispolnitel, body.kvartal.strip(), body.vydel.strip(), body.tip_raboty.strip(),
-         photo_path or None, body.lesnichestvo.strip(), (body.opisanie or "").strip() or None, dolzhnost),
+         photo_path or None, lesnichestvo, (body.opisanie or "").strip() or None, dolzhnost),
     )
+    map_features.mark_items_in_progress(conn, body.kvartal, body.vydel.split(","), lesnichestvo)
     conn.execute("UPDATE raw_reports SET status='обработано' WHERE id=?", (report_id,))
     conn.commit()
     return {"ok": True}
