@@ -5,15 +5,18 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app import legacy_bridge  # noqa: F401
 import db as legacy_db
 import webext
+import lesokultury_normativy
+import kartochka_perevoda_generator
 
 from app.auth import require_office_writer_or_master, require_permission
-from app.database import get_conn
+from app.database import get_conn, get_connection
+from app.doc_tasks import new_task_dir, register_document
 
 router = APIRouter(prefix="/api/lesokultury", tags=["lesokultury"])
 
@@ -35,6 +38,14 @@ def list_gody(conn=Depends(get_conn)):
     """Различные годы создания культур, встречающиеся в базе — для
     выпадающего фильтра «Год» на экране (вместо свободного текста)."""
     return legacy_db.get_lesokultury_gody(conn)
+
+
+@router.get("/tipy-lesa")
+def list_tipy_lesa(glavnaya_poroda: str = ""):
+    """Варианты «тип леса» (приложение 18) для главной породы — выпадающий
+    список на форме участка; [] значит, что порода не нормируется или у неё
+    единственный (безусловный) норматив — поле можно не заполнять."""
+    return lesokultury_normativy.get_tipy_lesa_options(glavnaya_poroda)
 
 
 @router.get("/uchastki/{uchastok_id}")
@@ -87,6 +98,7 @@ def add_meropriyatie(
     kolichestvo_na_ga: Optional[float] = None,
     sostav_fakt: str = "",
     primechaniya: str = "",
+    srednyaya_vysota_m: Optional[float] = None,
     user=Depends(require_permission("lesokultury.edit")),
     conn=Depends(get_conn),
 ):
@@ -94,8 +106,21 @@ def add_meropriyatie(
         conn, uchastok_id, tip, data,
         prizhivaemost_pct=prizhivaemost_pct, kolichestvo_na_ga=kolichestvo_na_ga,
         sostav_fakt=sostav_fakt, primechaniya=primechaniya,
+        srednyaya_vysota_m=srednyaya_vysota_m,
     )
-    return {"id": meropriyatie_id}
+    result = {"id": meropriyatie_id}
+    # Норматив приложения 18 сравнивается только для инвентаризации на
+    # перевод, и только когда с десктопа явно передали оба нужных числа
+    # (пока на вебе нет структурированной формы проб/результатов, как в
+    # мобильной карточке — только эти два свободных поля).
+    if tip == TIP_PEREVOD_INVENTORY and kolichestvo_na_ga is not None and srednyaya_vysota_m is not None:
+        uchastok = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
+        if uchastok is not None:
+            result["normativ_check"] = lesokultury_normativy.check_normativ_perevoda(
+                uchastok.get("glavnaya_poroda"), uchastok.get("tip_lesa"),
+                kolichestvo_na_ga / 1000, srednyaya_vysota_m,
+            )
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -215,6 +240,23 @@ def _calc_prizhivaemost(rezultaty: List[RezultatIn]) -> dict:
     }
 
 
+def _find_glavnaya_poroda_result(rezultaty: List[RezultatIn], glavnaya_poroda: Optional[str]) -> Optional[RezultatIn]:
+    """Находит строку результатов обследования (rezultaty), соответствующую
+    главной породе участка (сравнение подстрокой, регистронезависимо) — её
+    средняя высота идёт в сверку с нормативом приложения 18. None, если
+    порода участка не задана или не найдена среди результатов."""
+    if not glavnaya_poroda:
+        return None
+    target = glavnaya_poroda.strip().lower()
+    if not target:
+        return None
+    for r in rezultaty:
+        poroda = r.poroda.strip().lower()
+        if poroda and (poroda in target or target in poroda):
+            return r
+    return None
+
+
 def _summary_text(body: FieldCardBase, calc: dict, reshenie: Optional[str]) -> str:
     """Читаемая сводка для колонки «Примечания» журнала: экран «Лесные
     культуры» показывает только её (структурные данные лежат в dannye_json)."""
@@ -249,6 +291,20 @@ def _record_field_card(conn, uchastok_id: int, user: dict, body: FieldCardBase, 
     # identity — из токена, как везде; у офисного логина sotrudnik_id нет
     sotrudnik_id = user.get("sotrudnik_id") if user.get("role") == "worker" else None
 
+    # Средняя высота — берётся из результата обследования по главной породе
+    # участка (для сверки с нормативом приложения 18, см. lesokultury_normativy.py);
+    # сохраняется в журнал независимо от tip, пригодится и для паспорта участка.
+    glavnaya_rezultat = _find_glavnaya_poroda_result(body.rezultaty, uchastok.get("glavnaya_poroda"))
+    srednyaya_vysota_m = glavnaya_rezultat.srednyaya_vysota if glavnaya_rezultat else None
+
+    normativ_check = None
+    if tip == TIP_PEREVOD_INVENTORY:
+        kolichestvo_tys_na_ga = body.kolichestvo_na_ga / 1000 if body.kolichestvo_na_ga is not None else None
+        normativ_check = lesokultury_normativy.check_normativ_perevoda(
+            uchastok.get("glavnaya_poroda"), uchastok.get("tip_lesa"),
+            kolichestvo_tys_na_ga, srednyaya_vysota_m,
+        )
+
     meropriyatie_id = legacy_db.add_lesokultury_meropriyatie(
         conn, uchastok_id, tip, data,
         prizhivaemost_pct=calc["prizhivaemost_pct"],
@@ -256,13 +312,16 @@ def _record_field_card(conn, uchastok_id: int, user: dict, body: FieldCardBase, 
         sostav_fakt=body.sostav_fakt,
         primechaniya=_summary_text(body, calc, reshenie),
         dannye=dannye, sotrudnik_id=sotrudnik_id,
+        srednyaya_vysota_m=srednyaya_vysota_m,
     )
 
     status = uchastok["status"]
     perevod_id = None
     if reshenie == "перевести":
         # То же, что делает веб при добавлении мероприятия «Перевод в покрытые
-        # лесом земли»: запись в журнал + статус участка «переведён».
+        # лесом земли»: запись в журнал + статус участка «переведён». Норматив
+        # приложения 18 — только предупреждение (normativ_check выше), решение
+        # "перевести" остаётся полностью за комиссией/пользователем.
         perevod_id = legacy_db.add_lesokultury_meropriyatie(
             conn, uchastok_id, TIP_PEREVOD, data,
             primechaniya=f"По инвентаризации на перевод (запись №{meropriyatie_id})",
@@ -277,6 +336,7 @@ def _record_field_card(conn, uchastok_id: int, user: dict, body: FieldCardBase, 
         "tip": tip,
         "data": data,
         "status_uchastka": status,
+        "normativ_check": normativ_check,
         **calc,
     }
 
@@ -307,3 +367,86 @@ def create_perevod(
     «доработать» — статус не меняется. Соответствие нормативу
     (приложение 18) сервер не проверяет — решение только ручное."""
     return _record_field_card(conn, uchastok_id, user, body, TIP_PEREVOD_INVENTORY, body.reshenie)
+
+
+# --------------------------------------------------------------------------- #
+#   Документы: "Карточка перевода" (приложение 19)
+# --------------------------------------------------------------------------- #
+class PodpisantIn(BaseModel):
+    dolzhnost: str = ""
+    fio: str = ""
+
+
+class KartochkaPerevodaIn(BaseModel):
+    """Ручные поля печатной формы — источника данных для них в базе нет
+    (см. Этап 1 плана)."""
+
+    meropriyatie_id: Optional[int] = None
+    yuridicheskoe_litso: str = ""
+    shema_smesheniya: str = ""
+    razmeshenie_v_ryadah_m: str = ""
+    mezhdu_ryadami_m: str = ""
+    zaklyuchenie_a: str = ""
+    zaklyuchenie_b: str = ""
+    zaklyuchenie_v: str = ""
+    zaklyuchenie_g: str = ""
+    zaklyuchenie_d: str = ""
+    predsedatel: Optional[PodpisantIn] = None
+    chleny: List[PodpisantIn] = Field(default_factory=list)
+    data_akta: str = ""
+
+
+def _run_generate_kartochka_perevoda(task_id: str, uchastok_id: int, body: dict, created_by: Optional[str]):
+    conn = get_connection()
+    task_dir = new_task_dir(task_id)
+    try:
+        webext.set_task_running(conn, task_id)
+        uchastok = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
+        if uchastok is None:
+            raise ValueError(f"Участок {uchastok_id} не найден")
+        meropriyatie_id = body.pop("meropriyatie_id", None)
+        if meropriyatie_id:
+            meropriyatie = legacy_db.get_lesokultury_meropriyatie(conn, meropriyatie_id)
+        else:
+            meropriyatie = legacy_db.get_latest_lesokultury_perevod_meropriyatie(conn, uchastok_id)
+        if meropriyatie is None:
+            raise ValueError(
+                "Нет записи журнала «Инвентаризация на перевод» с данными полевой карточки — "
+                "печатать карточку не из чего."
+            )
+        output_path = task_dir / f"Kartochka_perevoda_{uchastok_id}.docx"
+        path = kartochka_perevoda_generator.generate_kartochka_perevoda(
+            uchastok, meropriyatie, str(output_path), **body
+        )
+        doc_id = register_document(
+            conn, "lesokultury_kartochka_perevoda", None, path,
+            created_by=created_by, lesokultury_uchastok_id=uchastok_id,
+        )
+        webext.set_task_done(conn, task_id, result={"document_ids": [doc_id]})
+    except Exception as e:  # noqa: BLE001
+        register_document(
+            conn, "lesokultury_kartochka_perevoda", None, "",
+            created_by=created_by, status="ошибка", error_text=str(e),
+            lesokultury_uchastok_id=uchastok_id,
+        )
+        webext.set_task_error(conn, task_id, str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/uchastki/{uchastok_id}/documents/kartochka-perevoda")
+def generate_kartochka_perevoda(
+    uchastok_id: int,
+    body: KartochkaPerevodaIn,
+    background_tasks: BackgroundTasks,
+    user=Depends(require_permission("documents.generate")),
+    conn=Depends(get_conn),
+):
+    uchastok = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
+    if uchastok is None:
+        raise HTTPException(404, "Участок не найден")
+    task_id = webext.create_task(conn, "generate_kartochka_perevoda")
+    background_tasks.add_task(
+        _run_generate_kartochka_perevoda, task_id, uchastok_id, body.model_dump(), user["login"],
+    )
+    return {"task_id": task_id}

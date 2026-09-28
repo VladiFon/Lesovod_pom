@@ -492,6 +492,19 @@ def ensure_webext_schema(conn: sqlite3.Connection) -> None:
 
     if "updated_by" not in existing_doc_cols:
         conn.execute("ALTER TABLE documents ADD COLUMN updated_by TEXT")
+
+    # lesokultury_uchastok_id в documents — сгенерированный документ
+    # (паспорт/акт списания/карточка перевода/ведомость техприёмки) теперь
+    # может относиться к участку лесных культур вместо делянки (delyanka_id
+    # уже был nullable — простой ALTER TABLE ADD COLUMN, без пересборки
+    # таблицы, в отличие от миграции brigada_naznachenie).
+    if "lesokultury_uchastok_id" not in existing_doc_cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN lesokultury_uchastok_id INTEGER")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_lesokultury_uchastok_id "
+            "ON documents(lesokultury_uchastok_id)"
+        )
+
     conn.execute(
         """CREATE TRIGGER IF NOT EXISTS trg_documents_updated_at
             AFTER UPDATE ON documents
@@ -509,12 +522,14 @@ def ensure_webext_schema(conn: sqlite3.Connection) -> None:
 #   ДОКУМЕНТЫ (documents)
 # --------------------------------------------------------------------------- #
 def add_document(conn, doc_type, delyanka_id, file_name, file_path,
-                  status="готов", error_text=None, created_by=None):
+                  status="готов", error_text=None, created_by=None,
+                  lesokultury_uchastok_id=None):
     cur = conn.execute(
         """INSERT INTO documents (doc_type, delyanka_id, file_name, file_path,
-                                   status, error_text, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (doc_type, delyanka_id, file_name, file_path, status, error_text, created_by),
+                                   status, error_text, created_by, lesokultury_uchastok_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (doc_type, delyanka_id, file_name, file_path, status, error_text, created_by,
+         lesokultury_uchastok_id),
     )
     conn.commit()
     return cur.lastrowid
@@ -537,7 +552,8 @@ def get_document(conn, document_id):
 
 
 def list_documents(conn, delyanka_id=None, doc_type=None, status=None,
-                    created_by=None, date_from=None, date_to=None):
+                    created_by=None, date_from=None, date_to=None,
+                    lesokultury_uchastok_id=None):
     """date_from/date_to — строки 'YYYY-MM-DD' (включительно), сравниваются
     с датой created_at (без времени) — этого достаточно для фильтра
     "за период" на экране документов (Этап 5 плана переноса)."""
@@ -546,6 +562,9 @@ def list_documents(conn, delyanka_id=None, doc_type=None, status=None,
     if delyanka_id is not None:
         sql += " AND delyanka_id=?"
         params.append(delyanka_id)
+    if lesokultury_uchastok_id is not None:
+        sql += " AND lesokultury_uchastok_id=?"
+        params.append(lesokultury_uchastok_id)
     if doc_type:
         sql += " AND doc_type=?"
         params.append(doc_type)

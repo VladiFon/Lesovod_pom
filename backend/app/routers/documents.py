@@ -46,6 +46,7 @@ def _with_file_size(doc: dict) -> dict:
 @router.get("/")
 def list_documents(
     delyanka_id: Optional[int] = None,
+    lesokultury_uchastok_id: Optional[int] = None,
     doc_type: Optional[str] = None,
     status: Optional[str] = None,
     created_by: Optional[str] = None,
@@ -54,7 +55,8 @@ def list_documents(
     conn=Depends(get_conn),
 ):
     docs = webext.list_documents(
-        conn, delyanka_id=delyanka_id, doc_type=doc_type, status=status,
+        conn, delyanka_id=delyanka_id, lesokultury_uchastok_id=lesokultury_uchastok_id,
+        doc_type=doc_type, status=status,
         created_by=created_by, date_from=date_from, date_to=date_to,
     )
     return [_with_file_size(d) for d in docs]

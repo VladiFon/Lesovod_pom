@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { api } from "../api/client.js";
+import { api, API_BASE_URL } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
@@ -9,6 +9,23 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
+import { pollTask } from "../hooks/useTaskPolling.js";
+
+/** По одному на строку: "Должность; ФИО" (или просто ФИО) — тот же формат
+ * ввода комиссии, что и на экране "Акты освидетельствования" (Inspection.jsx). */
+function parseNamedList(text) {
+  return (text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((line) => {
+      if (line.includes(";")) {
+        const [dolzhnost, fio] = line.split(";", 2);
+        return { dolzhnost: dolzhnost.trim(), fio: (fio || "").trim() };
+      }
+      return { dolzhnost: "", fio: line };
+    });
+}
 
 /**
  * Экран "Лесные культуры" (screens/lesokultury/) — Этап 8 плана.
@@ -47,7 +64,7 @@ const STATUS_TRIGGER_TYPES = {
 
 const UCHASTOK_FIELDS = [
   "lesnichestvo", "kvartal", "vydel", "ploshad", "kategoriya_ploshadi",
-  "tlu", "god_sozdaniya", "metod_sozdaniya", "glavnaya_poroda",
+  "tlu", "tip_lesa", "god_sozdaniya", "metod_sozdaniya", "glavnaya_poroda",
   "sostav_formula", "gustota_posadki", "normativ_perevoda", "primechaniya",
 ];
 
@@ -76,6 +93,27 @@ function payloadFromForm(form) {
 
 function UchastokFormFields({ form, setForm }) {
   const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const [tipyLesa, setTipyLesa] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!form.glavnaya_poroda?.trim()) {
+      setTipyLesa([]);
+      return;
+    }
+    api
+      .get("/lesokultury/tipy-lesa", { glavnaya_poroda: form.glavnaya_poroda })
+      .then((options) => {
+        if (!cancelled) setTipyLesa(options || []);
+      })
+      .catch(() => {
+        if (!cancelled) setTipyLesa([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.glavnaya_poroda]);
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
@@ -96,6 +134,25 @@ function UchastokFormFields({ form, setForm }) {
         <TextField label="Главная порода" value={form.glavnaya_poroda} onChange={setField("glavnaya_poroda")} />
         <TextField label="Формула состава" value={form.sostav_formula} onChange={setField("sostav_formula")} />
       </div>
+      {tipyLesa.length > 0 && (
+        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+          <div>
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">
+              Тип леса (для норматива перевода, приложение 18)
+            </label>
+            <select
+              value={form.tip_lesa || ""}
+              onChange={setField("tip_lesa")}
+              className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors"
+            >
+              <option value="">— не указан —</option>
+              {tipyLesa.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Густота посадки, шт/га" type="number" step="1" value={form.gustota_posadki} onChange={setField("gustota_posadki")} />
         <TextField label="Норматив перевода, шт/га" type="number" step="1" value={form.normativ_perevoda} onChange={setField("normativ_perevoda")} />
@@ -243,6 +300,84 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
   );
 }
 
+function KartochkaPerevodaModal({ open, onClose, uchastokId }) {
+  const toast = useToast();
+  const [form, setForm] = useState({
+    yuridicheskoe_litso: "", shema_smesheniya: "",
+    razmeshenie_v_ryadah_m: "", mezhdu_ryadami_m: "",
+    zaklyuchenie_a: "", zaklyuchenie_b: "", zaklyuchenie_v: "",
+    zaklyuchenie_g: "", zaklyuchenie_d: "",
+    predsedatel_dolzhnost: "", predsedatel_fio: "", chleny_text: "",
+    data_akta: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleGenerate = async () => {
+    setSubmitting(true);
+    try {
+      const { task_id } = await api.post(`/lesokultury/uchastki/${uchastokId}/documents/kartochka-perevoda`, {
+        yuridicheskoe_litso: form.yuridicheskoe_litso,
+        shema_smesheniya: form.shema_smesheniya,
+        razmeshenie_v_ryadah_m: form.razmeshenie_v_ryadah_m,
+        mezhdu_ryadami_m: form.mezhdu_ryadami_m,
+        zaklyuchenie_a: form.zaklyuchenie_a,
+        zaklyuchenie_b: form.zaklyuchenie_b,
+        zaklyuchenie_v: form.zaklyuchenie_v,
+        zaklyuchenie_g: form.zaklyuchenie_g,
+        zaklyuchenie_d: form.zaklyuchenie_d,
+        predsedatel: { dolzhnost: form.predsedatel_dolzhnost, fio: form.predsedatel_fio },
+        chleny: parseNamedList(form.chleny_text),
+        data_akta: form.data_akta,
+      });
+      const result = await pollTask(task_id, { timeoutMs: 5 * 60 * 1000 });
+      toast.show({ tone: "success", title: "Карточка перевода сформирована" });
+      const docId = result?.document_ids?.[0];
+      if (docId) window.open(`${API_BASE_URL}/documents/${docId}/download`, "_blank");
+      onClose();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сформировать карточку", description: e.message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => !submitting && onClose()}
+      title="Карточка перевода (приложение 19)"
+      size="lg"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>Отмена</Button>
+          <Button variant="primary" onClick={handleGenerate} loading={submitting}>Сформировать</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <TextField label="Юридическое лицо, ведущее лесное хозяйство" value={form.yuridicheskoe_litso} onChange={setField("yuridicheskoe_litso")} />
+        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+          <TextField label="Схема смешения" value={form.shema_smesheniya} onChange={setField("shema_smesheniya")} />
+          <TextField label="Размещение в рядах, м" value={form.razmeshenie_v_ryadah_m} onChange={setField("razmeshenie_v_ryadah_m")} />
+          <TextField label="Между рядами, м" value={form.mezhdu_ryadami_m} onChange={setField("mezhdu_ryadami_m")} />
+        </div>
+        <TextAreaField label="а) оценка лесных культур" rows={2} value={form.zaklyuchenie_a} onChange={setField("zaklyuchenie_a")} />
+        <TextAreaField label="б) перевод в покрытые лесом земли, состав" rows={2} value={form.zaklyuchenie_b} onChange={setField("zaklyuchenie_b")} />
+        <TextAreaField label="в) рекомендуемые мероприятия" rows={2} value={form.zaklyuchenie_v} onChange={setField("zaklyuchenie_v")} />
+        <TextAreaField label="г) срок повторного обследования" rows={1} value={form.zaklyuchenie_g} onChange={setField("zaklyuchenie_g")} />
+        <TextAreaField label="д) списание / иное решение" rows={2} value={form.zaklyuchenie_d} onChange={setField("zaklyuchenie_d")} />
+        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+          <TextField label="Председатель, должность" value={form.predsedatel_dolzhnost} onChange={setField("predsedatel_dolzhnost")} />
+          <TextField label="Председатель, ФИО" value={form.predsedatel_fio} onChange={setField("predsedatel_fio")} />
+          <TextField label="Дата составления" placeholder="ДД.ММ.ГГГГ" value={form.data_akta} onChange={setField("data_akta")} />
+        </div>
+        <TextAreaField label="Члены комиссии" rows={2} value={form.chleny_text} onChange={setField("chleny_text")} hint="По одному на строку: Должность; ФИО" />
+      </div>
+    </Modal>
+  );
+}
+
 function UchastokDetail({ uchastokId, onListChanged }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -252,6 +387,7 @@ function UchastokDetail({ uchastokId, onListChanged }) {
   const [deleting, setDeleting] = useState(false);
   const [meropriyatiya, setMeropriyatiya] = useState([]);
   const [logLoading, setLogLoading] = useState(false);
+  const [kartochkaOpen, setKartochkaOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -347,6 +483,11 @@ function UchastokDetail({ uchastokId, onListChanged }) {
             <p className="text-muted text-sm mt-0.5">{uchastok.lesnichestvo || "—"} · заведён {(uchastok.created_at || "").slice(0, 10).split("-").reverse().join(".") || "—"}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {meropriyatiya.some((m) => m.tip === "Инвентаризация на перевод" && m.dannye) && (
+              <Button variant="secondary" size="sm" onClick={() => setKartochkaOpen(true)}>
+                📋 Карточка перевода
+              </Button>
+            )}
             {uchastok.status !== "переведён" && (
               <Button variant="secondary" size="sm" onClick={() => handleStatusChange("переведён")} disabled={saving}>
                 🌲 В покрытые лесом
@@ -360,6 +501,8 @@ function UchastokDetail({ uchastokId, onListChanged }) {
             <Button variant="danger" size="sm" onClick={handleDelete} loading={deleting}>Удалить</Button>
           </div>
         </div>
+
+        <KartochkaPerevodaModal open={kartochkaOpen} onClose={() => setKartochkaOpen(false)} uchastokId={uchastokId} />
 
         <UchastokFormFields form={form} setForm={setForm} />
 

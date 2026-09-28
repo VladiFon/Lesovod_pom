@@ -1021,6 +1021,20 @@ def migrate_schema(conn):
             conn.execute(
                 "ALTER TABLE lesokultury_meropriyatiya ADD COLUMN sotrudnik_id INTEGER REFERENCES sotrudniki(id)"
             )
+        if "srednyaya_vysota_m" not in existing_lkm_cols:
+            # Средняя высота деревьев главной породы по результатам обследования
+            # (полевая карточка перевода/инвентаризации) — свойство КОНКРЕТНОГО
+            # обследования, не участка целиком (в отличие от tip_lesa ниже),
+            # нужна для сверки с нормативом lesokultury_normativy.py (приложение 18).
+            conn.execute("ALTER TABLE lesokultury_meropriyatiya ADD COLUMN srednyaya_vysota_m REAL")
+    # tip_lesa — "тип леса" (напр. "Ельники брусничные, мшистые"), НЕ то же
+    # самое, что уже существующий tlu (тип лесорастительных условий, код вида
+    # "B3") — приложение 18 Положения о лесовосстановлении индексирует
+    # норматив перевода именно по типу леса, а не по ТЛУ. Заполняется по
+    # желанию, выпадающим списком из lesokultury_normativy.get_tipy_lesa_options().
+    existing_lku_cols = {row[1] for row in conn.execute("PRAGMA table_info(lesokultury_uchastok)").fetchall()}
+    if existing_lku_cols and "tip_lesa" not in existing_lku_cols:
+        conn.execute("ALTER TABLE lesokultury_uchastok ADD COLUMN tip_lesa TEXT")
     # sluzhebnye_zametki и breakdown_reports создаются выше через
     # executescript(SCHEMA) (CREATE TABLE IF NOT EXISTS), но подстрахуемся
     # явной проверкой на случай баз, созданных до этого добавления.
@@ -2753,12 +2767,12 @@ def create_lesokultury_uchastok(conn, **fields):
     делянка — НЕ выводится из таксации, см. комментарий у CREATE TABLE
     lesokultury_uchastok в SCHEMA). Принимает именованные поля:
     lesnichestvo, kvartal, vydel, delyanka_id, ploshad, kategoriya_ploshadi,
-    tlu, god_sozdaniya, metod_sozdaniya, glavnaya_poroda, sostav_formula,
+    tlu, tip_lesa, god_sozdaniya, metod_sozdaniya, glavnaya_poroda, sostav_formula,
     gustota_posadki, normativ_perevoda, primechaniya — все необязательны
     (кроме того, что решит вызывающий код на экране)."""
     columns = [
         "lesnichestvo", "kvartal", "vydel", "delyanka_id", "ploshad",
-        "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
+        "kategoriya_ploshadi", "tlu", "tip_lesa", "god_sozdaniya", "metod_sozdaniya",
         "glavnaya_poroda", "sostav_formula", "gustota_posadki",
         "normativ_perevoda", "primechaniya",
     ]
@@ -2777,7 +2791,7 @@ def update_lesokultury_uchastok(conn, uchastok_id, **fields):
     create_lesokultury_uchastok, плюс status) — только переданные."""
     allowed = {
         "lesnichestvo", "kvartal", "vydel", "delyanka_id", "ploshad",
-        "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
+        "kategoriya_ploshadi", "tlu", "tip_lesa", "god_sozdaniya", "metod_sozdaniya",
         "glavnaya_poroda", "sostav_formula", "gustota_posadki",
         "normativ_perevoda", "status", "primechaniya",
     }
@@ -2829,7 +2843,7 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
     try:
         rows = conn.execute(
             f"SELECT lk.id, lk.lesnichestvo, lk.kvartal, lk.vydel, lk.delyanka_id, "
-            f"d.nazvanie, lk.ploshad, lk.kategoriya_ploshadi, lk.tlu, lk.god_sozdaniya, "
+            f"d.nazvanie, lk.ploshad, lk.kategoriya_ploshadi, lk.tlu, lk.tip_lesa, lk.god_sozdaniya, "
             f"lk.metod_sozdaniya, lk.glavnaya_poroda, lk.sostav_formula, lk.gustota_posadki, "
             f"lk.normativ_perevoda, lk.status, lk.primechaniya, lk.created_at, "
             f"(SELECT tip FROM lesokultury_meropriyatiya m WHERE m.uchastok_id = lk.id "
@@ -2847,7 +2861,7 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
         return []
     columns = [
         "id", "lesnichestvo", "kvartal", "vydel", "delyanka_id", "delyanka_nazvanie", "ploshad",
-        "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
+        "kategoriya_ploshadi", "tlu", "tip_lesa", "god_sozdaniya", "metod_sozdaniya",
         "glavnaya_poroda", "sostav_formula", "gustota_posadki",
         "normativ_perevoda", "status", "primechaniya", "created_at",
         "last_uhod_tip", "last_uhod_data",
@@ -2878,7 +2892,7 @@ def get_lesokultury_uchastok(conn, uchastok_id):
     """Один участок культур по id, либо None."""
     row = conn.execute(
         "SELECT lk.id, lk.lesnichestvo, lk.kvartal, lk.vydel, lk.delyanka_id, d.nazvanie, "
-        "lk.ploshad, lk.kategoriya_ploshadi, lk.tlu, lk.god_sozdaniya, lk.metod_sozdaniya, "
+        "lk.ploshad, lk.kategoriya_ploshadi, lk.tlu, lk.tip_lesa, lk.god_sozdaniya, lk.metod_sozdaniya, "
         "lk.glavnaya_poroda, lk.sostav_formula, lk.gustota_posadki, lk.normativ_perevoda, "
         "lk.status, lk.primechaniya, lk.created_at "
         "FROM lesokultury_uchastok lk LEFT JOIN delyanka d ON d.id = lk.delyanka_id "
@@ -2889,7 +2903,7 @@ def get_lesokultury_uchastok(conn, uchastok_id):
         return None
     columns = [
         "id", "lesnichestvo", "kvartal", "vydel", "delyanka_id", "delyanka_nazvanie", "ploshad",
-        "kategoriya_ploshadi", "tlu", "god_sozdaniya", "metod_sozdaniya",
+        "kategoriya_ploshadi", "tlu", "tip_lesa", "god_sozdaniya", "metod_sozdaniya",
         "glavnaya_poroda", "sostav_formula", "gustota_posadki",
         "normativ_perevoda", "status", "primechaniya", "created_at",
     ]
@@ -2908,7 +2922,8 @@ def delete_lesokultury_uchastok(conn, uchastok_id):
 
 def add_lesokultury_meropriyatie(conn, uchastok_id, tip, data, prizhivaemost_pct=None,
                                   kolichestvo_na_ga=None, sostav_fakt="", primechaniya="",
-                                  proba_id=None, dannye=None, sotrudnik_id=None):
+                                  proba_id=None, dannye=None, sotrudnik_id=None,
+                                  srednyaya_vysota_m=None):
     """Добавляет запись в журнал ухода за участком лесных культур —
     tip: 'Техническая приёмка' / 'Инвентаризация 1-го года' /
     'Инвентаризация 3-го года' / 'Инвентаризация на перевод' /
@@ -2919,15 +2934,19 @@ def add_lesokultury_meropriyatie(conn, uchastok_id, tip, data, prizhivaemost_pct
     пробы рубок ухода выполненной (см. mark_uhody_proba_completed);
     для ручных записей (карточка участка) остаётся None.
     dannye — dict с данными полевой карточки (сохраняется как JSON),
-    sotrudnik_id — кто ввёл запись с телефона; для записей с веба оба None."""
+    sotrudnik_id — кто ввёл запись с телефона; для записей с веба оба None.
+    srednyaya_vysota_m — средняя высота деревьев главной породы по данным
+    ЭТОГО обследования (для сверки с lesokultury_normativy — приложение 18),
+    заполняется только для инвентаризаций."""
     cur = conn.execute(
         "INSERT INTO lesokultury_meropriyatiya "
         "(uchastok_id, tip, data, prizhivaemost_pct, kolichestvo_na_ga, sostav_fakt, primechaniya, proba_id, "
-        "dannye_json, sotrudnik_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "dannye_json, sotrudnik_id, srednyaya_vysota_m) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (uchastok_id, tip.strip(), (data or "").strip(), prizhivaemost_pct, kolichestvo_na_ga,
          (sostav_fakt or "").strip(), (primechaniya or "").strip(), proba_id,
-         json.dumps(dannye, ensure_ascii=False) if dannye is not None else None, sotrudnik_id),
+         json.dumps(dannye, ensure_ascii=False) if dannye is not None else None, sotrudnik_id,
+         srednyaya_vysota_m),
     )
     conn.commit()
     return cur.lastrowid
@@ -2936,11 +2955,12 @@ def add_lesokultury_meropriyatie(conn, uchastok_id, tip, data, prizhivaemost_pct
 def list_lesokultury_meropriyatiya(conn, uchastok_id):
     """История мероприятий по участку, последние сверху —
     [{"id","tip","data","prizhivaemost_pct","kolichestvo_na_ga","sostav_fakt",
-      "primechaniya","proba_id","created_at","dannye","sotrudnik_id"}, ...];
+      "primechaniya","proba_id","created_at","dannye","sotrudnik_id",
+      "srednyaya_vysota_m"}, ...];
     dannye — разобранный dannye_json (None для записей с веба)."""
     rows = conn.execute(
         "SELECT id, tip, data, prizhivaemost_pct, kolichestvo_na_ga, sostav_fakt, "
-        "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id "
+        "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id, srednyaya_vysota_m "
         "FROM lesokultury_meropriyatiya WHERE uchastok_id = ? ORDER BY id DESC",
         (uchastok_id,),
     ).fetchall()
@@ -2948,9 +2968,54 @@ def list_lesokultury_meropriyatiya(conn, uchastok_id):
         {"id": r[0], "tip": r[1], "data": r[2], "prizhivaemost_pct": r[3],
          "kolichestvo_na_ga": r[4], "sostav_fakt": r[5], "primechaniya": r[6],
          "proba_id": r[7], "created_at": r[8],
-         "dannye": json.loads(r[9]) if r[9] else None, "sotrudnik_id": r[10]}
+         "dannye": json.loads(r[9]) if r[9] else None, "sotrudnik_id": r[10],
+         "srednyaya_vysota_m": r[11]}
         for r in rows
     ]
+
+
+def get_lesokultury_meropriyatie(conn, meropriyatie_id):
+    """Одна запись журнала участка лесных культур по id, либо None — для
+    печати документа по конкретной записи (см. kartochka_perevoda_generator.py)."""
+    row = conn.execute(
+        "SELECT id, uchastok_id, tip, data, prizhivaemost_pct, kolichestvo_na_ga, sostav_fakt, "
+        "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id, srednyaya_vysota_m "
+        "FROM lesokultury_meropriyatiya WHERE id = ?",
+        (meropriyatie_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0], "uchastok_id": row[1], "tip": row[2], "data": row[3],
+        "prizhivaemost_pct": row[4], "kolichestvo_na_ga": row[5], "sostav_fakt": row[6],
+        "primechaniya": row[7], "proba_id": row[8], "created_at": row[9],
+        "dannye": json.loads(row[10]) if row[10] else None, "sotrudnik_id": row[11],
+        "srednyaya_vysota_m": row[12],
+    }
+
+
+def get_latest_lesokultury_perevod_meropriyatie(conn, uchastok_id):
+    """Последняя запись журнала участка с tip='Инвентаризация на перевод' и
+    заполненными данными полевой карточки (dannye_json) — источник данных
+    для печати "Карточки перевода" (приложение 19), когда пользователь не
+    указал конкретную запись явно."""
+    row = conn.execute(
+        "SELECT id, uchastok_id, tip, data, prizhivaemost_pct, kolichestvo_na_ga, sostav_fakt, "
+        "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id, srednyaya_vysota_m "
+        "FROM lesokultury_meropriyatiya "
+        "WHERE uchastok_id = ? AND tip = ? AND dannye_json IS NOT NULL "
+        "ORDER BY id DESC LIMIT 1",
+        (uchastok_id, "Инвентаризация на перевод"),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0], "uchastok_id": row[1], "tip": row[2], "data": row[3],
+        "prizhivaemost_pct": row[4], "kolichestvo_na_ga": row[5], "sostav_fakt": row[6],
+        "primechaniya": row[7], "proba_id": row[8], "created_at": row[9],
+        "dannye": json.loads(row[10]) if row[10] else None, "sotrudnik_id": row[11],
+        "srednyaya_vysota_m": row[12],
+    }
 
 
 if __name__ == "__main__":

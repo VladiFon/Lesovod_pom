@@ -16,10 +16,12 @@ def new_task_dir(task_id: str) -> Path:
     return d
 
 
-def register_document(conn, doc_type, delyanka_id, path, created_by=None, status="готов", error_text=None):
+def register_document(conn, doc_type, delyanka_id, path, created_by=None, status="готов",
+                       error_text=None, lesokultury_uchastok_id=None):
     path = str(path)
     file_name = Path(path).name
     return webext.add_document(
         conn, doc_type, delyanka_id, file_name, path,
         status=status, error_text=error_text, created_by=created_by,
+        lesokultury_uchastok_id=lesokultury_uchastok_id,
     )
