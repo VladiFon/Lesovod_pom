@@ -179,8 +179,7 @@ def _taxation_ploshad(conn, lesnichestvo: str) -> Dict[Tuple[str, str], str]:
         return {}
     result = {}
     for name, kv, vd, pl in rows:
-        n = _norm(name)
-        if target and n != target and target not in n and n not in target:
+        if not _lesn_match(target, name):
             continue
         result[(str(kv).strip(), str(vd).strip())] = fmt(_num(pl)) if _num(pl) is not None else str(pl or "")
     return result
@@ -193,8 +192,7 @@ def _uchastki(conn, lesnichestvo: str) -> List[dict]:
     out = []
     for row in conn_rows:
         u = dict(zip(cols, row))
-        own = _norm(u.get("lesnichestvo"))
-        if target and own and own != target and target not in own and own not in target:
+        if not _lesn_match(target, u.get("lesnichestvo")):
             continue
         out.append(u)
     return out
@@ -254,8 +252,14 @@ def _chasti_warning(u: dict, parts: List[dict]) -> Optional[str]:
 
 
 def _lesn_match(target: str, own) -> bool:
+    """Лесничество совпадает, если одно название содержит другое или у них
+    общая основа первого слова («Болбасовское», «Болбасовского л-ва»)."""
     own = _norm(own)
-    return not target or not own or own == target or target in own or own in target
+    if not target or not own or own == target or target in own or own in target:
+        return True
+    a, b = target.split()[0], own.split()[0]
+    n = min(len(a), len(b), 7)
+    return n >= 5 and a[:n] == b[:n]
 
 
 def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:
@@ -593,6 +597,47 @@ def svodnaya(result: dict) -> Dict[int, Tuple[float, int]]:
             parts = [out[i] for i in rule[1]]
             out[row_no] = (round(sum(p[0] for p in parts), 2), sum(p[1] for p in parts))
     return out
+
+
+def diagnostika(conn, god: int, lesnichestvo: str = "") -> dict:
+    """Что вообще есть в базе — показывается на сайте, когда ведомости
+    пустые: какие лесничества и годы записаны у культур и делянок, сколько
+    переводов/списаний и актов по годам. По ней видно, что не совпало
+    (лесничество, год, статус)."""
+    target = _norm(lesnichestvo)
+
+    def safe(sql, params=()):
+        try:
+            return conn.execute(sql, params).fetchall()
+        except Exception:  # noqa: BLE001
+            return []
+
+    def counter(values) -> List[list]:
+        out: Dict[str, int] = {}
+        for v in values:
+            key = str(v).strip() if v not in (None, "") else "(пусто)"
+            out[key] = out.get(key, 0) + 1
+        return sorted(([k, n] for k, n in out.items()), key=lambda x: -x[1])[:12]
+
+    uch = safe("SELECT lesnichestvo, god_sozdaniya FROM lesokultury_uchastok")
+    uch_f = [r for r in uch if _lesn_match(target, r[0])]
+    mer = safe("SELECT m.tip, m.data, u.lesnichestvo FROM lesokultury_meropriyatiya m "
+               "JOIN lesokultury_uchastok u ON u.id = m.uchastok_id")
+    items = safe("SELECT lesnichestvo, status_rabot, data_vypolneniya FROM delyanka_item")
+    acts = safe("SELECT act_date FROM osvidetelstvovanie_acts")
+    return {
+        "lesnichestvo_filtr": lesnichestvo,
+        "kultury_vsego": len(uch),
+        "kultury_v_lesnichestve": len(uch_f),
+        "kultury_lesnichestva": counter(r[0] for r in uch),
+        "kultury_gody_sozdaniya": counter(_year_of(r[1]) or r[1] for r in uch_f),
+        "zhurnal_po_godam": counter(f"{r[0]} — {_year_of(r[1]) or r[1] or '(без даты)'}"
+                                    for r in mer if _lesn_match(target, r[2])),
+        "delyanki_lesnichestva": counter(r[0] for r in items),
+        "delyanki_statusy": counter(f"{r[1] or '(нет)'} — {_year_of(r[2]) or 'без даты'}"
+                                    for r in items if _lesn_match(target, r[0])),
+        "akty_po_godam": counter(_year_of(r[0]) or r[0] for r in acts),
+    }
 
 
 def build(conn, god: int, lesnichestvo: str = "") -> dict:

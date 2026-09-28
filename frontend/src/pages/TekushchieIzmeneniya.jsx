@@ -214,6 +214,48 @@ function SvodnayaCard({ rows }) {
   );
 }
 
+const DIAG_LISTS = [
+  ["kultury_lesnichestva", "Лесничества у участков культур"],
+  ["kultury_gody_sozdaniya", "Годы создания культур (в выбранном лесничестве)"],
+  ["zhurnal_po_godam", "Журнал культур: мероприятие — год"],
+  ["delyanki_lesnichestva", "Лесничества у выделов делянок"],
+  ["delyanki_statusy", "Выделы делянок: статус — год выполнения"],
+  ["akty_po_godam", "Акты освидетельствования по годам"],
+];
+
+function DiagnostikaCard({ d, open }) {
+  return (
+    <Card>
+      <details open={open} className="text-xs">
+        <summary className="cursor-pointer font-semibold text-pine">
+          Что есть в базе (если ведомости пустые — посмотрите сюда)
+        </summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <p>
+            Участков культур всего: {d.kultury_vsego}, в лесничестве «{d.lesnichestvo_filtr || "все"}»: {d.kultury_v_lesnichestve}.
+          </p>
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
+            {DIAG_LISTS.map(([key, title]) => (
+              <div key={key}>
+                <div className="font-semibold text-muted mb-0.5">{title}</div>
+                {(d[key] || []).length === 0 ? (
+                  <div className="text-faint">нет</div>
+                ) : (
+                  <ul>
+                    {d[key].map(([k, n]) => (
+                      <li key={k}>{k}: {n}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
+    </Card>
+  );
+}
+
 export default function TekushchieIzmeneniya() {
   const toast = useToast();
   const [god, setGod] = useState(String(new Date().getFullYear()));
@@ -295,6 +337,9 @@ export default function TekushchieIzmeneniya() {
 
       {data ? (
         <>
+          {data.diagnostika && (
+            <DiagnostikaCard d={data.diagnostika} open={data.prilozheniya.every((p) => p.avto === 0)} />
+          )}
           <SvodnayaCard rows={data.svodnaya} />
           {data.prilozheniya.map((p) => (
             <PrilozhenieCard key={p.nomer} p={p} god={data.god} lesnichestvo={lesnichestvo.trim()} onChanged={load} />
