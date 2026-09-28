@@ -922,6 +922,12 @@ def migrate_schema(conn):
     # если база была создана до перехода на пошаговый опрос без ИИ
     if "tip_raboty" not in existing_raw_cols:
         conn.execute("ALTER TABLE raw_reports ADD COLUMN tip_raboty TEXT")
+    # координаты телефона и привязка к делянке / участку лесных культур —
+    # присылает мобильное приложение вместе с отчётом о работе
+    for col, col_type in (("lat", "REAL"), ("lon", "REAL"),
+                          ("delyanka_id", "INTEGER"), ("lesokultury_uchastok_id", "INTEGER")):
+        if col not in existing_raw_cols:
+            conn.execute(f"ALTER TABLE raw_reports ADD COLUMN {col} {col_type}")
 
     # независимая таблица выполненных работ (полностью отвязана от delyanka_item) —
     # создаём на случай, если база была создана до этого пивота
@@ -1806,7 +1812,8 @@ def complete_sluzhebnaya_zametka(conn, zametka_id):
 # --------------------------------------------------------------------------- #
 #   RAW_REPORTS — дедуп и отмена последнего отчёта (этап 10, telegram_bot.py)
 # --------------------------------------------------------------------------- #
-def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_path, opisanie):
+def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_path, opisanie,
+                    lat=None, lon=None, delyanka_id=None, lesokultury_uchastok_id=None):
     """Кладёт отчёт рабочего в буферную таблицу raw_reports на проверку
     лесничим (экран "Журнал ИИ"). Восстановлено в рамках подчасти 3.2
     доработки (перенос из telegram_bot.py, где раньше принимала общий
@@ -1822,8 +1829,9 @@ def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_p
     cur = conn.execute(
         """INSERT INTO raw_reports
                (ispolnitel_viber_id, ispolnitel_fio, kvartal, vydels,
-                data_soobscheniya, status, photo_path, opisanie, tip_raboty)
-           VALUES (?, ?, ?, ?, ?, 'на проверке', ?, ?, ?)""",
+                data_soobscheniya, status, photo_path, opisanie, tip_raboty,
+                lat, lon, delyanka_id, lesokultury_uchastok_id)
+           VALUES (?, ?, ?, ?, ?, 'на проверке', ?, ?, ?, ?, ?, ?, ?)""",
         (
             telegram_id,
             fio,
@@ -1833,6 +1841,10 @@ def save_raw_report(conn, telegram_id, fio, kvartal, vydels, tip_raboty, photo_p
             photo_path,
             opisanie,
             tip_raboty,
+            lat,
+            lon,
+            delyanka_id,
+            lesokultury_uchastok_id,
         ),
     )
     conn.commit()

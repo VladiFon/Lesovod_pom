@@ -247,6 +247,32 @@ class RawReportIn(BaseModel):
     vydels: Optional[List[str]] = None
     photo_path: Optional[str] = None
     opisanie: Optional[str] = None
+    # Приложение шлёт координаты телефона в момент отчёта и, если выбрано,
+    # делянку или участок лесных культур — раньше lat/lon молча отбрасывались.
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    delyanka_id: Optional[int] = None
+    lesokultury_uchastok_id: Optional[int] = None
+
+
+_PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
+
+
+def _check_photo_path(photo_path: Optional[str]) -> Optional[str]:
+    """photo_path приходит от клиента и потом отдаётся через
+    GET /api/ai-log/photo — принимаем только файлы, загруженные через
+    POST /api/bot/photo (папка mobile_photos), иначе отчёт мог бы
+    указать на любой файл сервера."""
+    if not photo_path:
+        return None
+    base = (UPLOADS_DIR / "mobile_photos").resolve()
+    try:
+        resolved = Path(photo_path).resolve()
+    except (OSError, ValueError):
+        raise HTTPException(400, "Некорректный путь к фото")
+    if base not in resolved.parents or resolved.suffix.lower() not in _PHOTO_SUFFIXES:
+        raise HTTPException(400, "Фото должно быть загружено через приложение")
+    return str(resolved)
 
 
 def _duplicate_row_to_dict(row) -> dict:
@@ -318,6 +344,15 @@ def create_report(
     if worker is None:
         raise HTTPException(404, "Рабочий не зарегистрирован")
     fio = _row_to_worker_dict(worker)["fio"]
+    photo_path = _check_photo_path(payload.photo_path)
+    if payload.delyanka_id is not None and conn.execute(
+        "SELECT 1 FROM delyanka WHERE id=?", (payload.delyanka_id,)
+    ).fetchone() is None:
+        raise HTTPException(400, "Делянка не найдена")
+    if payload.lesokultury_uchastok_id is not None and conn.execute(
+        "SELECT 1 FROM lesokultury_uchastok WHERE id=?", (payload.lesokultury_uchastok_id,)
+    ).fetchone() is None:
+        raise HTTPException(400, "Участок лесных культур не найден")
 
     report_id = legacy_db.save_raw_report(
         conn,
@@ -326,8 +361,12 @@ def create_report(
         payload.kvartal,
         payload.vydels,
         payload.tip_raboty,
-        payload.photo_path,
+        photo_path,
         payload.opisanie,
+        lat=payload.lat,
+        lon=payload.lon,
+        delyanka_id=payload.delyanka_id,
+        lesokultury_uchastok_id=payload.lesokultury_uchastok_id,
     )
     return {
         "id": report_id,
@@ -335,8 +374,12 @@ def create_report(
         "kvartal": payload.kvartal,
         "vydels": payload.vydels,
         "tip_raboty": payload.tip_raboty,
-        "photo_path": payload.photo_path,
+        "photo_path": photo_path,
         "opisanie": payload.opisanie,
+        "lat": payload.lat,
+        "lon": payload.lon,
+        "delyanka_id": payload.delyanka_id,
+        "lesokultury_uchastok_id": payload.lesokultury_uchastok_id,
     }
 
 
@@ -375,7 +418,7 @@ def create_breakdown(
         profile["fio"],
         profile["dolzhnost"],
         payload.detail_text,
-        payload.photo_path,
+        _check_photo_path(payload.photo_path),
     )
     lesnichiy_ids = legacy_db.get_lesnichiy_telegram_ids(conn)
     # Уведомление в системе (колокольчик) — рядом с Telegram-рассылкой, не
@@ -686,7 +729,7 @@ def create_geo_note(
     conn.execute(
         "INSERT INTO geo_notes (telegram_id, lat, lon, note_text, photo_path) "
         "VALUES (?, ?, ?, ?, ?)",
-        (payload.telegram_id, payload.lat, payload.lon, payload.note_text, payload.photo_path),
+        (payload.telegram_id, payload.lat, payload.lon, payload.note_text, _check_photo_path(payload.photo_path)),
     )
     conn.commit()
     note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -712,7 +755,9 @@ def upload_photo(
     файле) — эндпоинт загрузки специально отделён от создания самого
     отчёта, чтобы не переписывать уже готовые/протестированные
     create_report/create_breakdown/create_geo_note."""
-    suffix = Path(file.filename or "").suffix or ".jpg"
+    suffix = (Path(file.filename or "").suffix or ".jpg").lower()
+    if suffix not in _PHOTO_SUFFIXES:
+        raise HTTPException(400, "Можно загрузить только фото (jpg, png, webp, heic)")
     dest_dir = UPLOADS_DIR / "mobile_photos"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / f"{uuid.uuid4().hex}{suffix}"

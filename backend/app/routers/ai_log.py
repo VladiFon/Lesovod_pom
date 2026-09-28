@@ -29,6 +29,27 @@ router = APIRouter(prefix="/api/ai-log", tags=["ai_log"])
 
 @router.get("/raw-reports")
 def list_raw_reports(conn=Depends(get_conn), _user=Depends(get_current_user)):
+    cols = ["id", "ispolnitel_fio", "data_soobscheniya", "raw_text", "photo_path", "opisanie", "kvartal", "vydels", "tip_raboty"]
+    # lat/lon и привязку к делянке/участку л/к присылает мобильное приложение;
+    # на старой базе без этих колонок (миграция ещё не прошла) — без них.
+    extra = ["lat", "lon", "delyanka_id", "delyanka_nazvanie", "lesokultury_uchastok_id", "lesokultury_label", "lesnichestvo"]
+    try:
+        rows = conn.execute(
+            "SELECT r.id, r.ispolnitel_fio, r.data_soobscheniya, r.raw_text, r.photo_path, "
+            "r.opisanie, r.kvartal, r.vydels, r.tip_raboty, "
+            "r.lat, r.lon, r.delyanka_id, d.nazvanie, r.lesokultury_uchastok_id, "
+            "CASE WHEN lk.id IS NULL THEN NULL ELSE "
+            "'кв. ' || COALESCE(lk.kvartal,'') || ' выд. ' || COALESCE(lk.vydel,'') || "
+            "COALESCE(' · ' || lk.glavnaya_poroda, '') || COALESCE(' · ' || lk.god_sozdaniya, '') END, "
+            "lk.lesnichestvo "
+            "FROM raw_reports r "
+            "LEFT JOIN delyanka d ON d.id = r.delyanka_id "
+            "LEFT JOIN lesokultury_uchastok lk ON lk.id = r.lesokultury_uchastok_id "
+            "WHERE r.status='на проверке' ORDER BY r.id DESC"
+        ).fetchall()
+        return [dict(zip(cols + extra, r)) for r in rows]
+    except sqlite3.OperationalError:
+        pass
     try:
         rows = conn.execute(
             "SELECT id, ispolnitel_fio, data_soobscheniya, raw_text, photo_path, "
@@ -37,7 +58,6 @@ def list_raw_reports(conn=Depends(get_conn), _user=Depends(get_current_user)):
         ).fetchall()
     except sqlite3.OperationalError:
         return []
-    cols = ["id", "ispolnitel_fio", "data_soobscheniya", "raw_text", "photo_path", "opisanie", "kvartal", "vydels", "tip_raboty"]
     return [dict(zip(cols, r)) for r in rows]
 
 

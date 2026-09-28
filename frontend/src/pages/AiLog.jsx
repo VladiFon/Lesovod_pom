@@ -53,13 +53,38 @@ function PhotoThumb({ path }) {
   return <AuthImage path={`/ai-log/photo?path=${encodeURIComponent(path)}`} />;
 }
 
+/** Где рабочий был, когда отправлял отчёт: выбранный участок л/к или делянка и координаты телефона. */
+function ReportPlace({ report }) {
+  const hasCoords = report.lat != null && report.lon != null;
+  if (!report.lesokultury_label && !report.delyanka_nazvanie && !hasCoords) return null;
+  return (
+    <div className="flex flex-col gap-1 text-sm text-ink bg-surface-alt rounded-md p-3">
+      {report.lesokultury_label && <div>🌱 Лесные культуры: {report.lesokultury_label}</div>}
+      {report.delyanka_nazvanie && <div>🪓 Делянка: {report.delyanka_nazvanie}</div>}
+      {hasCoords && (
+        <div>
+          📍 {Number(report.lat).toFixed(5)}, {Number(report.lon).toFixed(5)}{" "}
+          <a
+            className="text-pine font-semibold hover:underline"
+            href={`https://yandex.ru/maps/?pt=${report.lon},${report.lat}&z=15&l=map`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            открыть на карте
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReviewPanel({ report, onDone }) {
   const toast = useToast();
   const [kvartal, setKvartal] = useState(report.kvartal || "");
   const [vydel, setVydel] = useState(report.vydels || "");
   const [tipRaboty, setTipRaboty] = useState(report.tip_raboty || "");
   const [ispolnitel, setIspolnitel] = useState(report.ispolnitel_fio || "");
-  const [lesnichestvo, setLesnichestvo] = useState("");
+  const [lesnichestvo, setLesnichestvo] = useState(report.lesnichestvo || "");
   const [opisanie, setOpisanie] = useState(report.opisanie || "");
   const [submitting, setSubmitting] = useState(null);
 
@@ -69,7 +94,7 @@ function ReviewPanel({ report, onDone }) {
     setTipRaboty(report.tip_raboty || "");
     setIspolnitel(report.ispolnitel_fio || "");
     setOpisanie(report.opisanie || "");
-    setLesnichestvo("");
+    setLesnichestvo(report.lesnichestvo || "");
   }, [report]);
 
   const handleApprove = async () => {
@@ -114,6 +139,7 @@ function ReviewPanel({ report, onDone }) {
           <p className="text-base text-ink bg-surface-alt rounded-md p-3">{report.raw_text || "(пустой текст сообщения)"}</p>
         </div>
         {report.photo_path && <PhotoThumb path={report.photo_path} />}
+        <ReportPlace report={report} />
         <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
           <TextField label="Квартал" value={kvartal} onChange={(e) => setKvartal(e.target.value)} />
           <TextField label="Выдел" value={vydel} onChange={(e) => setVydel(e.target.value)} />
