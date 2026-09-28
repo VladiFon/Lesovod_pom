@@ -16,7 +16,7 @@ export default function Modal({ open, onClose, title, footer, size = "md", child
 
   if (!open) return null;
 
-  const widths = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl" };
+  const widths = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-6xl" };
 
   return createPortal(
     // z-[1200]: Leaflet сам use'ет z-index до 1000 для своих контролов
