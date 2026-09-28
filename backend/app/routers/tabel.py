@@ -24,9 +24,11 @@
 экран как раз для них и делался, поэтому переведено на
 require_office_or_master, как и у остальных мобильных экранов
 руководителей.)"""
-from typing import Optional
+import re
+from datetime import datetime
+from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import webext
@@ -76,6 +78,47 @@ def list_lesokultury_uchastki_for_picker(
     return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=False, search=search)
 
 
+def _check_date(data: str) -> str:
+    """Дата табеля — строго "ГГГГ-ММ-ДД": по ней строятся UNIQUE и сравнения
+    с датами бригад, другой формат тихо дал бы пустой день."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data or ""):
+        raise HTTPException(400, "Дата в формате ГГГГ-ММ-ДД")
+    try:
+        datetime.strptime(data, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Такой даты не существует")
+    return data
+
+
+@router.get("/delyanki")
+def search_delyanki(
+    search: Optional[str] = None,
+    include_archived: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    user=Depends(require_office_or_master),
+    conn=Depends(get_conn),
+) -> list[dict]:
+    """Поиск делянки для места работы в табеле — список выделов делянок
+    (item_id = delyanka_item.id, его и надо сохранять в табель) с
+    подсказками по мере ввода: «12/5», номер лесосеки, название делянки,
+    лесничество. Раньше веб искал только точным кварталом+выделом и брал
+    первую найденную делянку, а на телефоне выбора делянки не было вовсе."""
+    return webext.search_tabel_delyanki(conn, search, include_archived, limit)
+
+
+@router.get("/brigady")
+def list_brigady_for_tabel(
+    data: str,
+    user=Depends(require_office_or_master),
+    conn=Depends(get_conn),
+) -> list[dict]:
+    """Бригады на дату — для ввода «по бригаде»: выбираешь бригадира, весь
+    состав на этот день отмечается «работал» с местом из назначения
+    бригады, отсутствующим ставишь свой статус. Сохраняется обычным
+    POST /api/tabel/day."""
+    return webext.list_tabel_brigady(conn, _check_date(data))
+
+
 @router.get("/day")
 def get_tabel_day(
     data: str,
@@ -84,12 +127,14 @@ def get_tabel_day(
 ) -> list[dict]:
     """Табель на один день — строка на КАЖДОГО активного сотрудника (не
     только уже заполненных), см. webext.get_tabel_day. data — "ГГГГ-ММ-ДД"."""
-    return webext.get_tabel_day(conn, data)
+    return webext.get_tabel_day(conn, _check_date(data))
 
 
 class TabelEntryIn(BaseModel):
     sotrudnik_id: int
-    status: str  # работал | не работал | больничный | отпуск | выходной
+    # Тот же набор, что CHECK в tabel_zapis: неверное значение — 422 с
+    # понятным текстом, а не 500 от IntegrityError.
+    status: Literal["работал", "не работал", "больничный", "отпуск", "выходной"]
     delyanka_item_id: Optional[int] = None
     lesokultury_uchastok_id: Optional[int] = None
     vid_raboty_id: Optional[int] = None
@@ -110,9 +155,10 @@ def save_tabel_day(
     """Пакетное сохранение табеля на один день — см. webext.save_tabel_day
     (UPSERT: повторное сохранение того же дня исправляет уже введённые
     записи, а не плодит дубли)."""
+    _check_date(body.data)
     try:
         webext.save_tabel_day(
-            conn, body.data, [e.dict() for e in body.entries], entered_by=user["login"],
+            conn, body.data, [e.model_dump() for e in body.entries], entered_by=user["login"],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
