@@ -8,16 +8,17 @@ import { useToast } from "../components/Toast.jsx";
 
 /**
  * «Текущие изменения» (приказ Минлесхоза №130 от 10.06.2026) — ведомости
- * для РУП «Белгослес». Пока прил. 4, 7, 14 из «Лесных культур»: на экране
- * строки и замечания (чего не хватает), кнопка — Word по шаблону
- * «Таблицы … ЗАПОЛНЯТЬ ЗДЕСЬ» (встроенному или своему). См.
- * backend/app/tekushchie_izmeneniya.py.
+ * для РУП «Белгослес», все 15 приложений: строки из лесных культур, делянок
+ * и рубок ухода, ручные строки (для приложений, данных которых в программе
+ * нет, и дополнения к любому), сводная прил. 2 и замечания (чего не
+ * хватает). Кнопка — Word по шаблону «Таблицы … ЗАПОЛНЯТЬ ЗДЕСЬ»
+ * (встроенному или своему). См. backend/app/tekushchie_izmeneniya.py.
  */
 
 async function downloadDocx(formData, fallbackName) {
   const token = localStorage.getItem("lesovod_token");
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
-  const res = await fetch(`${API_BASE_URL}/tekushchie-izmeneniya/lesokultury/docx`, {
+  const res = await fetch(`${API_BASE_URL}/tekushchie-izmeneniya/docx`, {
     method: "POST",
     headers,
     body: formData,
@@ -37,21 +38,82 @@ async function downloadDocx(formData, fallbackName) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Сразу отозванный blob браузер иногда сохраняет без имени — отзываем позже.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-function PrilozhenieCard({ p }) {
+function RuchnayaForm({ columns, initial, onSave, onCancel }) {
+  const [values, setValues] = useState(() => columns.map((_, i) => initial?.[i] ?? ""));
+  const [saving, setSaving] = useState(false);
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await onSave(values);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-2.5 bg-surface-alt">
+      <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(130px,1fr))]">
+        {columns.map((c, i) => (
+          <TextField
+            key={i}
+            label={c}
+            value={values[i]}
+            onChange={(e) => setValues((v) => v.map((x, j) => (j === i ? e.target.value : x)))}
+          />
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Button variant="primary" size="sm" onClick={submit} loading={saving}>Сохранить строку</Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>Отмена</Button>
+      </div>
+    </div>
+  );
+}
+
+function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
+  const toast = useToast();
   const [showAll, setShowAll] = useState(false);
-  const rows = showAll ? p.rows : p.rows.slice(0, 15);
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const ruchnyeById = Object.fromEntries(p.ruchnye.map((r, i) => [p.avto + i, r]));
+  const visible = showAll ? p.rows : p.rows.slice(0, 15);
+
+  const save = async (values, id) => {
+    try {
+      if (id) await api.patch(`/tekushchie-izmeneniya/ruchnye/${id}`, { values });
+      else await api.post("/tekushchie-izmeneniya/ruchnye", { god: Number(god), lesnichestvo, prilozhenie: p.nomer, values });
+      setAdding(false);
+      setEditId(null);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить строку", description: e.message });
+    }
+  };
+  const remove = async (id) => {
+    if (!window.confirm("Удалить строку, введённую вручную?")) return;
+    try {
+      await api.delete(`/tekushchie-izmeneniya/ruchnye/${id}`);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось удалить строку", description: e.message });
+    }
+  };
+
   return (
     <Card>
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="font-ui font-extrabold text-pine text-[14px]">{p.title}</h3>
           <span className="text-xs text-muted">
-            участков: {p.uchastki} · строк: {p.rows.length}
+            строк: {p.rows.length}{p.ruchnye.length > 0 && ` (вручную: ${p.ruchnye.length})`}
           </span>
         </div>
+        <p className="text-xs text-muted">
+          {p.istochnik ? `Откуда: ${p.istochnik}. Можно добавить строки вручную.` : "В программе этих данных нет — строки вводятся вручную."}
+        </p>
         {p.warnings.length > 0 && (
           <details className="text-xs">
             <summary className="cursor-pointer text-oak font-semibold">Не хватает данных: {p.warnings.length}</summary>
@@ -72,27 +134,81 @@ function PrilozhenieCard({ p }) {
                   {p.columns.map((c, i) => (
                     <th key={i} className="p-1.5 font-semibold align-bottom">{c}</th>
                   ))}
+                  <th className="p-1.5" />
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-t border-border">
-                    {r.map((v, j) => (
-                      <td key={j} className="p-1.5 whitespace-nowrap">{v || <span className="text-faint">—</span>}</td>
-                    ))}
-                  </tr>
-                ))}
+                {visible.map((r, i) => {
+                  const ruch = ruchnyeById[i];
+                  if (ruch && editId === ruch.id) {
+                    return (
+                      <tr key={i} className="border-t border-border">
+                        <td colSpan={p.columns.length + 1} className="p-1.5">
+                          <RuchnayaForm columns={p.columns} initial={ruch.values}
+                            onSave={(values) => save(values, ruch.id)} onCancel={() => setEditId(null)} />
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return (
+                    <tr key={i} className={`border-t border-border ${ruch ? "bg-surface-alt" : ""}`}>
+                      {r.map((v, j) => (
+                        <td key={j} className="p-1.5 whitespace-nowrap">{v || <span className="text-faint">—</span>}</td>
+                      ))}
+                      <td className="p-1.5 whitespace-nowrap text-right">
+                        {ruch && (
+                          <span className="inline-flex gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => setEditId(ruch.id)}>Изменить</Button>
+                            <Button variant="ghost" size="sm" onClick={() => remove(ruch.id)}>Удалить</Button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
-        {p.rows.length > 15 && (
-          <div>
+        <div className="flex flex-wrap gap-2">
+          {p.rows.length > 15 && (
             <Button variant="ghost" size="sm" onClick={() => setShowAll((v) => !v)}>
               {showAll ? "Свернуть" : `Показать все ${p.rows.length}`}
             </Button>
-          </div>
-        )}
+          )}
+          {!adding && <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>Добавить строку</Button>}
+        </div>
+        {adding && <RuchnayaForm columns={p.columns} onSave={(values) => save(values)} onCancel={() => setAdding(false)} />}
+      </div>
+    </Card>
+  );
+}
+
+function SvodnayaCard({ rows }) {
+  return (
+    <Card>
+      <div className="flex flex-col gap-3">
+        <h3 className="font-ui font-extrabold text-pine text-[14px]">Прил. 2 — сводная ведомость (считается из остальных)</h3>
+        <div className="overflow-auto border border-border rounded-md">
+          <table className="w-full text-xs border-collapse">
+            <thead className="bg-surface-alt text-muted text-left">
+              <tr>
+                <th className="p-1.5 font-semibold">Мероприятие</th>
+                <th className="p-1.5 font-semibold">Площадь, га</th>
+                <th className="p-1.5 font-semibold">Участков, шт.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.stroka} className="border-t border-border">
+                  <td className="p-1.5">{r.nazvanie}</td>
+                  <td className="p-1.5 whitespace-nowrap">{r.ploshad || <span className="text-faint">—</span>}</td>
+                  <td className="p-1.5 whitespace-nowrap">{r.kolichestvo || <span className="text-faint">—</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </Card>
   );
@@ -103,6 +219,8 @@ export default function TekushchieIzmeneniya() {
   const [god, setGod] = useState(String(new Date().getFullYear()));
   const [lesnichestvo, setLesnichestvo] = useState("");
   const [shablon, setShablon] = useState(null);
+  const [ploshadNachalo, setPloshadNachalo] = useState("");
+  const [ploshadKonec, setPloshadKonec] = useState("");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -120,7 +238,7 @@ export default function TekushchieIzmeneniya() {
     }
     setLoading(true);
     try {
-      setData(await api.get("/tekushchie-izmeneniya/lesokultury", { god, lesnichestvo: lesnichestvo.trim() || undefined }));
+      setData(await api.get("/tekushchie-izmeneniya", { god, lesnichestvo: lesnichestvo.trim() || undefined }));
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось собрать ведомости", description: e.message });
     } finally {
@@ -132,6 +250,8 @@ export default function TekushchieIzmeneniya() {
     const fd = new FormData();
     fd.append("god", god);
     fd.append("lesnichestvo", lesnichestvo.trim());
+    fd.append("ploshad_nachalo", ploshadNachalo.trim());
+    fd.append("ploshad_konec", ploshadKonec.trim());
     if (shablon) fd.append("shablon", shablon);
     setDownloading(true);
     try {
@@ -150,6 +270,8 @@ export default function TekushchieIzmeneniya() {
           <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(170px,1fr))] items-end">
             <TextField label="Отчётный год" type="number" value={god} onChange={(e) => setGod(e.target.value)} />
             <TextField label="Лесничество" placeholder="все" value={lesnichestvo} onChange={(e) => setLesnichestvo(e.target.value)} />
+            <TextField label="Общая площадь на начало года, га" placeholder="для прил. 1" value={ploshadNachalo} onChange={(e) => setPloshadNachalo(e.target.value)} />
+            <TextField label="Общая площадь на конец года, га" placeholder="для прил. 1" value={ploshadKonec} onChange={(e) => setPloshadKonec(e.target.value)} />
             <div className="col-span-2">
               <label className="block text-[11.5px] font-semibold text-muted mb-1">
                 Свой шаблон Word (необязательно)
@@ -162,16 +284,22 @@ export default function TekushchieIzmeneniya() {
             <Button variant="primary" onClick={handleDownload} loading={downloading}>Скачать Word</Button>
           </div>
           <p className="text-xs text-muted">
-            Заполняются прил. 4, 7 и 14 из «Лесокультур»; остальные приложения и шапки шаблона остаются как есть,
-            меняются только год и дата заполнения. Без своего шаблона берётся «Таблицы 2026 ЗАПОЛНЯТЬ ЗДЕСЬ».
-            Если участок в нескольких выделах, задайте на его карточке части по выделам — тогда в ведомости будет
-            строка на каждый подвыдел.
+            Заполняются все приложения: 4, 7, 14 — из «Лесокультур», 3 и 15 — из делянок (МДО) и рубок ухода,
+            2 — сводная из остальных. Для 5, 6, 8–13 данных в программе нет — добавьте строки вручную (и в любое
+            другое приложение, если чего-то не хватает). В шапках меняются год и дата заполнения, остальное — как в
+            шаблоне; без своего шаблона берётся «Таблицы 2026 ЗАПОЛНЯТЬ ЗДЕСЬ». Если участок культур в нескольких
+            выделах, задайте на его карточке части по выделам — тогда будет строка на каждый подвыдел.
           </p>
         </div>
       </Card>
 
       {data ? (
-        data.prilozheniya.map((p) => <PrilozhenieCard key={p.nomer} p={p} />)
+        <>
+          <SvodnayaCard rows={data.svodnaya} />
+          {data.prilozheniya.map((p) => (
+            <PrilozhenieCard key={p.nomer} p={p} god={data.god} lesnichestvo={lesnichestvo.trim()} onChanged={load} />
+          ))}
+        </>
       ) : (
         <Card>
           <EmptyState icon="📄" title="Выберите год и нажмите «Показать»" description="Или сразу «Скачать Word»." />
