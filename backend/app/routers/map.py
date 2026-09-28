@@ -11,6 +11,7 @@ from typing import Optional
 import hmac
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401
@@ -21,7 +22,8 @@ import sklad as sklad_store
 
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
-from app.auth import require_permission
+from app import map_features
+from app.auth import get_current_user, require_permission
 import webext
 
 router = APIRouter(prefix="/api/map", tags=["map"])
@@ -168,6 +170,14 @@ def get_import_batches(lesnichestvo_num: Optional[str] = None, conn=Depends(get_
     return map_import.list_import_batches(conn, lesnichestvo=_lesnichestvo_name(lesnichestvo_num))
 
 
+def _check_service_token(token: Optional[str]) -> None:
+    """Токен QGIS-моста в строке запроса (?token=...) — QGIS умеет добавить
+    слой только по URL целиком, свой заголовок туда не вставить."""
+    service_token = legacy_config.get_map_import_service_token()
+    if not service_token or not token or not hmac.compare_digest(token, service_token):
+        raise HTTPException(403, "Неверный токен")
+
+
 @router.get("/geo-notes.geojson")
 def get_geo_notes_geojson(token: str, conn=Depends(get_conn)):
     """Обратное направление к QGIS-мосту (16.09.2026) — метки/заметки,
@@ -175,39 +185,187 @@ def get_geo_notes_geojson(token: str, conn=Depends(get_conn)):
     отданные как GeoJSON, специально чтобы QGIS мог подключить этот адрес
     напрямую как обычный слой (Слой -> Добавить слой -> Добавить векторный
     слой -> протокол HTTP(S)/облако, вставить URL) — обновляется кнопкой
-    "Reload" в QGIS, безо всякого кода в плагине для этого направления
-    вообще не нужно.
+    "Reload" в QGIS. Плагин «Лесовод-мост» (кнопка «Метки рабочих»)
+    добавляет этот слой сам, с подписями и всплывающим окном с фото.
 
     Токен — параметром строки запроса (?token=...), а не заголовком
-    Authorization, как у остальных защищённых ручек: диалог "Добавить
-    векторный слой" в QGIS принимает только URL целиком, добавить туда
-    свой заголовок нельзя без отдельной настройки аутентификации внутри
-    QGIS — а вставить готовую ссылку с токеном внутри может любой,
-    ничего дополнительно не настраивая. Сверяется с тем же
-    LESOVOD_MAP_IMPORT_SERVICE_TOKEN, что и публикация в обратную
-    сторону (POST /import-layer) — один и тот же QGIS-мост, одна и та же
-    граница доверия, не нужен третий токен специально под чтение."""
-    service_token = legacy_config.get_map_import_service_token()
-    if not service_token or not hmac.compare_digest(token, service_token):
-        raise HTTPException(403, "Неверный токен")
-    rows = conn.execute(
-        "SELECT id, telegram_id, lat, lon, note_text, photo_path, created_at "
-        "FROM geo_notes WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY id DESC"
-    ).fetchall()
-    features = [
-        {
+    Authorization: диалог "Добавить векторный слой" в QGIS принимает
+    только URL целиком. Сверяется с тем же LESOVOD_MAP_IMPORT_SERVICE_TOKEN,
+    что и публикация в обратную сторону (POST /import-layer).
+
+    28.09.2026: добавлены author_fio, kategoriya (+ подпись и цвет) и
+    photo_url — адрес фото относительно сервера, к которому клиент сам
+    дописывает ?token= (фото отдаёт GET /geo-notes/{id}/photo ниже)."""
+    _check_service_token(token)
+    labels = {c["code"]: c for c in map_features.GEO_NOTE_CATEGORIES}
+    features = []
+    for note in map_features.list_geo_notes(conn):
+        category = labels[note["kategoriya"]]
+        features.append({
             "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [r[3], r[2]]},  # [lon, lat]
+            "geometry": {"type": "Point", "coordinates": [note["lon"], note["lat"]]},
             "properties": {
-                "id": r[0],
-                "telegram_id": r[1],
-                "note_text": r[4],
-                "photo_path": r[5],
-                "created_at": r[6],
+                "id": note["id"],
+                "telegram_id": note["telegram_id"],
+                "author_fio": note["author_fio"],
+                "note_text": note["note_text"],
+                "kategoriya": note["kategoriya"],
+                "kategoriya_label": category["label"],
+                "color": category["color"],
+                "photo_url": f"/api/map/geo-notes/{note['id']}/photo" if note["has_photo"] else None,
+                "created_at": note["created_at"],
             },
-        }
-        for r in rows
-    ]
+        })
+    return {"type": "FeatureCollection", "features": features}
+
+
+@router.get("/geo-notes/{note_id}/photo")
+def get_geo_note_photo_for_qgis(note_id: int, token: str, conn=Depends(get_conn)):
+    """Фото метки для всплывающего окна в QGIS (<img src="...?token=...">)."""
+    _check_service_token(token)
+    return _geo_note_photo_response(conn, note_id)
+
+
+def _geo_note_photo_response(conn, note_id: int):
+    row = map_features.geo_note_photo_path(conn, note_id)
+    if row is None or not row[1]:
+        raise HTTPException(404, "Фото не найдено")
+    path = Path(row[1])
+    if not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".heic"}:
+        raise HTTPException(404, "Фото не найдено")
+    return FileResponse(str(path), headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"})
+
+
+# --------------------------------------------------------------------------- #
+#   Карта мобильного приложения (28.09.2026): цвета, статусы, поиск, история
+# --------------------------------------------------------------------------- #
+@router.get("/work-colors")
+def get_work_colors(lesnichestvo_num: str, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Раскраска выделов по видам выполненных работ — отдельно от геометрии
+    (GET /vydela), чтобы телефон мог держать геометрию в кэше неделями, а
+    цвета обновлять каждые несколько минут."""
+    return map_features.work_colors(conn, lesnichestvo_num)
+
+
+@router.get("/delyanka-statuses")
+def get_delyanka_statuses(_user=Depends(get_current_user)):
+    """Легенда статусов делянок (delyanka_item.status_rabot)."""
+    return map_features.DELYANKA_STATUSES
+
+
+@router.get("/search")
+def search_map(q: str, lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn),
+               _user=Depends(get_current_user)):
+    """Поиск по кварталу ("12"), выделу ("12/5", "кв 12 выд 5"), делянке
+    (по названию) и лесным культурам (порода, год)."""
+    return map_features.search(conn, q, lesnichestvo_num)
+
+
+@router.get("/lesokultury")
+def get_lesokultury_for_map(lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn),
+                            _user=Depends(get_current_user)):
+    """Участки лесных культур для подсветки выделов на карте."""
+    return map_features.lesokultury_for_map(conn, lesnichestvo_num)
+
+
+@router.get("/vydel-history")
+def get_vydel_history(kvartal: str, vydel: str, lesnichestvo_num: Optional[str] = None,
+                      conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Что делали на выделе: выполненные работы, делянки, лесные культуры."""
+    return map_features.vydel_history(conn, lesnichestvo_num, kvartal, vydel)
+
+
+@router.get("/completed-work/{work_id}/photo")
+def get_completed_work_photo(work_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Фото выполненной работы для истории выдела (по id, а не по пути на диске)."""
+    row = conn.execute("SELECT photo_path FROM completed_works WHERE id=?", (work_id,)).fetchone()
+    if row is None or not row[0]:
+        raise HTTPException(404, "Фото не найдено")
+    path = Path(row[0])
+    if not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}:
+        raise HTTPException(404, "Фото не найдено")
+    return FileResponse(str(path), headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"})
+
+
+# --------------------------------------------------------------------------- #
+#   Слои для QGIS (кнопки плагина «Лесовод-мост»), токен — как у geo-notes
+# --------------------------------------------------------------------------- #
+def _vydel_polygons(lesnichestvo_num: Optional[str], wanted: dict):
+    """{(num_lch, кв, выд): props} -> Features с полигонами выделов из
+    map_vydela.geojson (своей геометрии у делянок/л/к обычно нет)."""
+    nums = [lesnichestvo_num] if lesnichestvo_num else sorted({k[0] for k in wanted})
+    features = []
+    for num in nums:
+        try:
+            gdf = forest_map._read_filtered_layer(
+                forest_map.FOREST_MAP_VYDELA_GEOJSON, num,
+                forest_map.FOREST_MAP_SOURCE_EPSG, forest_map.FOREST_MAP_TARGET_EPSG,
+            )
+        except Exception as e:  # noqa: BLE001
+            raise _map_layer_error_to_http(e)
+        if gdf.empty:
+            continue
+        for _, row in gdf.iterrows():
+            key = (str(num), map_features.norm_id(row.get("num_kv")), map_features.norm_id(row.get("num_vd")))
+            for props in wanted.get(key, []):
+                features.append({
+                    "type": "Feature",
+                    "geometry": row.geometry.__geo_interface__,
+                    "properties": props,
+                })
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _num_for_lesnichestvo(name: Optional[str]) -> Optional[str]:
+    canonical = map_features.canonical_lesnichestvo(name)
+    num = legacy_config.LCH_MAP.get(canonical) if canonical else None
+    return str(num) if num is not None else None
+
+
+@router.get("/qgis/delyanki.geojson")
+def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
+    """Делянки со статусом работ — полигоны выделов, для QGIS."""
+    _check_service_token(token)
+    colors = {s["status"]: s["color"] for s in map_features.DELYANKA_STATUSES}
+    wanted: dict = {}
+    for item_id, d_id, nazvanie, kv, vd, lesn, status_rabot, ploshad in conn.execute(
+        """SELECT i.id, d.id, d.nazvanie, i.kvartal, i.vydel, i.lesnichestvo, i.status_rabot, i.ploshad
+           FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id"""
+    ).fetchall():
+        num = _num_for_lesnichestvo(lesn)
+        if num is None or (lesnichestvo_num and num != str(lesnichestvo_num)):
+            continue
+        status = status_rabot or map_features.STATUS_WAITING
+        wanted.setdefault((num, map_features.norm_id(kv), map_features.norm_id(vd)), []).append({
+            "item_id": item_id, "delyanka_id": d_id, "nazvanie": nazvanie,
+            "kvartal": map_features.norm_id(kv), "vydel": map_features.norm_id(vd),
+            "lesnichestvo": lesn, "status_rabot": status, "color": colors.get(status, "#9e9e9e"),
+            "ploshad": ploshad,
+        })
+    return _vydel_polygons(lesnichestvo_num, wanted)
+
+
+@router.get("/qgis/lesokultury.geojson")
+def get_lesokultury_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
+    """Участки лесных культур — полигоны выделов, для QGIS."""
+    _check_service_token(token)
+    wanted: dict = {}
+    for u in map_features.lesokultury_for_map(conn, lesnichestvo_num):
+        num = _num_for_lesnichestvo(u["lesnichestvo"])
+        if num is None or (lesnichestvo_num and num != str(lesnichestvo_num)):
+            continue
+        wanted.setdefault((num, u["kvartal"], u["vydel"]), []).append(u)
+    return _vydel_polygons(lesnichestvo_num, wanted)
+
+
+@router.get("/qgis/tracks.geojson")
+def get_tracks_geojson_for_qgis(token: str, conn=Depends(get_conn)):
+    """Контуры, обмеренные обходом с телефона."""
+    _check_service_token(token)
+    features = []
+    for t in map_features.list_tracks(conn):
+        geometry = t.pop("geometry")
+        features.append({"type": "Feature", "geometry": geometry, "properties": t})
     return {"type": "FeatureCollection", "features": features}
 
 

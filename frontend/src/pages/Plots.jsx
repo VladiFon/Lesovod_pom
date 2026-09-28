@@ -518,6 +518,8 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
   );
 }
 
+const STATUS_RABOT_OPTIONS = ["ожидает", "в работе", "выполнено"];
+
 function PlotDetail({ delyankaId, onListChanged }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -545,6 +547,17 @@ function PlotDetail({ delyankaId, onListChanged }) {
       setLoading(false);
     }
   }, [delyankaId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Статус работ по выделу делянки — цвет на карте приложения
+  // ("в работе" ставится сам по первому отчёту, "выполнено" — здесь).
+  const updateItemStatus = async (item, status) => {
+    try {
+      await api.patch(`/delyanki/items/${item.id}`, { status_rabot: status });
+      setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status_rabot: status } : it)));
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сменить статус", description: e.message });
+    }
+  };
 
   const loadDocuments = useCallback(async () => {
     setDocsLoading(true);
@@ -837,6 +850,7 @@ function PlotDetail({ delyankaId, onListChanged }) {
                   <th className="px-3 py-2">Категория</th>
                   <th className="px-3 py-2">Площадь, га</th>
                   <th className="px-3 py-2">Состав</th>
+                  <th className="px-3 py-2">Статус работ</th>
                   <th className="px-3 py-2">Абрис</th>
                 </tr>
               </thead>
@@ -848,6 +862,18 @@ function PlotDetail({ delyankaId, onListChanged }) {
                     <td className="px-3 py-2 text-ink">{it.kategoriya_lesov || "—"}</td>
                     <td className="px-3 py-2 text-ink">{it.ploshad || "—"}</td>
                     <td className="px-3 py-2 text-ink">{it.sostav || "—"}</td>
+                    <td className="px-3 py-2">
+                      <select
+                        value={it.status_rabot || "ожидает"}
+                        onChange={(e) => updateItemStatus(it, e.target.value)}
+                        className="bg-surface border border-border focus:border-pine rounded-lg px-2 h-8 text-[12.5px] text-ink outline-none"
+                        title="Цвет выдела делянки на карте в приложении"
+                      >
+                        {STATUS_RABOT_OPTIONS.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       <button
                         onClick={() => openAbrisTool(it)}

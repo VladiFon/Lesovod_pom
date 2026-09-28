@@ -20,6 +20,7 @@ LCH_MAP по-прежнему берётся из config.py (там и было 
 """
 
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -221,29 +222,42 @@ def _forest_map_load_completed_works(db_path, target_lch_name):
     и работы одного лесничества дублировались на карте другого."""
     conn = sqlite3.connect(db_path)
     try:
+        # Лесничество сравниваем без учёта написания (28.09.2026): при
+        # подтверждении отчёта на сайте его вписывали руками, и работа с
+        # "Оршанское лесничество" вместо "Оршанское" не красила карту никогда.
         rows = conn.execute(
-            "SELECT kvartal, vydel, tip_raboty, ispolnitel_fio, data_vypolneniya "
-            "FROM completed_works WHERE kvartal IS NOT NULL AND vydel IS NOT NULL "
-            "AND lesnichestvo = ?",
-            (target_lch_name,),
+            "SELECT kvartal, vydel, tip_raboty, ispolnitel_fio, data_vypolneniya, lesnichestvo "
+            "FROM completed_works WHERE kvartal IS NOT NULL AND vydel IS NOT NULL"
         ).fetchall()
     finally:
         conn.close()
 
+    target = _forest_map_norm_lch(target_lch_name)
     lookup = {}
-    for kvartal, vydel, tip_raboty, fio, data_vyp in rows:
-        key = (_forest_map_norm_id(kvartal), _forest_map_norm_id(vydel))
-        if not key[0] or not key[1]:
+    for kvartal, vydel, tip_raboty, fio, data_vyp, lesnichestvo in rows:
+        if _forest_map_norm_lch(lesnichestvo) != target:
             continue
-        entry = {
-            "tip_raboty": (tip_raboty or "").strip(),
-            "ispolnitel_fio": (fio or "").strip(),
-            "data_vypolneniya": (data_vyp or "").strip(),
-        }
-        entries = lookup.setdefault(key, [])
-        if entry not in entries:
-            entries.append(entry)
+        # выделы в отчётах бывают списком "3,4" — каждый свой ключ
+        for single_vydel in re.split(r"[,;\s]+", str(vydel)):
+            key = (_forest_map_norm_id(kvartal), _forest_map_norm_id(single_vydel))
+            if not key[0] or not key[1]:
+                continue
+            entry = {
+                "tip_raboty": (tip_raboty or "").strip(),
+                "ispolnitel_fio": (fio or "").strip(),
+                "data_vypolneniya": (data_vyp or "").strip(),
+            }
+            entries = lookup.setdefault(key, [])
+            if entry not in entries:
+                entries.append(entry)
     return lookup
+
+
+def _forest_map_norm_lch(value):
+    """'Оршанское', 'Оршанское лесничество', ' оршанское' -> 'оршанское'."""
+    text = (value or "").strip().lower().replace("ё", "е")
+    text = re.sub(r"\bлесничеств[оа]\b", "", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _forest_map_popup_html(num_kv, num_vd, entries):

@@ -78,6 +78,35 @@ function ReportPlace({ report }) {
   );
 }
 
+/**
+ * Лесничество — выбором из справочника (GET /map/lesnichestva), а не
+ * текстом: карта красит выдел, только если название совпадает с
+ * справочным ("Оршанское", а не "Оршанское лесничество").
+ */
+function LesnichestvoSelect({ value, onChange }) {
+  const [options, setOptions] = useState([]);
+  useEffect(() => {
+    api.get("/map/lesnichestva").then((map) => setOptions(Object.keys(map || {}))).catch(() => setOptions([]));
+  }, []);
+  const known = !value || options.includes(value);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm text-muted font-medium">Лесничество</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none"
+      >
+        <option value="">— выберите —</option>
+        {!known && <option value={value}>{value} (нет в справочнике)</option>}
+        {options.map((name) => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function ReviewPanel({ report, onDone }) {
   const toast = useToast();
   const [kvartal, setKvartal] = useState(report.kvartal || "");
@@ -147,7 +176,7 @@ function ReviewPanel({ report, onDone }) {
         <TextField label="Тип работы" value={tipRaboty} onChange={(e) => setTipRaboty(e.target.value)} />
         <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
           <TextField label="Исполнитель" value={ispolnitel} onChange={(e) => setIspolnitel(e.target.value)} />
-          <TextField label="Лесничество" value={lesnichestvo} onChange={(e) => setLesnichestvo(e.target.value)} />
+          <LesnichestvoSelect value={lesnichestvo} onChange={setLesnichestvo} />
         </div>
         <TextField label="Описание" value={opisanie} onChange={(e) => setOpisanie(e.target.value)} />
         <div className="flex items-center gap-2">
