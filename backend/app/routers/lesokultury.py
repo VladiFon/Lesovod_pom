@@ -415,3 +415,34 @@ def create_perevod(
     «списан»; «не переводить» / «доработать» — статус не меняется. Соответствие нормативу
     (приложение 18) сервер не проверяет — решение только ручное."""
     return _record_field_card(conn, uchastok_id, user, body, TIP_PEREVOD_INVENTORY, body.reshenie)
+
+
+class UchastokPolyaIn(BaseModel):
+    """Поля участка, которые дописывают в лесу с телефона (для прил. 7
+    ведомости текущих изменений). Не переданное (null) не меняется."""
+
+    podvydel: Optional[str] = Field(default=None, max_length=20)
+    metod_sozdaniya: Optional[str] = Field(default=None, max_length=100)
+    sposob_obrabotki: Optional[str] = Field(default=None, max_length=100)
+    shema_mezhdu_ryadami: Optional[float] = Field(default=None, gt=0, le=20)
+    shema_v_ryadu: Optional[float] = Field(default=None, gt=0, le=20)
+    gustota_posadki: Optional[float] = Field(default=None, gt=0, le=100000)
+    posadochnyy_material: Optional[str] = Field(default=None, max_length=200)
+
+
+@router.patch("/{uchastok_id}/polya")
+def update_polya(
+    uchastok_id: int,
+    body: UchastokPolyaIn,
+    conn=Depends(get_conn),
+    user=Depends(require_office_writer_or_master),
+):
+    """Правка полей участка с телефона — мастеру не нужно право
+    lesokultury.edit, но менять можно только эти поля (не статус,
+    не квартал/выдел)."""
+    if legacy_db.get_lesokultury_uchastok(conn, uchastok_id) is None:
+        raise HTTPException(404, "Участок не найден")
+    fields = {k: (v.strip() if isinstance(v, str) else v) for k, v in body.model_dump().items() if v is not None}
+    if fields:
+        legacy_db.update_lesokultury_uchastok(conn, uchastok_id, **fields)
+    return {"ok": True, "izmeneno": sorted(fields)}
