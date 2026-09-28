@@ -1119,19 +1119,24 @@ function renderBBoxAndSvg(points){
   const contourLayer = el("g", {id:"contourLayer"}, svg);
   STATE.contourLayer = contourLayer;
 
+  // Граница лесосеки — на бланке всегда чёрная сплошная линия (см. легенду
+  // "Граница лесосеки, погрузочных пунктов"); на экране цвет темы редактора,
+  // на печати/экспорте принудительно чёрный - см. applyPrintPalette.
   const pathD = screenPts.map((p,i) => `${i===0?'M':'L'} ${p.s.x.toFixed(2)} ${p.s.y.toFixed(2)}`).join(" ") + " Z";
   el("path", {
     d: pathD,
     fill: "rgba(127,163,122,0.10)",
     stroke: "#7fa37a",
     "stroke-width": 2.5,
-    "stroke-linejoin":"round"
+    "stroke-linejoin":"round",
+    "data-print-black":"1"
   }, contourLayer);
   screenPts.forEach(p => {
-    el("circle", {cx:p.s.x, cy:p.s.y, r:5.5, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":2}, contourLayer);
+    el("circle", {cx:p.s.x, cy:p.s.y, r:5.5, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":2, "data-print-black":"1"}, contourLayer);
     el("text", {
       x: p.s.x + 12, y: p.s.y - 10,
-      "font-size":13, fill:"#c9a24b", "font-weight":"600"
+      "font-size":13, fill:"#c9a24b", "font-weight":"600",
+      "data-print-black":"1"
     }, contourLayer).textContent = p.n;
   });
 
@@ -1928,20 +1933,26 @@ function drawStrips(segments, trailSegments, strips, theta, width){
   const layer = STATE.stripLayer;
   layer.innerHTML = "";
 
+  // Границы пасек и волок — на экране цвета темы редактора (видны на тёмном
+  // фоне), но на печати/в техкарте обязаны быть чёрными как на официальном
+  // бланке (см. applyPrintPalette: data-print-black принудительно красит
+  // stroke/fill в #111111 в экспортной копии, не трогая цвет на экране).
   segments.forEach(([p1,p2]) => {
     const s1 = worldToScreen(p1), s2 = worldToScreen(p2);
     el("line", {
       x1:s1.x, y1:s1.y, x2:s2.x, y2:s2.y,
-      stroke:"#7fa37a", "stroke-width":1.4, "stroke-dasharray":"1 5", "stroke-linecap":"round"
+      stroke:"#7fa37a", "stroke-width":1.4, "stroke-dasharray":"1 5", "stroke-linecap":"round",
+      "data-print-black":"1"
     }, layer);
   });
 
-  // волок пасеки — две сближенные параллельные чёрные линии по середине каждой полосы
+  // волок пасеки — две сближенные параллельные линии по середине каждой полосы
   trailSegments.forEach(([p1,p2]) => {
     const s1 = worldToScreen(p1), s2 = worldToScreen(p2);
     el("line", {
       x1:s1.x, y1:s1.y, x2:s2.x, y2:s2.y,
-      stroke:"#c9a24b", "stroke-width":1.6, "stroke-linecap":"round"
+      stroke:"#c9a24b", "stroke-width":1.6, "stroke-linecap":"round",
+      "data-print-black":"1"
     }, layer);
   });
 
@@ -2013,11 +2024,14 @@ function drawArrow(layer, centerWorld, dirUnit, lengthMeters){
   const s1 = worldToScreen(p1), s2 = worldToScreen(p2);
   const angleDeg = Math.atan2(s2.y-s1.y, s2.x-s1.x) * 180/Math.PI;
 
-  el("line", {x1:s1.x, y1:s1.y, x2:s2.x, y2:s2.y, stroke:"#c9a24b", "stroke-width":1.6}, layer);
+  // "Направление разработки пасеки" - в легенде уже чёрная стрелка
+  // (#111111), поэтому на печати тоже принудительно чёрная (data-print-black).
+  el("line", {x1:s1.x, y1:s1.y, x2:s2.x, y2:s2.y, stroke:"#c9a24b", "stroke-width":1.6, "data-print-black":"1"}, layer);
   const head = el("path", {
     d:"M 0 0 L -7 -3.5 L -7 3.5 Z",
     fill:"#c9a24b",
-    transform:`translate(${s2.x},${s2.y}) rotate(${angleDeg})`
+    transform:`translate(${s2.x},${s2.y}) rotate(${angleDeg})`,
+    "data-print-black":"1"
   }, layer);
 }
 
@@ -2602,6 +2616,7 @@ const LEGEND_LEFT = [
   {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="2.2"/>`), label: "Граница лесосеки, погрузочных пунктов", cat:"boundary"},
   {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="14" y2="10" stroke="#c1542c" stroke-width="1.6"/><circle cx="18" cy="10" r="1.6" fill="#c1542c"/><line x1="22" y1="10" x2="35" y2="10" stroke="#c1542c" stroke-width="1.6"/>`), label: "Границы зон безопасности", cat:"safety"},
   {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="1.3" stroke-dasharray="4 3"/>`), label: "Границы пасек", cat:"strip"},
+  {swatch: () => svgSwatch(`<line x1="1" y1="7" x2="35" y2="7" stroke="#111111" stroke-width="1.3"/><line x1="1" y1="13" x2="35" y2="13" stroke="#111111" stroke-width="1.3"/>`), label: "Волок", cat:"strip"},
   {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="27" y2="10" stroke="#111111" stroke-width="1.4"/><path d="M27 10 L20 6 L20 14 Z" fill="#111111"/>`), label: "Направление разработки пасеки", cat:"strip"},
   {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="9" fill="#ffffff" stroke="#c1542c" stroke-width="1.2"/><text x="18" y="13" font-size="10" text-anchor="middle" fill="#c1542c" font-weight="700">1</text>`), label: "Номер участка (пасеки лесозаготовки) 1,2,3…", cat:"strip"},
   {swatch: () => svgSwatch(`<text x="18" y="14" font-size="13" text-anchor="middle" fill="#111111">***</text>`), label: "Порубочные остатки", cat:"other"},
@@ -2705,8 +2720,32 @@ function printSafeRgba(v){
   const a = Math.max(parseFloat(m[4]), PRINT_MIN_FILL_ALPHA);
   return `rgba(${r},${g},${b},${a})`;
 }
+// Элементы, помеченные при отрисовке атрибутом data-print-black="1" -
+// граница лесосеки, границы пасек, волок (см. renderBBoxAndSvg/drawStrips) -
+// печатаются строго чёрным (#111111, как в легенде), а не просто
+// "достаточно тёмным" цветом своей темы. Обычное затемнение по яркости
+// (printSafeHex/printSafeRgba ниже) для этих трёх категорий недостаточно:
+// оно сохраняет оттенок (тёмно-зелёный/тёмно-охристый), а на ч/б принтере
+// такой не-чёрный, пусть и тёмный, цвет печатается заметно бледнее чистого
+// чёрного - именно на это и жаловались при печати реальной техкарты.
+const PRINT_FORCE_BLACK = "#111111";
+
 function applyPrintPalette(root){
   root.querySelectorAll("*").forEach(node => {
+    if(node.getAttribute("data-print-black") === "1"){
+      // Только обводку красим в чёрный - заливку (полупрозрачный фон
+      // делянки, "бумажный" кружок точки-вершины) не трогаем, иначе вместо
+      // контура получится сплошное чёрное пятно. У текстовых подписей
+      // (номера вершин) обводки нет - для них красим fill.
+      const stroke = node.getAttribute("stroke");
+      if(stroke && stroke !== "none"){
+        node.setAttribute("stroke", PRINT_FORCE_BLACK);
+      } else {
+        const fill = node.getAttribute("fill");
+        if(fill && fill !== "none") node.setAttribute("fill", PRINT_FORCE_BLACK);
+      }
+      return;
+    }
     // Спец-случай: подписи на экране - светлый текст с тёмным хало
     // (для тёмного фона редактора). На белом листе инвертируем: тёмная
     // буква + белая обводка, иначе текст выглядит полым/невидимым.
