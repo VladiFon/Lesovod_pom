@@ -2830,13 +2830,8 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
     if god:
         where.append("lk.god_sozdaniya LIKE ?")
         params.append(f"%{god}%")
-    if search:
-        where.append(
-            "(lk.kvartal LIKE ? OR lk.vydel LIKE ? OR lk.lesnichestvo LIKE ? "
-            "OR lk.glavnaya_poroda LIKE ? OR d.nazvanie LIKE ?)"
-        )
-        like = f"%{search}%"
-        params.extend([like, like, like, like, like])
+    # search фильтруется ниже в Python: SQLite LIKE без учёта регистра
+    # работает только для латиницы, «сосна» не находила «Сосна».
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     try:
         rows = conn.execute(
@@ -2867,6 +2862,10 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
     result = [dict(zip(columns, row)) for row in rows]
     if not include_spisannye:
         result = [r for r in result if r["status"] == "активен"]
+    q = (search or "").strip().casefold()
+    if q:
+        fields = ("kvartal", "vydel", "lesnichestvo", "glavnaya_poroda", "delyanka_nazvanie")
+        result = [r for r in result if any(q in str(r[f] or "").casefold() for f in fields)]
     return result
 
 
@@ -2952,7 +2951,8 @@ def list_lesokultury_meropriyatiya(conn, uchastok_id):
     dannye — разобранный dannye_json (None для записей с веба)."""
     rows = conn.execute(
         "SELECT id, tip, data, prizhivaemost_pct, kolichestvo_na_ga, sostav_fakt, "
-        "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id "
+        "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id, "
+        "(SELECT fio FROM sotrudniki s WHERE s.id = lesokultury_meropriyatiya.sotrudnik_id) "
         "FROM lesokultury_meropriyatiya WHERE uchastok_id = ? ORDER BY id DESC",
         (uchastok_id,),
     ).fetchall()
@@ -2960,7 +2960,8 @@ def list_lesokultury_meropriyatiya(conn, uchastok_id):
         {"id": r[0], "tip": r[1], "data": r[2], "prizhivaemost_pct": r[3],
          "kolichestvo_na_ga": r[4], "sostav_fakt": r[5], "primechaniya": r[6],
          "proba_id": r[7], "created_at": r[8],
-         "dannye": json.loads(r[9]) if r[9] else None, "sotrudnik_id": r[10]}
+         "dannye": json.loads(r[9]) if r[9] else None, "sotrudnik_id": r[10],
+         "avtor_fio": r[11]}
         for r in rows
     ]
 

@@ -388,7 +388,13 @@ function UchastokDetail({ uchastokId, onListChanged }) {
                 { key: "prizhivaemost_pct", header: "Приживаемость, %", render: (r) => r.prizhivaemost_pct ?? "—" },
                 { key: "kolichestvo_na_ga", header: "Шт/га", render: (r) => r.kolichestvo_na_ga ?? "—" },
                 { key: "sostav_fakt", header: "Состав факт.", render: (r) => r.sostav_fakt || "—" },
-                { key: "primechaniya", header: "Примечания", render: (r) => r.primechaniya || "—" },
+                { key: "primechaniya", header: "Примечания", render: (r) => (
+                  <div>
+                    <div>{r.primechaniya || "—"}</div>
+                    {r.avtor_fio && <div className="text-xs text-muted mt-0.5">📱 {r.avtor_fio}</div>}
+                    {r.dannye && <FieldCardDetails dannye={r.dannye} />}
+                  </div>
+                ) },
               ]}
               rows={meropriyatiya}
               emptyTitle="Журнал пуст"
@@ -398,6 +404,52 @@ function UchastokDetail({ uchastokId, onListChanged }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+// Полевая карточка с телефона (инвентаризация/перевод): таблица проб и
+// результаты по породам лежат в dannye — раньше на вебе видна была только
+// текстовая сводка в «Примечаниях».
+function FieldCardDetails({ dannye }) {
+  const proby = dannye.proby || [];
+  const rezultaty = dannye.rezultaty || [];
+  return (
+    <details className="mt-1">
+      <summary className="text-xs text-pine cursor-pointer">Пробы и результаты с телефона</summary>
+      <div className="mt-1.5 flex flex-col gap-2 text-xs">
+        {proby.length > 0 && (
+          <div>
+            <div className="text-muted mb-0.5">Пробы{dannye.god ? ` · ${dannye.god}-й год` : ""}</div>
+            {proby.map((p, i) => (
+              <div key={i}>№{p.nomer} — {p.razmer}</div>
+            ))}
+          </div>
+        )}
+        {rezultaty.length > 0 && (
+          <table className="border-collapse">
+            <thead>
+              <tr className="text-muted text-left">
+                <th className="pr-3 font-normal">Порода</th>
+                <th className="pr-3 font-normal">Высажено</th>
+                <th className="pr-3 font-normal">Прижилось</th>
+                <th className="font-normal">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rezultaty.map((r, i) => (
+                <tr key={i}>
+                  <td className="pr-3">{r.poroda}</td>
+                  <td className="pr-3">{r.vysazheno}</td>
+                  <td className="pr-3">{r.prizhilos}</td>
+                  <td>{r.vysazheno ? Math.round((r.prizhilos / r.vysazheno) * 1000) / 10 : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {dannye.reshenie && <div>Решение: {dannye.reshenie}</div>}
+      </div>
+    </details>
   );
 }
 
