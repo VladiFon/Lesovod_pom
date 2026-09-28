@@ -40,6 +40,7 @@ from app.routers import (
     tabel,
     taxation,
     tasks,
+    tekushchie_izmeneniya,
     trelevka,
     uhody,
     work_plan,
@@ -105,6 +106,7 @@ app.include_router(map_router.router)
 app.include_router(documents.router)
 app.include_router(settings_router.router)
 app.include_router(tasks.router)
+app.include_router(tekushchie_izmeneniya.router)
 app.include_router(uhody.router)
 app.include_router(work_plan.router)
 app.include_router(tabel.router)
