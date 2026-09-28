@@ -2888,6 +2888,98 @@ def get_lesokultury_gody(conn):
     return [row[0] for row in rows]
 
 
+def get_lesokultury_svod(conn, god=None, lesnichestvo=None):
+    """Внутренний свод по участкам лесных культур (упрощённая версия
+    книги паспортов, приложение 10, без внешнего экспорта — см. Этап 4
+    плана) — одна строка на участок: квартал/выдел/год/площадь/ТЛУ/
+    метод/порода/густота/статус/приживаемость по 1-й и 3-й
+    инвентаризации/число уходов/дата перевода/дата списания."""
+    where = []
+    params = []
+    if god:
+        where.append("lk.god_sozdaniya LIKE ?")
+        params.append(f"%{god}%")
+    if lesnichestvo:
+        where.append("lk.lesnichestvo LIKE ?")
+        params.append(f"%{lesnichestvo}%")
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    try:
+        rows = conn.execute(
+            f"SELECT lk.id, lk.lesnichestvo, lk.kvartal, lk.vydel, lk.ploshad, lk.tlu, "
+            f"lk.god_sozdaniya, lk.metod_sozdaniya, lk.glavnaya_poroda, lk.gustota_posadki, lk.status, "
+            f"(SELECT m.prizhivaemost_pct FROM lesokultury_meropriyatiya m WHERE m.uchastok_id = lk.id "
+            f" AND m.tip = 'Инвентаризация 1-го года' ORDER BY m.id DESC LIMIT 1) AS prizhivaemost_1_god, "
+            f"(SELECT m.prizhivaemost_pct FROM lesokultury_meropriyatiya m WHERE m.uchastok_id = lk.id "
+            f" AND m.tip = 'Инвентаризация 3-го года' ORDER BY m.id DESC LIMIT 1) AS prizhivaemost_3_god, "
+            f"(SELECT COUNT(*) FROM lesokultury_meropriyatiya m WHERE m.uchastok_id = lk.id "
+            f" AND m.tip IN ('Агротехнический уход', 'Химический уход')) AS chislo_uhodov, "
+            f"(SELECT m.data FROM lesokultury_meropriyatiya m WHERE m.uchastok_id = lk.id "
+            f" AND m.tip = 'Перевод в покрытые лесом земли' ORDER BY m.id DESC LIMIT 1) AS data_perevoda, "
+            f"(SELECT m.data FROM lesokultury_meropriyatiya m WHERE m.uchastok_id = lk.id "
+            f" AND m.tip = 'Списание' ORDER BY m.id DESC LIMIT 1) AS data_spisaniya "
+            f"FROM lesokultury_uchastok lk {where_sql} "
+            f"ORDER BY lk.lesnichestvo, lk.kvartal, lk.vydel",
+            params,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    columns = [
+        "id", "lesnichestvo", "kvartal", "vydel", "ploshad", "tlu",
+        "god_sozdaniya", "metod_sozdaniya", "glavnaya_poroda", "gustota_posadki", "status",
+        "prizhivaemost_1_god", "prizhivaemost_3_god", "chislo_uhodov",
+        "data_perevoda", "data_spisaniya",
+    ]
+    return [dict(zip(columns, row)) for row in rows]
+
+
+def get_lesokultury_uchastki_for_tehpriemka(conn, lesnichestvo=None, god=None, sezon=None):
+    """Участки для батч-документа "Ведомость технической приёмки"
+    (приложение 14) — по лесничеству и году закладки (+ необязательно
+    сезон, свободным подстрочным совпадением с god_sozdaniya, т.к.
+    отдельного поля "сезон" в схеме нет — он обычно и так записан в
+    god_sozdaniya, например "2020 (весна)"), только участки с хотя бы
+    одной записью журнала tip='Техническая приёмка'.
+
+    Возвращает список словарей с полями участка (как get_lesokultury_uchastki)
+    плюс kolichestvo_na_ga_tehpriemka — количество посадочных мест на 1 га
+    по ПОСЛЕДНЕЙ записи "Техническая приёмка" в журнале участка (для
+    графы "по данным технической приемки")."""
+    where = ["EXISTS (SELECT 1 FROM lesokultury_meropriyatiya m0 "
+             "WHERE m0.uchastok_id = lk.id AND m0.tip = 'Техническая приёмка')"]
+    params = []
+    if lesnichestvo:
+        where.append("lk.lesnichestvo LIKE ?")
+        params.append(f"%{lesnichestvo}%")
+    if god:
+        where.append("lk.god_sozdaniya LIKE ?")
+        params.append(f"%{god}%")
+    if sezon:
+        where.append("lk.god_sozdaniya LIKE ?")
+        params.append(f"%{sezon}%")
+    where_sql = f"WHERE {' AND '.join(where)}"
+    try:
+        rows = conn.execute(
+            f"SELECT lk.id, lk.lesnichestvo, lk.kvartal, lk.vydel, lk.ploshad, "
+            f"lk.kategoriya_ploshadi, lk.tlu, lk.tip_lesa, lk.god_sozdaniya, lk.metod_sozdaniya, "
+            f"lk.glavnaya_poroda, lk.sostav_formula, lk.gustota_posadki, lk.status, "
+            f"(SELECT m.kolichestvo_na_ga FROM lesokultury_meropriyatiya m "
+            f" WHERE m.uchastok_id = lk.id AND m.tip = 'Техническая приёмка' "
+            f" ORDER BY m.id DESC LIMIT 1) AS kolichestvo_na_ga_tehpriemka "
+            f"FROM lesokultury_uchastok lk {where_sql} "
+            f"ORDER BY lk.kvartal, lk.vydel",
+            params,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    columns = [
+        "id", "lesnichestvo", "kvartal", "vydel", "ploshad",
+        "kategoriya_ploshadi", "tlu", "tip_lesa", "god_sozdaniya", "metod_sozdaniya",
+        "glavnaya_poroda", "sostav_formula", "gustota_posadki", "status",
+        "kolichestvo_na_ga_tehpriemka",
+    ]
+    return [dict(zip(columns, row)) for row in rows]
+
+
 def get_lesokultury_uchastok(conn, uchastok_id):
     """Один участок культур по id, либо None."""
     row = conn.execute(

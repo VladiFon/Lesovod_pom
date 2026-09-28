@@ -666,6 +666,118 @@ function UchastokDetail({ uchastokId, onListChanged }) {
   );
 }
 
+function VedomostTehpriemkiModal({ open, onClose }) {
+  const toast = useToast();
+  const [form, setForm] = useState({ lesnichestvo: "", god: "", sezon: "", yuridicheskoe_litso: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleGenerate = async () => {
+    setSubmitting(true);
+    try {
+      const { task_id } = await api.post("/lesokultury/documents/vedomost-tehpriemki", form);
+      const result = await pollTask(task_id, { timeoutMs: 5 * 60 * 1000 });
+      toast.show({ tone: "success", title: "Ведомость сформирована" });
+      const docId = result?.document_ids?.[0];
+      if (docId) window.open(`${API_BASE_URL}/documents/${docId}/download`, "_blank");
+      onClose();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сформировать ведомость", description: e.message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => !submitting && onClose()}
+      title="Ведомость технической приёмки (приложение 14)"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>Отмена</Button>
+          <Button variant="primary" onClick={handleGenerate} loading={submitting}>Сформировать</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-muted">
+          В ведомость попадут участки лесничества с записью «Техническая приёмка» в журнале за указанный год.
+        </p>
+        <TextField label="Лесничество" value={form.lesnichestvo} onChange={setField("lesnichestvo")} />
+        <div className="grid gap-4 grid-cols-2">
+          <TextField label="Год" value={form.god} onChange={setField("god")} />
+          <TextField label="Сезон" placeholder="весна / осень" value={form.sezon} onChange={setField("sezon")} />
+        </div>
+        <TextField label="Юридическое лицо, ведущее лесное хозяйство" value={form.yuridicheskoe_litso} onChange={setField("yuridicheskoe_litso")} />
+      </div>
+    </Modal>
+  );
+}
+
+function SvodTable() {
+  const toast = useToast();
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [lesnichestvo, setLesnichestvo] = useState("");
+  const [god, setGod] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.get("/lesokultury/svod", {
+        lesnichestvo: lesnichestvo.trim() || undefined,
+        god: god.trim() || undefined,
+      });
+      setRows(data || []);
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось загрузить свод", description: e.message });
+    } finally {
+      setLoading(false);
+    }
+  }, [lesnichestvo, god]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const t = setTimeout(load, 300);
+    return () => clearTimeout(t);
+  }, [load]);
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-ui font-extrabold text-pine text-[16px]">Свод по участкам лесных культур</h2>
+        </div>
+        <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+          <TextField placeholder="Лесничество" value={lesnichestvo} onChange={(e) => setLesnichestvo(e.target.value)} />
+          <TextField placeholder="Год" value={god} onChange={(e) => setGod(e.target.value)} />
+        </div>
+        <DataTable
+          loading={loading}
+          columns={[
+            { key: "lesnichestvo", header: "Лесничество" },
+            { key: "kv_vyd", header: "Кв./Выд.", render: (r) => `${r.kvartal || "—"} / ${r.vydel || "—"}` },
+            { key: "god_sozdaniya", header: "Год закладки" },
+            { key: "ploshad", header: "Площадь, га", render: (r) => r.ploshad ?? "—" },
+            { key: "tlu", header: "ТЛУ", render: (r) => r.tlu || "—" },
+            { key: "glavnaya_poroda", header: "Гл. порода", render: (r) => r.glavnaya_poroda || "—" },
+            { key: "gustota_posadki", header: "Густота, шт/га", render: (r) => r.gustota_posadki ?? "—" },
+            { key: "status", header: "Статус", render: (r) => <StatusBadge status={r.status} /> },
+            { key: "prizhivaemost_1_god", header: "Приж. 1г., %", render: (r) => r.prizhivaemost_1_god ?? "—" },
+            { key: "prizhivaemost_3_god", header: "Приж. 3г., %", render: (r) => r.prizhivaemost_3_god ?? "—" },
+            { key: "chislo_uhodov", header: "Уходов" },
+            { key: "data_perevoda", header: "Дата перевода", render: (r) => r.data_perevoda || "—" },
+            { key: "data_spisaniya", header: "Дата списания", render: (r) => r.data_spisaniya || "—" },
+          ]}
+          rows={rows}
+          emptyTitle="Нет данных"
+          emptyDescription="Участков, подходящих под фильтр, не найдено."
+        />
+      </div>
+    </Card>
+  );
+}
+
 export default function Lesokultury() {
   const toast = useToast();
   const [uchastki, setUchastki] = useState([]);
@@ -676,6 +788,8 @@ export default function Lesokultury() {
   const [gody, setGody] = useState([]);
   const [god, setGod] = useState("");
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState("uchastki"); // "uchastki" | "svod"
+  const [vedomostOpen, setVedomostOpen] = useState(false);
 
   useEffect(() => {
     api.get("/lesokultury/gody").then((rows) => setGody(rows || [])).catch(() => {});
@@ -712,7 +826,22 @@ export default function Lesokultury() {
     <div className="p-[18px] flex flex-wrap gap-[14px] items-start">
       <Card padding={false} className="flex flex-col" style={{ flex: "1 1 260px", maxWidth: 380 }}>
         <div className="p-5 pb-3 flex flex-col gap-3 border-b border-border">
+          <div className="flex rounded-md overflow-hidden border border-border">
+            <button
+              onClick={() => setViewMode("uchastki")}
+              className={`flex-1 py-1.5 text-sm font-semibold transition-colors ${viewMode === "uchastki" ? "bg-mint text-pine" : "hover:bg-hover"}`}
+            >
+              Участки
+            </button>
+            <button
+              onClick={() => setViewMode("svod")}
+              className={`flex-1 py-1.5 text-sm font-semibold transition-colors ${viewMode === "svod" ? "bg-mint text-pine" : "hover:bg-hover"}`}
+            >
+              Свод
+            </button>
+          </div>
           <Button variant="primary" onClick={() => setCreateOpen(true)}>Новый участок</Button>
+          <Button variant="secondary" onClick={() => setVedomostOpen(true)}>📊 Ведомость техприёмки</Button>
           <TextField
             placeholder="Поиск: квартал, выдел, лесничество, порода, делянка"
             value={search}
@@ -780,7 +909,9 @@ export default function Lesokultury() {
       </Card>
 
       <div className="flex-1 min-w-0">
-        {selectedId ? (
+        {viewMode === "svod" ? (
+          <SvodTable />
+        ) : selectedId ? (
           <UchastokDetail key={selectedId} uchastokId={selectedId} onListChanged={handleListChanged} />
         ) : (
           <Card>
@@ -790,6 +921,7 @@ export default function Lesokultury() {
       </div>
 
       <CreateUchastokModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={(id) => { loadList(); setSelectedId(id); }} />
+      <VedomostTehpriemkiModal open={vedomostOpen} onClose={() => setVedomostOpen(false)} />
     </div>
   );
 }

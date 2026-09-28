@@ -16,6 +16,7 @@ import kartochka_perevoda_generator
 import pasport_generator
 import akt_spisaniya_generator
 import pasport_template_fill
+import vedomost_tehpriemki_generator
 
 from app.auth import require_office_writer_or_master, require_permission
 from app.database import get_conn, get_connection
@@ -49,6 +50,14 @@ def list_tipy_lesa(glavnaya_poroda: str = ""):
     список на форме участка; [] значит, что порода не нормируется или у неё
     единственный (безусловный) норматив — поле можно не заполнять."""
     return lesokultury_normativy.get_tipy_lesa_options(glavnaya_poroda)
+
+
+@router.get("/svod")
+def get_svod(god: Optional[str] = None, lesnichestvo: Optional[str] = None, conn=Depends(get_conn)):
+    """Внутренний свод по участкам (упрощённая книга паспортов, приложение
+    10) — без прав, как и остальное чтение в этом модуле; без внешнего
+    экспорта (Этап 4 плана — свод только для просмотра внутри приложения)."""
+    return legacy_db.get_lesokultury_svod(conn, god=god, lesnichestvo=lesnichestvo)
 
 
 @router.get("/uchastki/{uchastok_id}")
@@ -572,4 +581,56 @@ def generate_akt_spisaniya(
         raise HTTPException(404, "Участок не найден")
     task_id = webext.create_task(conn, "generate_akt_spisaniya")
     background_tasks.add_task(_run_generate_akt_spisaniya, task_id, uchastok_id, body.model_dump(), user["login"])
+    return {"task_id": task_id}
+
+
+# --------------------------------------------------------------------------- #
+#   Документы: "Ведомость технической приёмки" (приложение 14, батч)
+# --------------------------------------------------------------------------- #
+class VedomostTehpriemkiIn(BaseModel):
+    lesnichestvo: str = ""
+    god: str = ""
+    sezon: str = ""
+    yuridicheskoe_litso: str = ""
+
+
+def _run_generate_vedomost_tehpriemki(task_id: str, body: dict, created_by: Optional[str]):
+    conn = get_connection()
+    task_dir = new_task_dir(task_id)
+    try:
+        webext.set_task_running(conn, task_id)
+        uchastki = legacy_db.get_lesokultury_uchastki_for_tehpriemka(
+            conn, lesnichestvo=body.get("lesnichestvo") or None,
+            god=body.get("god") or None, sezon=body.get("sezon") or None,
+        )
+        if not uchastki:
+            raise ValueError(
+                "Нет участков с записью «Техническая приёмка» в журнале по заданным фильтрам"
+            )
+        output_path = task_dir / "Vedomost_tehpriemki.xlsx"
+        path = vedomost_tehpriemki_generator.generate_vedomost_tehpriemki(
+            uchastki, body.get("lesnichestvo"), body.get("god"), body.get("sezon"),
+            body.get("yuridicheskoe_litso"), str(output_path),
+        )
+        doc_id = register_document(conn, "lesokultury_vedomost_tehpriemki", None, path, created_by=created_by)
+        webext.set_task_done(conn, task_id, result={"document_ids": [doc_id]})
+    except Exception as e:  # noqa: BLE001
+        register_document(
+            conn, "lesokultury_vedomost_tehpriemki", None, "",
+            created_by=created_by, status="ошибка", error_text=str(e),
+        )
+        webext.set_task_error(conn, task_id, str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/documents/vedomost-tehpriemki")
+def generate_vedomost_tehpriemki(
+    body: VedomostTehpriemkiIn,
+    background_tasks: BackgroundTasks,
+    user=Depends(require_permission("documents.generate")),
+    conn=Depends(get_conn),
+):
+    task_id = webext.create_task(conn, "generate_vedomost_tehpriemki")
+    background_tasks.add_task(_run_generate_vedomost_tehpriemki, task_id, body.model_dump(), user["login"])
     return {"task_id": task_id}
