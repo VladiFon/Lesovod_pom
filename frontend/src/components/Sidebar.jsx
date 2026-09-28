@@ -8,7 +8,7 @@ export const NAV_GROUPS = [
     title: "делянки",
     items: [["plots", "Делянки"], ["raskhod", "Расход / ЕГАИС"], ["inspection", "Инспекция"], ["documents", "Документы"]],
   },
-  { title: "лес", items: [["taxation", "Таксация"], ["forestry", "Лесокультуры"], ["uhody", "Рубки ухода"]] },
+  { title: "лес", items: [["taxation", "Таксация"], ["forestry", "Лесокультуры"], ["uhody", "Рубки ухода"], ["tek_izm", "Текущие изменения"]] },
   {
     title: "люди",
     items: [

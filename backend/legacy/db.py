@@ -26,6 +26,10 @@ LESOKULTURY_EXTRA_COLUMNS = [
     ("posadochnyy_material", "TEXT"),
     ("naznachenie_plantatsii", "TEXT"),
     ("istochnik", "TEXT"),
+    # части участка по таксационным выделам для ведомостей текущих изменений:
+    # JSON [{"vydel", "podvydel", "ploshad"}, ...] — когда культура заходит в
+    # несколько выделов и в каждом стала своим подвыделом
+    ("chasti_json", "TEXT"),
 ]
 
 SCHEMA = """

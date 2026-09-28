@@ -7,6 +7,7 @@ import Plots from "./pages/Plots.jsx";
 import Documents from "./pages/Documents.jsx";
 import Taxation from "./pages/Taxation.jsx";
 import Lesokultury from "./pages/Lesokultury.jsx";
+import TekushchieIzmeneniya from "./pages/TekushchieIzmeneniya.jsx";
 import Raskhod from "./pages/Raskhod.jsx";
 import Inspection from "./pages/Inspection.jsx";
 import RubkiUhoda from "./pages/RubkiUhoda.jsx";
@@ -42,6 +43,8 @@ const READY_SCREENS = {
   // нужен. Backend (app/routers/map.py) не трогали, файл страницы удалён.
   taxation: { title: "Таксация", subtitle: "Поиск участка по кварталу/выделу и карточка-досье", Page: Taxation },
   forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: Lesokultury },
+  // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
+  tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса: прил. 4, 7, 14 из лесных культур", Page: TekushchieIzmeneniya },
   raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: Raskhod },
   inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: Inspection },
   // C.3 плана — независимые пробы рубок ухода (не привязаны к делянке,

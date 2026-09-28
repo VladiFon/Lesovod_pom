@@ -51,6 +51,7 @@ const UCHASTOK_FIELDS = [
   "tlu", "god_sozdaniya", "metod_sozdaniya", "sposob_obrabotki", "glavnaya_poroda",
   "sostav_formula", "shema_mezhdu_ryadami", "shema_v_ryadu", "gustota_posadki",
   "posadochnyy_material", "normativ_perevoda", "naznachenie_plantatsii", "primechaniya",
+  "chasti_json",
 ];
 
 const NUMERIC_FIELDS = new Set([
@@ -73,6 +74,58 @@ const SPOSOB_OBRABOTKI = ["сплошная", "полосами", "борозд�
 
 const SELECT_CLASS =
   "w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none transition-colors";
+
+function parseChasti(text) {
+  try {
+    const parsed = JSON.parse(text || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Части участка по таксационным выделам — для ведомостей текущих изменений
+ * (прил. 4, 7, 14): культура в нескольких выделах идёт в ведомость строкой
+ * на каждый выдел со своим подвыделом и площадью.
+ */
+function ChastiEditor({ value, onChange, vydel }) {
+  const chasti = parseChasti(value);
+  const save = (next) => onChange(next.length ? JSON.stringify(next) : "");
+  const setPart = (i, key, v) => save(chasti.map((c, j) => (j === i ? { ...c, [key]: v } : c)));
+  const vydely = String(vydel || "").split(/[,;\s]+/).filter(Boolean);
+  const total = chasti.reduce((sum, c) => sum + (Number(String(c.ploshad ?? "").replace(",", ".")) || 0), 0);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-[11.5px] font-semibold text-muted">
+        Части по выделам (для ведомостей текущих изменений, если участок в нескольких выделах)
+      </div>
+      {chasti.map((c, i) => (
+        <div key={i} className="flex gap-2 items-end">
+          <TextField label={i === 0 ? "Выдел" : undefined} value={c.vydel ?? ""} onChange={(e) => setPart(i, "vydel", e.target.value)} className="w-24" />
+          <TextField label={i === 0 ? "Подвыдел" : undefined} value={c.podvydel ?? ""} onChange={(e) => setPart(i, "podvydel", e.target.value)} className="w-28" />
+          <TextField label={i === 0 ? "Площадь, га" : undefined} value={c.ploshad ?? ""} onChange={(e) => setPart(i, "ploshad", e.target.value)} className="w-28" />
+          <Button variant="ghost" size="sm" onClick={() => save(chasti.filter((_, j) => j !== i))}>Убрать</Button>
+        </div>
+      ))}
+      <div className="flex items-center gap-3">
+        <Button variant="secondary" size="sm" onClick={() => save([...chasti, { vydel: "", podvydel: "", ploshad: "" }])}>
+          Добавить часть
+        </Button>
+        {chasti.length === 0 && vydely.length > 1 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => save(vydely.map((v) => ({ vydel: v, podvydel: "", ploshad: "" })))}
+          >
+            Разбить по выделам ({vydely.join(", ")})
+          </Button>
+        )}
+        {chasti.length > 0 && <span className="text-xs text-muted">Сумма частей: {Math.round(total * 100) / 100} га</span>}
+      </div>
+    </div>
+  );
+}
 
 /** Выпадающий список, который не теряет значение не из списка (старые записи). */
 function SelectField({ label, value, onChange, options }) {
@@ -159,6 +212,7 @@ function UchastokFormFields({ form, setForm }) {
         <TextField label="Норматив перевода, шт/га" type="number" step="1" value={form.normativ_perevoda} onChange={setField("normativ_perevoda")} />
         <TextField label="Назначение плантации" placeholder="только для плантаций" value={form.naznachenie_plantatsii} onChange={setField("naznachenie_plantatsii")} />
       </div>
+      <ChastiEditor vydel={form.vydel} value={form.chasti_json} onChange={(v) => setForm((f) => ({ ...f, chasti_json: v }))} />
       <TextAreaField label="Примечания" rows={2} value={form.primechaniya} onChange={setField("primechaniya")} />
     </div>
   );
