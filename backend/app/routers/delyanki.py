@@ -149,6 +149,14 @@ def get_delyanka(delyanka_id: int, conn=Depends(get_conn)):
     d, items = delyanka.get_delyanka_full(conn, delyanka_id)
     if d is None:
         raise HTTPException(404, "Делянка не найдена")
+    from app import vidy
+
+    for it in items:
+        # что карта покажет без ручного выбора — подсказка рядом с выпадающим списком
+        avto = vidy.vid_rubki_info(None, it.get("mdo_raw_json"), d.get("meropriyatiya"),
+                                   d.get("listok_namechaemoe_meropriyatie"))
+        it["vid_rubki_avto_kod"] = avto["vid_rubki_kod"]
+        it["gruppa_avto"] = avto["gruppa_label"] if avto["gruppa"] else ""
     return {"delyanka": d, "items": items}
 
 
@@ -212,6 +220,10 @@ def activate_delyanka(delyanka_id: int, body: ActivateDelyankaIn,
 def update_item(item_id: int, fields: Dict[str, Any],
                  user=Depends(require_permission("delyanka.edit")), conn=Depends(get_conn)):
     try:
+        if "vid_rubki_kod" in fields:
+            from app import vidy
+
+            fields["vid_rubki_kod"] = vidy.proverit_vid_rubki(fields["vid_rubki_kod"])
         delyanka.update_delyanka_item(conn, item_id, **fields)
     except ValueError as e:
         raise HTTPException(400, str(e))

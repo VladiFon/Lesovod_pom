@@ -332,7 +332,8 @@ def list_delyanka_geometries(conn, lesnichestvo=None):
     пришли через import-geo). Возвращает список словарей, готовых
     завернуть в FeatureCollection на уровне роутера."""
     q = """SELECT i.id, i.delyanka_id, d.nazvanie, i.status_rabot,
-                  i.kvartal, i.vydel, i.lesnichestvo, i.ploshad, i.geom_geojson
+                  i.kvartal, i.vydel, i.lesnichestvo, i.ploshad, i.geom_geojson,
+                  i.vid_rubki_kod, i.mdo_raw_json, d.meropriyatiya, d.listok_namechaemoe_meropriyatie
            FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id
            WHERE i.geom_geojson IS NOT NULL AND i.geom_geojson != ''"""
     params = ()
@@ -342,7 +343,14 @@ def list_delyanka_geometries(conn, lesnichestvo=None):
     rows = conn.execute(q, params).fetchall()
     cols = ["item_id", "delyanka_id", "nazvanie", "status_rabot",
             "kvartal", "vydel", "lesnichestvo", "ploshad", "geom_geojson"]
-    return [dict(zip(cols, r)) for r in rows]
+    return [dict(zip(cols, r[:9]), **_vid_rubki(*r[9:])) for r in rows]
+
+
+def _vid_rubki(vid_rubki_kod, mdo_raw_json, meropriyatiya, namechaemoe):
+    """Вид рубки и вид пользования для окраски карты — см. app/vidy.py."""
+    from app import vidy
+
+    return vidy.vid_rubki_info(vid_rubki_kod, mdo_raw_json, meropriyatiya, namechaemoe)
 
 
 def list_delyanka_items_for_map(conn):
@@ -354,11 +362,12 @@ def list_delyanka_items_for_map(conn):
     этим списком по kvartal+vydel и красит найденные совпадения иначе,
     чем свободные выделы — см. GET /api/delyanki/for-map."""
     rows = conn.execute(
-        """SELECT i.kvartal, i.vydel, i.lesnichestvo, i.delyanka_id, d.nazvanie, i.status_rabot
+        """SELECT i.kvartal, i.vydel, i.lesnichestvo, i.delyanka_id, d.nazvanie, i.status_rabot,
+                  i.vid_rubki_kod, i.mdo_raw_json, d.meropriyatiya, d.listok_namechaemoe_meropriyatie
            FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id"""
     ).fetchall()
     cols = ["kvartal", "vydel", "lesnichestvo", "delyanka_id", "nazvanie", "status_rabot"]
-    return [dict(zip(cols, r)) for r in rows]
+    return [dict(zip(cols, r[:6]), **_vid_rubki(*r[6:])) for r in rows]
 
 
 def list_delyanki(conn, status=None):

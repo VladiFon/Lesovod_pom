@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app import legacy_bridge  # noqa: F401
 from app import lesokultury_kniga
+from app import vidy
 import db as legacy_db
 
 from app.auth import require_office_writer_or_master
@@ -48,8 +49,17 @@ def get_uchastok(uchastok_id: int, conn=Depends(get_conn), _user=Depends(get_cur
     return u
 
 
+def _proverit_vid_kultur(fields: Dict[str, Any]) -> None:
+    if "vid_kultur" in fields:
+        try:
+            fields["vid_kultur"] = vidy.proverit_vid_kultur(fields["vid_kultur"])
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+
 @router.post("/uchastki")
 def create_uchastok(fields: Dict[str, Any], conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit"))):
+    _proverit_vid_kultur(fields)
     uchastok_id = legacy_db.create_lesokultury_uchastok(conn, **fields)
     return {"id": uchastok_id}
 
@@ -59,6 +69,7 @@ def update_uchastok(uchastok_id: int, fields: Dict[str, Any], conn=Depends(get_c
     u = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
     if u is None:
         raise HTTPException(404, "Участок не найден")
+    _proverit_vid_kultur(fields)
     legacy_db.update_lesokultury_uchastok(conn, uchastok_id, **fields)
     return {"ok": True}
 
