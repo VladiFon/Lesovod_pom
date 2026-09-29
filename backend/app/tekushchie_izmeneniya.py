@@ -455,11 +455,18 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
             if missing:
                 _warn(res, f"u{u['id']}", f"{_mesto(u)}: в таксации при переводе нет — " + ", ".join(missing),
                       [6, 7, 8, 9])
+            # Выдел(ы) перевода — по полевой карточке, если она загружена и
+            # части по выделам на участке не заданы вручную.
+            vk = vydel_tokens(str(t.get("vydel_kartochki") or ""))
+            if vk and not u.get("chasti_json"):
+                ploshad_k = _num(t.get("ploshad")) or _num(u.get("ploshad"))
+                parts = ([{"vydel": vk[0], "podvydel": "", "ploshad": ploshad_k}] if len(vk) == 1
+                         else [{"vydel": x, "podvydel": "", "ploshad": None} for x in vk])
             # Несколько старых выделов стали одним новым («6,7,8,9 (30)» в
             # карточке) и площади по выделам не заданы — одна строка.
             if len(parts) > 1 and t.get("podvydel") and all(p["ploshad"] is None for p in parts):
                 parts = [{"vydel": ", ".join(p["vydel"] for p in parts), "podvydel": "",
-                          "ploshad": _num(u.get("ploshad"))}]
+                          "ploshad": _num(t.get("ploshad")) or _num(u.get("ploshad"))}]
             warn = _chasti_warning(u, parts)
             if warn:
                 _warn(res, f"u{u['id']}", warn, [4])
