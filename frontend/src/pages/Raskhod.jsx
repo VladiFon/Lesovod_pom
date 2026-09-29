@@ -111,11 +111,24 @@ function ImportEgaisModal({ open, onClose }) {
  *      баланс) или уже учтённое продолжение цепочки (тогда не трогаем
  *      баланс вообще).
  */
+// "Склады ЕГАИС" заменили прежнюю вкладку "Неизвестные делянки": данные
+// ЕГАИС теперь относятся к выделу делянки по СКЛАДУ (одна лесосека = один
+// склад), а не по кварталу/выделу, иначе несколько лесосек одного выдела
+// ("кв.35 выд.7 л.1" и "л.3") смешивались. См. raskhod_v2.resolve_egais_sklady.
 const EGAIS_REVIEW_TABS = [
+  { key: "sklady", label: "Склады ЕГАИС", summaryKey: "sklady_problem", icon: "🔗" },
   { key: "korrektirovki", label: "Корректировки остатков", summaryKey: "korrektirovki_new", icon: "⚠️" },
-  { key: "unmatched", label: "Неизвестные делянки", summaryKey: "unmatched_delyanka_new", icon: "❓" },
   { key: "fls", label: "Приход на ФЛС", summaryKey: "fls_prihod_new", icon: "🌲" },
 ];
+
+const SKLAD_HOW = {
+  ambiguous: { tone: "warning", label: "подходит несколько выделов" },
+  conflict: { tone: "warning", label: "номер лесосеки не совпал" },
+  none: { tone: "neutral", label: "нет такого выдела в приложении" },
+  auto: { tone: "success", label: "определён автоматически" },
+  manual: { tone: "info", label: "привязан вручную" },
+  ignored: { tone: "neutral", label: "не наш склад" },
+};
 
 function EgaisReviewRow({ children }) {
   return (
@@ -147,31 +160,65 @@ function KorrektirovkaRow({ row, busy, onResolve }) {
   );
 }
 
-function UnmatchedDelyankaRow({ row, busy, delyanki, onLink, onIgnore }) {
-  const [pick, setPick] = useState("");
+function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
+  const [pick, setPick] = useState(row.item_id ? String(row.item_id) : "");
+  const how = SKLAD_HOW[row.how] || { tone: "neutral", label: row.how };
+  const candidateIds = new Set(row.candidates.map((c) => c.item_id));
+  const kvartaly = new Set((row.kvartal || "").split(", ").filter(Boolean));
+  const sameKvartal = items.filter((it) => !candidateIds.has(it.item_id) && kvartaly.has(it.kvartal));
+  const others = items.filter((it) => !candidateIds.has(it.item_id) && !kvartaly.has(it.kvartal));
   return (
     <EgaisReviewRow>
-      <div className="text-sm text-ink">
-        <div className="font-semibold">Кв. {row.kvartal} / Выд. {row.vydel}</div>
-        <div className="text-muted text-xs mt-0.5">
-          {row.nazvanie_sklada || "склад не указан"} · последний раз в выгрузке: {row.last_seen_at}
+      <div className="text-sm text-ink min-w-0" style={{ flex: "1 1 280px" }}>
+        <div className="font-semibold break-words">{row.sklad}</div>
+        <div className="text-muted text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
+          <StatusBadge tone={how.tone} label={how.label} dot={false} />
+          <span>
+            приход {row.prihod_obyom} м³ · {row.rows} строк журнала
+            {row.lesnichestvo ? ` · ${row.lesnichestvo}` : ""}
+            {row.item_label ? ` · → ${row.item_label}` : ""}
+          </span>
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 shrink-0 flex-wrap">
         <select
           value={pick}
           onChange={(e) => setPick(e.target.value)}
-          className="bg-surface border border-border focus:border-pine rounded-md px-2.5 py-1.5 text-sm text-ink outline-none max-w-[220px]"
+          className="bg-surface border border-border focus:border-pine rounded-md px-2.5 py-1.5 text-sm text-ink outline-none max-w-[280px]"
         >
-          <option value="">Привязать к делянке…</option>
-          {delyanki.map((d) => (
-            <option key={d.id} value={d.id}>{d.nazvanie || `Делянка №${d.id}`}</option>
-          ))}
+          <option value="">Какой это выдел делянки?</option>
+          {row.candidates.length > 0 && (
+            <optgroup label="Подходят по кварталу/выделу">
+              {row.candidates.map((c) => <option key={c.item_id} value={c.item_id}>{c.label}</option>)}
+            </optgroup>
+          )}
+          {sameKvartal.length > 0 && (
+            <optgroup label="Другие выделы этого квартала">
+              {sameKvartal.map((c) => <option key={c.item_id} value={c.item_id}>{c.label}</option>)}
+            </optgroup>
+          )}
+          {others.length > 0 && (
+            <optgroup label="Все остальные">
+              {others.map((c) => <option key={c.item_id} value={c.item_id}>{c.label}</option>)}
+            </optgroup>
+          )}
         </select>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onIgnore(row.id)}>
-          Игнорировать
-        </Button>
-        <Button size="sm" variant="primary" loading={busy} disabled={!pick} onClick={() => onLink(row.id, pick)}>
+        {(row.how === "manual" || row.how === "ignored") ? (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onReset(row.sklad)}>
+            Сбросить (авто)
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onIgnore(row.sklad)}>
+            Не наш склад
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="primary"
+          loading={busy}
+          disabled={!pick || (row.how === "manual" && String(row.item_id) === pick)}
+          onClick={() => onLink(row.sklad, pick)}
+        >
           Привязать
         </Button>
       </div>
@@ -203,13 +250,15 @@ function FlsPrihodRow({ row, busy, onResolve }) {
   );
 }
 
-function EgaisReviewModal({ open, onClose, delyanki }) {
+function EgaisReviewModal({ open, onClose }) {
   const toast = useToast();
-  const [tab, setTab] = useState("korrektirovki");
+  const [tab, setTab] = useState("sklady");
   const [summary, setSummary] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [skladyAll, setSkladyAll] = useState(false);
+  const [skladItems, setSkladItems] = useState([]);
 
   const loadSummary = useCallback(() => {
     api.get("/raskhod/egais/review/summary").then(setSummary).catch(() => {});
@@ -218,9 +267,14 @@ function EgaisReviewModal({ open, onClose, delyanki }) {
   const loadRows = useCallback(async () => {
     setLoading(true);
     try {
+      if (tab === "sklady") {
+        const res = await api.get("/raskhod/egais/sklady", { scope: skladyAll ? "all" : "problems" });
+        setRows(res?.sklady || []);
+        setSkladItems(res?.items || []);
+        return;
+      }
       const endpoint =
         tab === "korrektirovki" ? "/raskhod/egais/review/korrektirovki" :
-        tab === "unmatched" ? "/raskhod/egais/review/unmatched-delyanka" :
         "/raskhod/egais/review/fls-prihod";
       const res = await api.get(endpoint, { status: "new" });
       setRows(res || []);
@@ -229,7 +283,7 @@ function EgaisReviewModal({ open, onClose, delyanki }) {
     } finally {
       setLoading(false);
     }
-  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tab, skladyAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open) return;
@@ -261,11 +315,14 @@ function EgaisReviewModal({ open, onClose, delyanki }) {
   const resolveKorrektirovka = (id, status) =>
     withBusy(id, () => api.post(`/raskhod/egais/review/korrektirovki/${id}/resolve`, { status }));
 
-  const linkUnmatched = (id, delyankaId) =>
-    withBusy(id, () => api.post(`/raskhod/egais/review/unmatched-delyanka/${id}/link`, { delyanka_id: Number(delyankaId) }));
+  const linkSklad = (sklad, itemId) =>
+    withBusy(sklad, () => api.post("/raskhod/egais/sklady/link", { sklad, item_id: Number(itemId) }));
 
-  const ignoreUnmatched = (id) =>
-    withBusy(id, () => api.post(`/raskhod/egais/review/unmatched-delyanka/${id}/ignore`));
+  const ignoreSklad = (sklad) =>
+    withBusy(sklad, () => api.post("/raskhod/egais/sklady/ignore", { sklad }));
+
+  const resetSklad = (sklad) =>
+    withBusy(sklad, () => api.post("/raskhod/egais/sklady/reset", { sklad }));
 
   const resolveFls = (id, status) =>
     withBusy(id, () => api.post(`/raskhod/egais/review/fls-prihod/${id}/resolve`, { status }));
@@ -298,6 +355,21 @@ function EgaisReviewModal({ open, onClose, delyanki }) {
         })}
       </div>
 
+      {tab === "sklady" && (
+        <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+          <div className="text-xs text-muted max-w-[560px]">
+            Приход и расход ЕГАИС относятся к выделу делянки по складу: одна лесосека — один склад. Склады
+            сопоставляются сами (квартал, выдел, номер лесосеки «л.N»/«№N», площадь). Здесь — те, что не удалось
+            отнести однозначно: пока склад не привязан, его объём не учитывается ни в одной делянке. Привязка
+            делается один раз и сразу пересчитывает все загруженные выгрузки.
+          </div>
+          <label className="flex items-center gap-2 text-sm text-ink cursor-pointer select-none shrink-0">
+            <input type="checkbox" checked={skladyAll} onChange={(e) => setSkladyAll(e.target.checked)} />
+            Показать все склады
+          </label>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="h-6 w-6 rounded-full border-2 border-pine border-t-transparent animate-spin" />
@@ -310,15 +382,16 @@ function EgaisReviewModal({ open, onClose, delyanki }) {
             rows.map((row) => (
               <KorrektirovkaRow key={row.id} row={row} busy={busyId === row.id} onResolve={resolveKorrektirovka} />
             ))}
-          {tab === "unmatched" &&
+          {tab === "sklady" &&
             rows.map((row) => (
-              <UnmatchedDelyankaRow
-                key={row.id}
+              <SkladRow
+                key={row.sklad}
                 row={row}
-                busy={busyId === row.id}
-                delyanki={delyanki}
-                onLink={linkUnmatched}
-                onIgnore={ignoreUnmatched}
+                busy={busyId === row.sklad}
+                items={skladItems}
+                onLink={linkSklad}
+                onIgnore={ignoreSklad}
+                onReset={resetSklad}
               />
             ))}
           {tab === "fls" &&
@@ -1205,6 +1278,27 @@ function EgaisBalanceBanner({ check, onOpenReview }) {
   );
 }
 
+// Склады ЕГАИС, которые подходят к этому выделу, но не отнесены к нему
+// однозначно (несколько лесосек в одном квартале/выделе) — их объём пока не
+// учитывается нигде, нужна разовая привязка (см. вкладку "Склады ЕГАИС").
+function EgaisUnresolvedSkladyBanner({ sklady, onOpenReview }) {
+  if (!sklady?.length) return null;
+  return (
+    <div className="rounded-lg border border-oak/40 bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
+      <div>
+        <span className="font-semibold text-oak">
+          Склады ЕГАИС, похожие на этот выдел, но не привязанные однозначно ({sklady.length}):
+        </span>{" "}
+        {sklady.map((s) => s.sklad).join("; ")}. Их приход и расход пока не учитываются — укажите, к какому выделу
+        относится каждый склад.
+      </div>
+      {onOpenReview && (
+        <Button variant="secondary" size="sm" onClick={onOpenReview} className="shrink-0">🔗 Привязать склады</Button>
+      )}
+    </div>
+  );
+}
+
 // Компактная сводка по ВСЕЙ делянке (может быть несколько выделов) —
 // видна сразу после выбора делянки, ещё до того, как открыт конкретный
 // выдел (иначе проблему на "непопулярном" выделе легко не заметить, если
@@ -1383,6 +1477,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
         />
       </Card>
 
+      <EgaisUnresolvedSkladyBanner sklady={egais?.unresolved_sklady} onOpenReview={onOpenEgaisReview} />
       <EgaisBalanceBanner check={balanceCheck} onOpenReview={onOpenEgaisReview} />
 
       <Card>
@@ -1532,7 +1627,7 @@ export default function Raskhod() {
   const loadEgaisReviewSummary = useCallback(() => {
     api
       .get("/raskhod/egais/review/summary")
-      .then((s) => setEgaisReviewCount((s?.korrektirovki_new ?? 0) + (s?.unmatched_delyanka_new ?? 0) + (s?.fls_prihod_new ?? 0)))
+      .then((s) => setEgaisReviewCount((s?.korrektirovki_new ?? 0) + (s?.sklady_problem ?? 0) + (s?.fls_prihod_new ?? 0)))
       .catch(() => {});
   }, []);
 
@@ -1698,7 +1793,6 @@ export default function Raskhod() {
           loadEgaisReviewSummary();
           setEgaisVersion((v) => v + 1);
         }}
-        delyanki={delyanki}
       />
       <SummaryModal
         open={summaryOpen}

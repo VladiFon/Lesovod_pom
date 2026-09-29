@@ -82,10 +82,15 @@ def get_item_egais(item_id: int, conn=Depends(get_conn)):
     item = _get_item(conn, item_id)
     loaded, imported_at = legacy_raskhod.load_egais_snapshot(conn)
     entry = legacy_raskhod.find_egais_entry_for_item(loaded, item)
+    resolution = legacy_raskhod.resolve_egais_sklady(conn)
     return {
         "imported_at": imported_at,
         "nazvanie_sklada": (entry or {}).get("nazvanie_sklada") or "",
         "porody": (entry or {}).get("porody") or {},
+        # Склады ЕГАИС, которые подходят к этому выделу, но не привязаны
+        # однозначно (несколько лесосек в одном выделе) - их объём сейчас
+        # не учитывается, нужна привязка в "Разбор ЕГАИС → Склады ЕГАИС".
+        "unresolved_sklady": legacy_raskhod.egais_unresolved_sklady_for_item(resolution, item),
     }
 
 
@@ -312,10 +317,14 @@ def egais_review_summary(user=Depends(require_permission("raskhod.edit")), conn=
     очередей — для бейджей на вкладках экрана."""
     def count(table):
         return conn.execute(f"SELECT COUNT(*) FROM {table} WHERE status='new'").fetchone()[0]
+    resolution = legacy_raskhod.resolve_egais_sklady(conn)
     return {
         "korrektirovki_new": count("egais_korrektirovka_review"),
         "unmatched_delyanka_new": count("egais_unmatched_delyanka"),
         "fls_prihod_new": count("egais_fls_prihod_review"),
+        "sklady_problem": sum(
+            1 for info in resolution.values() if info["how"] in legacy_raskhod.SKLAD_HOWS_PROBLEM
+        ),
     }
 
 
@@ -452,5 +461,108 @@ def resolve_fls_prihod(row_id: int, body: FlsPrihodResolveIn,
         "UPDATE egais_fls_prihod_review SET status=?, resolved_by=?, resolved_at=? WHERE id=?",
         (body.status, user["login"], _now_str(), row_id),
     )
+    conn.commit()
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+#   Склады ЕГАИС -> выделы делянок (см. raskhod_v2.resolve_egais_sklady):
+#   один склад = одна лесосека. Автоматически, а где несколько лесосек в
+#   одном квартале/выделе не различить - разовая ручная привязка.
+# --------------------------------------------------------------------------- #
+@router.get("/egais/sklady")
+def list_egais_sklady(scope: str = "problems", user=Depends(require_permission("raskhod.edit")),
+                       conn=Depends(get_conn)):
+    """scope=problems - только склады, требующие привязки (несколько
+    подходящих выделов / номер лесосеки не совпал / нет подходящего
+    выдела); scope=all - все склады журнала с тем, куда они отнесены."""
+    resolution = legacy_raskhod.resolve_egais_sklady(conn)
+    items = legacy_raskhod._load_items_for_sklad_match(conn)
+    labels = {it["id"]: legacy_raskhod.egais_item_label(it) for it in items}
+
+    prihod = {}
+    for sklad, kvartal, vydel, obyom in conn.execute(
+        "SELECT sklad, kvartal, vydel, SUM(obyom) FROM egais_operation "
+        "WHERE tip_dokumenta='Приход' GROUP BY sklad, kvartal, vydel"
+    ).fetchall():
+        key = legacy_raskhod.egais_sklad_key(sklad, kvartal, vydel)
+        prihod[key] = prihod.get(key, 0.0) + (obyom or 0.0)
+
+    order = {h: i for i, h in enumerate(legacy_raskhod.SKLAD_HOWS_PROBLEM)}
+    rows = []
+    for key, info in resolution.items():
+        if scope != "all" and info["how"] not in legacy_raskhod.SKLAD_HOWS_PROBLEM:
+            continue
+        rows.append({
+            "sklad": key,
+            "kvartal": ", ".join(sorted(info["kvartaly"], key=lambda x: (len(x), x))),
+            "vydel": "; ".join(sorted(info["vydely"])),
+            "lesnichestvo": ", ".join(sorted(info["lesnichestva"])),
+            "lesoseka": info["parsed"]["lesoseka"],
+            "rows": info["rows"],
+            "prihod_obyom": round(prihod.get(key, 0.0), 3),
+            "how": info["how"],
+            "item_id": info["item_id"],
+            "item_label": labels.get(info["item_id"]) if info["item_id"] else None,
+            "candidates": [{"item_id": c, "label": labels.get(c, str(c))} for c in info["candidates"]],
+        })
+    rows.sort(key=lambda r: (order.get(r["how"], 99), r["kvartal"].zfill(6), r["sklad"]))
+    return {
+        "sklady": rows,
+        "items": [
+            {"item_id": it["id"], "kvartal": legacy_raskhod._egais_clean_number(it.get("kvartal")),
+             "label": labels[it["id"]]}
+            for it in sorted(items, key=lambda it: (str(it.get("kvartal") or "").zfill(6), str(it.get("vydel") or "")))
+        ],
+    }
+
+
+class SkladLinkIn(BaseModel):
+    sklad: str
+    item_id: Optional[int] = None
+
+
+@router.post("/egais/sklady/link")
+def link_egais_sklad(body: SkladLinkIn, user=Depends(require_permission("raskhod.edit")),
+                      conn=Depends(get_conn)):
+    """Разовая привязка склада ЕГАИС к выделу делянки - весь приход/расход
+    этого склада (и в прошлых, и в будущих выгрузках) относится к нему."""
+    if body.item_id is None or conn.execute(
+        "SELECT 1 FROM delyanka_item WHERE id=?", (body.item_id,)
+    ).fetchone() is None:
+        raise HTTPException(404, "Выдел делянки не найден")
+    conn.execute(
+        "INSERT INTO egais_sklad_link (sklad, delyanka_item_id, status, linked_by, linked_at) "
+        "VALUES (?, ?, 'linked', ?, ?) ON CONFLICT(sklad) DO UPDATE SET "
+        "delyanka_item_id=excluded.delyanka_item_id, status='linked', "
+        "linked_by=excluded.linked_by, linked_at=excluded.linked_at",
+        (body.sklad, body.item_id, user["login"], _now_str()),
+    )
+    conn.commit()
+    return {"ok": True}
+
+
+@router.post("/egais/sklady/ignore")
+def ignore_egais_sklad(body: SkladLinkIn, user=Depends(require_permission("raskhod.edit")),
+                        conn=Depends(get_conn)):
+    """Склад не относится ни к одной делянке приложения (например, чужое
+    лесничество) - больше не показывать как требующий привязки."""
+    conn.execute(
+        "INSERT INTO egais_sklad_link (sklad, delyanka_item_id, status, linked_by, linked_at) "
+        "VALUES (?, NULL, 'ignored', ?, ?) ON CONFLICT(sklad) DO UPDATE SET "
+        "delyanka_item_id=NULL, status='ignored', "
+        "linked_by=excluded.linked_by, linked_at=excluded.linked_at",
+        (body.sklad, user["login"], _now_str()),
+    )
+    conn.commit()
+    return {"ok": True}
+
+
+@router.post("/egais/sklady/reset")
+def reset_egais_sklad(body: SkladLinkIn, user=Depends(require_permission("raskhod.edit")),
+                       conn=Depends(get_conn)):
+    """Снять ручную привязку/игнорирование - склад снова сопоставляется
+    автоматически."""
+    conn.execute("DELETE FROM egais_sklad_link WHERE sklad=?", (body.sklad,))
     conn.commit()
     return {"ok": True}
