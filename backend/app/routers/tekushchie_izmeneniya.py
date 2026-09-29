@@ -51,11 +51,13 @@ def preview(
 ):
     """Строки всех приложений за год, замечания (чего не хватает) и сводная прил. 2."""
     _check_god(god)
-    data = ti.build(conn, god, lesnichestvo.strip())
+    lesnichestvo = ti.resolve_lesnichestvo(lesnichestvo)
+    data = ti.build(conn, god, lesnichestvo)
     return {
         "god": god,
+        "lesnichestvo": lesnichestvo,
         "svodnaya": _svodnaya_rows(data["svodnaya"]),
-        "diagnostika": ti.diagnostika(conn, god, lesnichestvo.strip()),
+        "diagnostika": ti.diagnostika(conn, god, lesnichestvo),
         "prilozheniya": [
             {"nomer": n, "title": ti.TITLES[n], "columns": ti.COLUMNS[n], "istochnik": ti.ISTOCHNIKI.get(n, ""),
              "rows": data[n]["rows"], "warnings": data[n]["warnings"], "uchastki": data[n]["uchastki"],
@@ -93,7 +95,7 @@ def add_ruchnaya(body: RuchnayaIn, conn=Depends(get_conn), _user=Depends(require
     ti.ensure_table(conn)
     cur = conn.execute(
         "INSERT INTO tek_izm_ruchnye (god, lesnichestvo, prilozhenie, znacheniya_json) VALUES (?, ?, ?, ?)",
-        (body.god, body.lesnichestvo.strip(), body.prilozhenie, _clean_values(body.prilozhenie, body.values)),
+        (body.god, ti.resolve_lesnichestvo(body.lesnichestvo), body.prilozhenie, _clean_values(body.prilozhenie, body.values)),
     )
     conn.commit()
     return {"id": cur.lastrowid}
@@ -135,7 +137,8 @@ async def docx(
     свой «Таблицы … ЗАПОЛНЯТЬ ЗДЕСЬ.docx» (если не прислан — встроенный)."""
     _check_god(god)
     template = await shablon.read() if shablon is not None else None
-    data = ti.build(conn, god, lesnichestvo.strip())
+    lesnichestvo = ti.resolve_lesnichestvo(lesnichestvo)
+    data = ti.build(conn, god, lesnichestvo)
     try:
         content = ti.make_docx(data, god, template or None, data_zapolneniya.strip() or None,
                                ploshad_nachalo, ploshad_konec)

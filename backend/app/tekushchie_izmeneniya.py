@@ -251,6 +251,22 @@ def _chasti_warning(u: dict, parts: List[dict]) -> Optional[str]:
     return None
 
 
+def resolve_lesnichestvo(value) -> str:
+    """Номер лесничества (как его хранят настройки входа: «5») -> название
+    из LCH_MAP («Болбасовское»); название возвращается как есть."""
+    text = str(value or "").strip()
+    if not text.isdigit():
+        return text
+    try:
+        import config as legacy_config
+        for name, num in legacy_config.LCH_MAP.items():
+            if str(num).strip() == text:
+                return name
+    except Exception:  # noqa: BLE001
+        pass
+    return text
+
+
 def _lesn_match(target: str, own) -> bool:
     """Лесничество совпадает, если одно название содержит другое или у них
     общая основа первого слова («Болбасовское», «Болбасовского л-ва»)."""

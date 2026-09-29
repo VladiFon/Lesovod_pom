@@ -280,7 +280,10 @@ export default function TekushchieIzmeneniya() {
     }
     setLoading(true);
     try {
-      setData(await api.get("/tekushchie-izmeneniya", { god, lesnichestvo: lesnichestvo.trim() || undefined }));
+      const res = await api.get("/tekushchie-izmeneniya", { god, lesnichestvo: lesnichestvo.trim() || undefined });
+      // Настройки входа хранят лесничество номером («5») — сервер вернёт название.
+      if (res.lesnichestvo && res.lesnichestvo !== lesnichestvo.trim()) setLesnichestvo(res.lesnichestvo);
+      setData(res);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось собрать ведомости", description: e.message });
     } finally {
@@ -342,7 +345,7 @@ export default function TekushchieIzmeneniya() {
           )}
           <SvodnayaCard rows={data.svodnaya} />
           {data.prilozheniya.map((p) => (
-            <PrilozhenieCard key={p.nomer} p={p} god={data.god} lesnichestvo={lesnichestvo.trim()} onChanged={load} />
+            <PrilozhenieCard key={p.nomer} p={p} god={data.god} lesnichestvo={data.lesnichestvo || ""} onChanged={load} />
           ))}
         </>
       ) : (
