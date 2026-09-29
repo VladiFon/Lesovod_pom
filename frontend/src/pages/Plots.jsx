@@ -12,6 +12,7 @@ import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
 import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.jsx";
 import KonturBlock from "../components/KonturBlock.jsx";
+import { useLegendy } from "../hooks/useLegendy.js";
 
 /**
  * Экран "Делянки" (screens/plots/) — Этап 5 плана.
@@ -522,6 +523,35 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
 
 const STATUS_RABOT_OPTIONS = ["ожидает", "в работе", "выполнено"];
 
+// Вид рубки выдела делянки — цвет на карте (QGIS, приложение) при окраске
+// «по виду рубки». Пусто — определяется по МДО («Авто: …»).
+function VidRubkiSelect({ item, vidy, onChange }) {
+  const known = vidy.filter((v) => v.kod);
+  const avto = known.find((v) => v.kod === item.vid_rubki_avto_kod);
+  const current = known.find((v) => v.kod === item.vid_rubki_kod) || (!item.vid_rubki_kod ? avto : null);
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className="inline-block w-3 h-3 rounded-full border border-border shrink-0"
+        style={{ background: current ? current.color : "#9e9e9e" }}
+      />
+      <select
+        value={item.vid_rubki_kod || ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-surface border border-border focus:border-pine rounded-lg px-2 h-8 text-[12.5px] text-ink outline-none max-w-[220px]"
+        title="Цвет лесосеки на карте при окраске по виду рубки / виду пользования"
+      >
+        <option value="">
+          {avto ? `Авто по МДО: ${avto.kod} — ${avto.label}` : item.gruppa_avto ? `Авто: ${item.gruppa_avto}` : "Авто: не определён"}
+        </option>
+        {known.map((v) => (
+          <option key={v.kod} value={v.kod}>{v.kod} — {v.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function PlotDetail({ delyankaId, onListChanged }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -561,6 +591,16 @@ function PlotDetail({ delyankaId, onListChanged }) {
       await load();
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    }
+  };
+
+  const legendy = useLegendy();
+  const updateItemVidRubki = async (item, kod) => {
+    try {
+      await api.patch(`/delyanki/items/${item.id}`, { vid_rubki_kod: kod });
+      setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, vid_rubki_kod: kod || null } : it)));
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сменить вид рубки", description: e.message });
     }
   };
 
@@ -871,6 +911,7 @@ function PlotDetail({ delyankaId, onListChanged }) {
                   <th className="px-3 py-2">Площадь, га</th>
                   <th className="px-3 py-2">Состав</th>
                   <th className="px-3 py-2">Статус работ</th>
+                  <th className="px-3 py-2">Вид рубки</th>
                   <th className="px-3 py-2">По выделам</th>
                   <th className="px-3 py-2">Абрис</th>
                 </tr>
@@ -894,6 +935,9 @@ function PlotDetail({ delyankaId, onListChanged }) {
                           <option key={s} value={s}>{s}</option>
                         ))}
                       </select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <VidRubkiSelect item={it} vidy={legendy.vidy_rubok} onChange={(kod) => updateItemVidRubki(it, kod)} />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {(vydelyIz(it.vydel).length > 1 || it.chasti_json) ? (

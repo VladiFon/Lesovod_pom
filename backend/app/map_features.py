@@ -307,11 +307,14 @@ def lesokultury_for_map(conn, lesnichestvo_num: Optional[str]) -> List[dict]:
     lesn_name = lesnichestvo_name_for_num(lesnichestvo_num)
     rows = conn.execute(
         """SELECT id, kvartal, vydel, lesnichestvo, glavnaya_poroda, god_sozdaniya, ploshad, status, sostav_formula,
-                  chasti_json, geom_geojson
+                  chasti_json, geom_geojson, vid_kultur, naznachenie_plantatsii, metod_sozdaniya, primechaniya
            FROM lesokultury_uchastok WHERE status IS NULL OR status != 'списан'"""
     ).fetchall()
+    from app import vidy
+
     out = []
-    for u_id, kv, vd, lesn, poroda, god, ploshad, status, sostav, chasti_json, geom in rows:
+    for (u_id, kv, vd, lesn, poroda, god, ploshad, status, sostav, chasti_json, geom,
+         vid_kultur, naznachenie, metod, primechaniya) in rows:
         if lesn_name and lesn and not same_lesnichestvo(lesn, lesn_name):
             continue
         vydely = _lk_vydely(vd, chasti_json)
@@ -324,7 +327,8 @@ def lesokultury_for_map(conn, lesnichestvo_num: Optional[str]) -> List[dict]:
         for i, v in enumerate(vydely):
             item = {"id": u_id, "kvartal": norm_id(kv), "vydel": v, "lesnichestvo": lesn,
                     "glavnaya_poroda": poroda, "god_sozdaniya": god, "ploshad": ploshad,
-                    "status": status, "sostav_formula": sostav, "has_kontur": geometry is not None}
+                    "status": status, "sostav_formula": sostav, "has_kontur": geometry is not None,
+                    **vidy.vid_kultur_info(vid_kultur, naznachenie, metod, primechaniya)}
             if i == 0 and geometry is not None:
                 item["geometry"] = geometry
             out.append(item)

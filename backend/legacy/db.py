@@ -30,6 +30,9 @@ LESOKULTURY_EXTRA_COLUMNS = [
     # JSON [{"vydel", "podvydel", "ploshad"}, ...] — когда культура заходит в
     # несколько выделов и в каждом стала своим подвыделом
     ("chasti_json", "TEXT"),
+    # вид культур (код из app/vidy.py: ЛК, ПП, ПЛ…) для окраски карты;
+    # пусто — по назначению плантации / способу создания
+    ("vid_kultur", "TEXT"),
 ]
 
 SCHEMA = """
@@ -878,6 +881,9 @@ def migrate_schema(conn):
         # Лесосека в нескольких выделах — площадь по каждому для ведомостей
         # текущих изменений: [{vydel, podvydel, ploshad}] (как у лесных культур).
         "chasti_json": "TEXT",
+        # Вид рубки, выбранный вручную (код из app/vidy.py: ССР, УЗ, ПРЖ…);
+        # пусто — угадывается по МДО. Для окраски карты по виду рубки.
+        "vid_rubki_kod": "TEXT",
     }
     for col, coltype in new_item_cols.items():
         if col not in existing_item_cols:
