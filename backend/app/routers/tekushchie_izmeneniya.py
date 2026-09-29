@@ -60,7 +60,9 @@ def preview(
         "diagnostika": ti.diagnostika(conn, god, lesnichestvo),
         "prilozheniya": [
             {"nomer": n, "title": ti.TITLES[n], "columns": ti.COLUMNS[n], "istochnik": ti.ISTOCHNIKI.get(n, ""),
-             "rows": data[n]["rows"], "warnings": data[n]["warnings"], "uchastki": data[n]["uchastki"],
+             "rows": data[n]["rows"], "keys": data[n]["keys"], "pustye": data[n]["pustye"],
+             "popravleno": data[n]["popravleno"],
+             "warnings": data[n]["warnings"], "uchastki": data[n]["uchastki"],
              "avto": data[n]["avto"], "ruchnye": data[n]["ruchnye"]}
             for n in ti.NOMERA
         ],
@@ -118,6 +120,38 @@ def edit_ruchnaya(row_id: int, body: RuchnayaPatch, conn=Depends(get_conn),
 def delete_ruchnaya(row_id: int, conn=Depends(get_conn), _user=Depends(require_office_writer_or_master)):
     ti.ensure_table(conn)
     conn.execute("DELETE FROM tek_izm_ruchnye WHERE id = ?", (row_id,))
+    conn.commit()
+    return {"ok": True}
+
+
+class PopravkaIn(BaseModel):
+    god: int
+    lesnichestvo: str = ""
+    prilozhenie: int
+    klyuch: str
+    values: List[str]
+
+
+@router.put("/popravki")
+def save_popravka(body: PopravkaIn, conn=Depends(get_conn), _user=Depends(require_office_writer_or_master)):
+    """Дописать недостающее в автоматическую строку (хранятся только
+    изменённые графы; пустые значения по сравнению с исходными — тоже)."""
+    _check_god(body.god)
+    try:
+        ti.save_popravka(conn, body.god, body.prilozhenie, body.klyuch, body.values,
+                         ti.resolve_lesnichestvo(body.lesnichestvo))
+    except ti.TIError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True}
+
+
+@router.delete("/popravki")
+def delete_popravka(god: int, prilozhenie: int, klyuch: str, conn=Depends(get_conn),
+                    _user=Depends(require_office_writer_or_master)):
+    """Вернуть строку к автоматическим значениям."""
+    ti.ensure_popravki(conn)
+    conn.execute("DELETE FROM tek_izm_popravki WHERE god = ? AND prilozhenie = ? AND klyuch = ?",
+                 (god, prilozhenie, klyuch))
     conn.commit()
     return {"ok": True}
 

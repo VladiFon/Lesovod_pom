@@ -78,8 +78,31 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
   const [showAll, setShowAll] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [editKey, setEditKey] = useState(null);
+  const [onlyEmpty, setOnlyEmpty] = useState(false);
   const ruchnyeById = Object.fromEntries(p.ruchnye.map((r, i) => [p.avto + i, r]));
-  const visible = showAll ? p.rows : p.rows.slice(0, 15);
+  const nedopisano = p.pustye.filter((x) => x.length > 0).length;
+  const indexed = p.rows.map((r, i) => i).filter((i) => !onlyEmpty || p.pustye[i].length > 0);
+  const visible = showAll ? indexed : indexed.slice(0, 15);
+
+  const savePopravka = async (klyuch, values) => {
+    try {
+      await api.put("/tekushchie-izmeneniya/popravki", { god: Number(god), lesnichestvo, prilozhenie: p.nomer, klyuch, values });
+      setEditKey(null);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    }
+  };
+  const resetPopravka = async (klyuch) => {
+    if (!window.confirm("Вернуть строку к данным из программы (убрать дописанное)?")) return;
+    try {
+      await api.delete(`/tekushchie-izmeneniya/popravki?god=${god}&prilozhenie=${p.nomer}&klyuch=${encodeURIComponent(klyuch)}`);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сбросить", description: e.message });
+    }
+  };
 
   const save = async (values, id) => {
     try {
@@ -112,7 +135,9 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
           </span>
         </div>
         <p className="text-xs text-muted">
-          {p.istochnik ? `Откуда: ${p.istochnik}. Можно добавить строки вручную.` : "В программе этих данных нет — строки вводятся вручную."}
+          {p.istochnik
+            ? `Откуда: ${p.istochnik}. Красным — чего не хватает: нажмите «Дописать» у строки. Можно добавить и свои строки.`
+            : "В программе этих данных нет — строки вводятся вручную."}
         </p>
         {p.warnings.length > 0 && (
           <details className="text-xs">
@@ -138,8 +163,21 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((r, i) => {
+                {visible.map((i) => {
+                  const r = p.rows[i];
+                  const key = p.keys[i];
+                  const empty = new Set(p.pustye[i]);
                   const ruch = ruchnyeById[i];
+                  if (!ruch && editKey === key) {
+                    return (
+                      <tr key={key} className="border-t border-border">
+                        <td colSpan={p.columns.length + 1} className="p-1.5">
+                          <RuchnayaForm columns={p.columns} initial={r}
+                            onSave={(values) => savePopravka(key, values)} onCancel={() => setEditKey(null)} />
+                        </td>
+                      </tr>
+                    );
+                  }
                   if (ruch && editId === ruch.id) {
                     return (
                       <tr key={i} className="border-t border-border">
@@ -153,9 +191,20 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                   return (
                     <tr key={i} className={`border-t border-border ${ruch ? "bg-surface-alt" : ""}`}>
                       {r.map((v, j) => (
-                        <td key={j} className="p-1.5 whitespace-nowrap">{v || <span className="text-faint">—</span>}</td>
+                        <td key={j} className={`p-1.5 whitespace-nowrap ${empty.has(j) ? "bg-error-soft" : ""}`}>
+                          {v || <span className={empty.has(j) ? "text-error" : "text-faint"}>—</span>}
+                        </td>
                       ))}
                       <td className="p-1.5 whitespace-nowrap text-right">
+                        {!ruch && (
+                          <span className="inline-flex gap-1 items-center">
+                            {p.popravleno[i] && <span className="text-muted">дописано</span>}
+                            <Button variant="ghost" size="sm" onClick={() => setEditKey(key)}>Дописать</Button>
+                            {p.popravleno[i] && (
+                              <Button variant="ghost" size="sm" onClick={() => resetPopravka(key)}>Сбросить</Button>
+                            )}
+                          </span>
+                        )}
                         {ruch && (
                           <span className="inline-flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setEditId(ruch.id)}>Изменить</Button>
@@ -171,9 +220,14 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          {p.rows.length > 15 && (
+          {indexed.length > 15 && (
             <Button variant="ghost" size="sm" onClick={() => setShowAll((v) => !v)}>
-              {showAll ? "Свернуть" : `Показать все ${p.rows.length}`}
+              {showAll ? "Свернуть" : `Показать все ${indexed.length}`}
+            </Button>
+          )}
+          {nedopisano > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setOnlyEmpty((v) => !v)}>
+              {onlyEmpty ? "Показать все строки" : `Только недописанные (${nedopisano})`}
             </Button>
           )}
           {!adding && <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>Добавить строку</Button>}

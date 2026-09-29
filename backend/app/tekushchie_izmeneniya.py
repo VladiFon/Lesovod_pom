@@ -278,6 +278,22 @@ def _lesn_match(target: str, own) -> bool:
     return n >= 5 and a[:n] == b[:n]
 
 
+def _row(res: dict, key: str, row: list, vid: Optional[str] = None) -> None:
+    """Автоматическая строка с ключом (по нему хранятся дописанные вручную
+    значения, см. popravki) и, для прил. 3/7/15, видом для сводной."""
+    res["rows"].append(row)
+    res["keys"].append(key)
+    if vid is not None:
+        res.setdefault("vidy", []).append(vid)
+
+
+def _warn(res: dict, key: Optional[str], text: str, cols: Optional[List[int]] = None) -> None:
+    """Замечание; key — ключ строки или её начало (u12 — все строки участка
+    12), cols — графы, о которых оно. Когда эти графы (по умолчанию —
+    NUZHNYE) во всех таких строках дописаны, замечание не показывается."""
+    res["warn_keys"].append((key, text, cols))
+
+
 def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:
     """Прил. 4, 7, 14 из «Лесных культур»."""
     mer = _meropriyatiya(conn)
@@ -290,7 +306,6 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
         if _year_of(u.get("god_sozdaniya")) == god:
             res = result[7]
             res["uchastki"] += 1
-            res.setdefault("vidy", [])
             pct = next((m["prizhivaemost_pct"] for m in reversed(journal)
                         if m["tip"] in TIPY_PRIZHIVAEMOSTI and m["prizhivaemost_pct"] is not None), None)
             missing = [name for name, val in (
@@ -300,19 +315,18 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
                 ("приживаемость (инвентаризация 1-го года)", pct is not None),
             ) if not val]
             if missing:
-                res["warnings"].append(f"{_mesto(u)}: не заполнено — " + ", ".join(missing))
+                _warn(res, f"u{u['id']}", f"{_mesto(u)}: не заполнено — " + ", ".join(missing), [3, 5, 7, 8, 9, 11])
             warn = _chasti_warning(u, parts)
             if warn:
-                res["warnings"].append(warn)
-            for p in parts:
-                res["rows"].append([
+                _warn(res, f"u{u['id']}", warn, [4])
+            for i, p in enumerate(parts):
+                _row(res, f"u{u['id']}:{i}", [
                     kv, p["vydel"], taxation.get((kv, p["vydel"]), ""),
                     p["podvydel"] or p["vydel"], fmt(p["ploshad"]),
                     _cap(u.get("metod_sozdaniya")), u.get("sostav_formula") or "",
                     _cap(u.get("sposob_obrabotki")), fmt(u.get("shema_mezhdu_ryadami")),
                     fmt(u.get("shema_v_ryadu")), fmt(u.get("gustota_posadki")), fmt(pct),
-                ])
-                res["vidy"].append(_vid_kultur(u.get("metod_sozdaniya")))
+                ], _vid_kultur(u.get("metod_sozdaniya")))
 
         # --- Прил. 4: перевод в отчётном году
         perevod = [m for m in journal if m["tip"] == TIP_PEREVOD and _year_of(m["data"]) == god]
@@ -321,23 +335,28 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
             t = m["dannye"].get("taksatsiya") or {}
             res = result[4]
             res["uchastki"] += 1
-            missing = [name for name, key in (("возраст", "vozrast"), ("высота", "vysota"),
-                                              ("диаметр", "diametr"), ("полнота", "polnota"))
-                       if t.get(key) in (None, "")]
+            # Возраст культур — от года создания, если при переводе не записан.
+            vozrast = t.get("vozrast")
+            if vozrast in (None, "") and _year_of(u.get("god_sozdaniya")):
+                vozrast = god - _year_of(u.get("god_sozdaniya"))
+            missing = [name for name, val in (("возраст", vozrast), ("высота", t.get("vysota")),
+                                              ("диаметр", t.get("diametr")), ("полнота", t.get("polnota")))
+                       if val in (None, "")]
             if missing:
-                res["warnings"].append(f"{_mesto(u)}: в таксации при переводе нет — " + ", ".join(missing))
+                _warn(res, f"u{u['id']}", f"{_mesto(u)}: в таксации при переводе нет — " + ", ".join(missing),
+                      [6, 7, 8, 9])
             warn = _chasti_warning(u, parts)
             if warn:
-                res["warnings"].append(warn)
+                _warn(res, f"u{u['id']}", warn, [4])
             sostav = t.get("sostav") or m["sostav_fakt"] or u.get("sostav_formula") or ""
             one = len(parts) == 1
-            for p in parts:
+            for i, p in enumerate(parts):
                 old = p["podvydel"] or p["vydel"]
-                res["rows"].append([
+                _row(res, f"u{u['id']}:{i}", [
                     kv, old, fmt(p["ploshad"]),
                     (t.get("podvydel") if one and t.get("podvydel") else old),
                     fmt(_num(t.get("ploshad")) if one and t.get("ploshad") else p["ploshad"]),
-                    sostav, fmt(t.get("vozrast")), fmt(t.get("vysota")),
+                    sostav, fmt(_num(vozrast) if _num(vozrast) is not None else vozrast), fmt(t.get("vysota")),
                     fmt(t.get("diametr")), fmt(t.get("polnota")),
                 ])
 
@@ -349,19 +368,21 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
             res = result[14]
             res["uchastki"] += 1
             if not d.get("vid_zemel"):
-                res["warnings"].append(f"{_mesto(u)}: не указан вид земель после списания")
+                _warn(res, f"u{u['id']}", f"{_mesto(u)}: не указан вид земель после списания", [3])
             warn = _chasti_warning(u, parts)
             if warn:
-                res["warnings"].append(warn)
+                _warn(res, f"u{u['id']}", warn, [4])
+            god_s = _year_of(u.get("god_sozdaniya"))
             prichina = d.get("prichina") or m["primechaniya"] or ""
             akt = " ".join(x for x in (
                 f"акт №{d['akt_nomer']}" if d.get("akt_nomer") else "",
                 f"от {d['akt_data']}" if d.get("akt_data") else "",
             ) if x)
-            for p in parts:
-                res["rows"].append([
+            for i, p in enumerate(parts):
+                _row(res, f"u{u['id']}:{i}", [
                     kv, p["podvydel"] or p["vydel"], fmt(p["ploshad"]), d.get("vid_zemel") or "",
-                    "", "", "", "", "", "", "; ".join(x for x in (prichina, akt) if x),
+                    u.get("sostav_formula") or "", fmt(god - god_s) if god_s else "", "", "", "", "",
+                    "; ".join(x for x in (prichina, akt) if x),
                 ])
 
 
@@ -450,7 +471,7 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
         if not (god in act_years.get(d_id, set()) or y_vyp == god):
             if done and y_vyp is None and not act_years.get(d_id):
                 mesto = f"кв. {kv or '—'} выд. {vd or '—'}"
-                result[3]["warnings"].append(
+                _warn(result[3], None,
                     f"{mesto} (делянка «{nazvanie or d_id}»): отмечен выполненным, но нет ни даты, ни акта "
                     "освидетельствования — в ведомости рубок не учтён")
             continue
@@ -463,7 +484,7 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
         vd = str(vd or "").strip()
         mesto = f"кв. {kv or '—'} выд. {vd or '—'}"
         if vid is None:
-            res["warnings"].append(f"{mesto}: в МДО не указан вид рубки — отнесён к прочим рубкам")
+            _warn(res, f"d{item_id}", f"{mesto}: в МДО не указан вид рубки — отнесён к прочим рубкам", [3])
             vid = RUBKA_PROCHAYA
         area = _num(pl)
         zapas = _num(vyrub)
@@ -475,7 +496,7 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
             if zapas_ga is not None and vyborka and n == 15:
                 zapas_ga = zapas_ga * vyborka / 100
         if zapas_ga is None:
-            res["warnings"].append(f"{mesto}: нет выбираемого запаса (МДО)")
+            _warn(res, f"d{item_id}", f"{mesto}: нет выбираемого запаса (МДО)", [6 if n == 3 else 7])
         nazvanie_vida = _cap(mdo.get("sposob_rubki") or mdo.get("vid_rubki") or vid)
         tax = taxation.get((kv, vd), "") or fmt(_num(mdo.get("ploshad_obshaya")))
         if n == 3:
@@ -485,11 +506,11 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
             vyborka = _num(str(mdo.get("vyborka_zapasa_pct") or "").replace("%", ""))
             posle = round(p0 * (1 - vyborka / 100), 1) if p0 and vyborka else None
             if posle is None:
-                res["warnings"].append(f"{mesto}: полноту после рубки не из чего посчитать (нет полноты или % выборки)")
+                _warn(res, f"d{item_id}", f"{mesto}: полноту после рубки не из чего посчитать (нет полноты или % выборки)",
+                      [6])
             row = [kv, vd, tax, nazvanie_vida, vd, fmt(area), fmt(posle),
                    fmt(round(zapas_ga)) if zapas_ga else ""]
-        res["rows"].append(row)
-        res.setdefault("vidy", []).append(vid)
+        _row(res, f"d{item_id}", row, vid)
 
 
 def _rubki_uhoda(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:
@@ -520,13 +541,12 @@ def _rubki_uhoda(conn, god: int, lesnichestvo: str, result: dict, taxation: dict
         zapas_ga = _num(d.get("zapas_na_1ga"))
         polnota = _num(d.get("polnota"))
         if polnota is None:
-            res["warnings"].append(f"{mesto} (проба рубок ухода №{pid}): не указана полнота")
+            _warn(res, f"p{pid}", f"{mesto} (проба рубок ухода №{pid}): не указана полнота", [6])
         tax = taxation.get((kv, vd), "") or fmt(_num(pl_vydela))
-        res["rows"].append([
+        _row(res, f"p{pid}", [
             kv, vd, tax, _cap(d.get("vid_rubki") or d.get("sposob_rubki") or "рубка ухода"), vd,
             fmt(area), fmt(polnota), fmt(round(zapas_ga, 1)) if zapas_ga else "",
-        ])
-        res.setdefault("vidy", []).append(vid)
+        ], vid)
 
 
 # --------------------------------------------------------------------------- #
@@ -573,6 +593,9 @@ def _ruchnye_v_result(conn, god: int, lesnichestvo: str, result: dict) -> None:
             continue
         res = result[n]
         res["rows"].append(r["values"])
+        res["keys"].append(f"r{r['id']}")
+        res["pustye"].append([])
+        res["popravleno"].append(False)
         res["ruchnye"].append({"id": r["id"], "values": r["values"]})
         if n in (3, 15):
             vid = vid_rubki(r["values"][3])
@@ -656,25 +679,123 @@ def diagnostika(conn, god: int, lesnichestvo: str = "") -> dict:
     }
 
 
-def build(conn, god: int, lesnichestvo: str = "") -> dict:
+# Графы, без которых строка считается недописанной (подсвечиваются на сайте;
+# когда они заполнены, замечания по строке больше не показываются).
+NUZHNYE = {
+    3: [2, 5, 6],
+    4: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    7: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    14: [2, 3],
+    15: [2, 5, 6, 7],
+}
+
+
+def ensure_popravki(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tek_izm_popravki ("
+        " god INTEGER NOT NULL,"
+        " prilozhenie INTEGER NOT NULL,"
+        " klyuch TEXT NOT NULL,"
+        " znacheniya_json TEXT NOT NULL,"
+        " updated_at TEXT DEFAULT (datetime('now', 'localtime')),"
+        " PRIMARY KEY (god, prilozhenie, klyuch))"
+    )
+
+
+def popravki(conn, god: int) -> Dict[Tuple[int, str], Dict[int, str]]:
+    """Дописанное вручную к автоматическим строкам: {(прил, ключ): {графа: значение}}."""
+    ensure_popravki(conn)
+    out = {}
+    for pril, key, values in conn.execute(
+        "SELECT prilozhenie, klyuch, znacheniya_json FROM tek_izm_popravki WHERE god = ?", (god,)
+    ).fetchall():
+        try:
+            parsed = json.loads(values)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            out[(pril, key)] = {int(k): str(v) for k, v in parsed.items() if str(k).isdigit()}
+    return out
+
+
+def save_popravka(conn, god: int, prilozhenie: int, klyuch: str, values: List[str], lesnichestvo: str = "") -> None:
+    """Сохраняет только графы, отличающиеся от автоматических значений
+    (чтобы исправление данных в программе не перекрывалось старой правкой)."""
+    ensure_popravki(conn)
+    data = build(conn, god, lesnichestvo, s_popravkami=False)
+    res = data.get(prilozhenie)
+    if res is None or klyuch not in res["keys"]:
+        raise TIError("Строка не найдена — обновите страницу")
+    avto = res["rows"][res["keys"].index(klyuch)]
+    diff = {str(i): str(v or "").strip() for i, v in enumerate(values[:len(avto)])
+            if str(v or "").strip() != str(avto[i] or "").strip()}
+    if diff:
+        conn.execute(
+            "INSERT INTO tek_izm_popravki (god, prilozhenie, klyuch, znacheniya_json) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(god, prilozhenie, klyuch) DO UPDATE SET znacheniya_json = excluded.znacheniya_json, "
+            "updated_at = datetime('now', 'localtime')",
+            (god, prilozhenie, klyuch, json.dumps(diff, ensure_ascii=False)),
+        )
+    else:
+        conn.execute("DELETE FROM tek_izm_popravki WHERE god = ? AND prilozhenie = ? AND klyuch = ?",
+                     (god, prilozhenie, klyuch))
+    conn.commit()
+
+
+def _key_matches(warn_key: str, row_key: str) -> bool:
+    return row_key == warn_key or row_key.startswith(warn_key + ":")
+
+
+def build(conn, god: int, lesnichestvo: str = "", s_popravkami: bool = True) -> dict:
     """Строки всех приложений за год:
-    {n: {"rows": [[...]], "warnings": [...], "uchastki": k, "ruchnye": [{id, values}]}}
+    {n: {"rows": [[...]], "keys": [...], "pustye": [[графы]], "popravleno": [bool],
+         "warnings": [...], "uchastki": k, "avto": m, "ruchnye": [{id, values}]}}
     и сводная прил. 2 в result["svodnaya"]."""
     taxation = _taxation_ploshad(conn, lesnichestvo)
-    result = {n: {"rows": [], "warnings": [], "uchastki": 0, "ruchnye": []} for n in NOMERA}
+    result = {n: {"rows": [], "keys": [], "warn_keys": [], "warnings": [], "uchastki": 0, "ruchnye": []}
+              for n in NOMERA}
     _kultury(conn, god, lesnichestvo, result, taxation)
     _rubki_delyanki(conn, god, lesnichestvo, result, taxation)
     _rubki_uhoda(conn, god, lesnichestvo, result, taxation)
-    # Авто-строки сортируем по кварталу/выделу, ручные идут следом в порядке ввода.
+    popr = popravki(conn, god) if s_popravkami else {}
     for n in NOMERA:
         res = result[n]
+        # Дописанное вручную поверх автоматических значений.
+        res["popravleno"] = []
+        for i, key in enumerate(res["keys"]):
+            p = popr.get((n, key))
+            res["popravleno"].append(bool(p))
+            if not p:
+                continue
+            row = res["rows"][i]
+            for col, value in p.items():
+                if col < len(row):
+                    row[col] = value
+            if n in (3, 15) and 3 in p and res.get("vidy"):
+                vid = vid_rubki(p[3])
+                if vid and pril_rubki(vid) == n:
+                    res["vidy"][i] = vid
+            elif n == 7 and 5 in p and res.get("vidy"):
+                res["vidy"][i] = _vid_kultur(p[5])
+        # Недописанные графы и замечания только по недописанным строкам.
+        nuzhnye = NUZHNYE.get(n, [])
+        res["pustye"] = [[c for c in nuzhnye if c < len(r) and not str(r[c] or "").strip()] for r in res["rows"]]
+        for key, text, cols in res.pop("warn_keys"):
+            if key is not None:
+                idx = [i for i, k in enumerate(res["keys"]) if _key_matches(key, k)]
+                check = cols if cols is not None else nuzhnye
+                if idx and all(str(res["rows"][i][c] or "").strip()
+                               for i in idx for c in check if c < len(res["rows"][i])):
+                    continue
+            res["warnings"].append(text)
+        # Авто-строки сортируем по кварталу/выделу, ручные идут следом в порядке ввода.
         vidy = res.get("vidy")
+        cols = [res["rows"], res["keys"], res["pustye"], res["popravleno"]] + ([vidy] if vidy is not None else [])
+        order = sorted(range(len(res["rows"])),
+                       key=lambda i: (_sort_num(res["rows"][i][0]), _sort_num(res["rows"][i][1])))
+        res["rows"], res["keys"], res["pustye"], res["popravleno"] = ([c[i] for i in order] for c in cols[:4])
         if vidy is not None:
-            pairs = sorted(zip(res["rows"], vidy), key=lambda p: (_sort_num(p[0][0]), _sort_num(p[0][1])))
-            res["rows"] = [p[0] for p in pairs]
-            res["vidy"] = [p[1] for p in pairs]
-        else:
-            res["rows"].sort(key=lambda r: (_sort_num(r[0]), _sort_num(r[1])))
+            res["vidy"] = [vidy[i] for i in order]
         res["avto"] = len(res["rows"])
     _ruchnye_v_result(conn, god, lesnichestvo, result)
     result["svodnaya"] = svodnaya({n: result[n] for n in NOMERA})
