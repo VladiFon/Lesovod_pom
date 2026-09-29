@@ -156,6 +156,9 @@ def taksatsiya(card: dict, god: int) -> dict:
         "polnota": poln,
         "kolichestvo_tys_na_ga": tys,
         "ploshad": card.get("ploshad"),
+        # Выдел(ы) именно этого перевода по карточке: в книге строка участка
+        # бывает склеена из нескольких («19,20,23,26,28»), а переводится 26.
+        "vydel_kartochki": ", ".join(vydel_tokens(card.get("vydel") or "")),
     }
     if card.get("vydel_novyy"):
         out["podvydel"] = card["vydel_novyy"]
