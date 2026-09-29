@@ -58,6 +58,7 @@ def preview(
         "lesnichestvo": lesnichestvo,
         "svodnaya": _svodnaya_rows(data["svodnaya"]),
         "diagnostika": ti.diagnostika(conn, god, lesnichestvo),
+        "dubli": data.get("dubli", []),
         "prilozheniya": [
             {"nomer": n, "title": ti.TITLES[n], "columns": ti.COLUMNS[n], "istochnik": ti.ISTOCHNIKI.get(n, ""),
              "rows": data[n]["rows"], "keys": data[n]["keys"], "pustye": data[n]["pustye"],

@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from app import legacy_bridge  # noqa: F401
+from app import polnota as polnota_mod
 from app.lesokultury_kniga import vydel_tokens
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "shablony" / "tekushchie_izmeneniya.docx"
@@ -37,6 +38,7 @@ TEMPLATE_PATH = Path(__file__).resolve().parent / "shablony" / "tekushchie_izmen
 TIP_PEREVOD = "Перевод в покрытые лесом земли"
 TIP_SPISANIE = "Списание"
 TIPY_PRIZHIVAEMOSTI = ("Инвентаризация 1-го года", "Техническая приёмка")
+DIAMETR_KULTUR_SM = 2  # у переводимых несомкнувшихся культур (со слов лесничества)
 
 # Заголовки столбцов — как в формах приказа (для предпросмотра и ручного ввода).
 _TAKS = ["Кв.", "Выдел (подвыдел) по лесоустройству", "Площадь, га", "Выдел (подвыдел)", "Площадь, га",
@@ -84,7 +86,8 @@ TITLES = {
 # Откуда берутся строки (подсказка на сайте). Ручные строки можно добавить в любое приложение.
 ISTOCHNIKI = {
     3: "делянки (МДО) с актом освидетельствования или отметкой «выполнено» в отчётном году",
-    4: "лесные культуры: «Перевод в покрытые лесом земли» в журнале участка",
+    4: ("лесные культуры: «Перевод в покрытые лесом земли» в журнале участка; таксацию можно загрузить "
+        "из полевых карточек («Лесокультуры» → «Загрузить карточки перевода»)"),
     7: "лесные культуры, созданные в отчётном году",
     14: "лесные культуры: «Списание» в журнале участка",
     15: "делянки (МДО) с несплошной рубкой и выполненные пробы рубок ухода",
@@ -314,10 +317,83 @@ def _warn(res: dict, key: Optional[str], text: str, cols: Optional[List[int]] = 
     res["warn_keys"].append((key, text, cols))
 
 
+# Поля участка, по которым видно, насколько он заполнен (для выбора
+# основного из дублей).
+_POLYA_POLNOTY = ("metod_sozdaniya", "sostav_formula", "sposob_obrabotki", "shema_mezhdu_ryadami",
+                  "shema_v_ryadu", "gustota_posadki", "podvydel", "chasti_json", "geom_geojson", "tlu",
+                  "glavnaya_poroda", "posadochnyy_material")
+
+
+def _dubl_klyuch(u: dict):
+    """Одно и то же место: квартал, набор выделов и год создания. Без
+    выдела или года участки дублями не считаются."""
+    tokens = set(vydel_tokens(str(u.get("vydel") or "")))
+    tokens |= {p["vydel"] for p in chasti(u) if p["vydel"]}
+    god_s = _year_of(u.get("god_sozdaniya"))
+    kv = _norm(u.get("kvartal"))
+    if not tokens or not god_s or not kv:
+        return None
+    return kv, frozenset(tokens), god_s
+
+
+def _zapolnennost(conn, u: dict, journal: List[dict]) -> int:
+    score = sum(1 for f in _POLYA_POLNOTY if str(u.get(f) or "").strip())
+    score += 2 * len(journal)
+    ensure_popravki(conn)
+    score += 3 * conn.execute("SELECT COUNT(*) FROM tek_izm_popravki WHERE klyuch LIKE ?",
+                              (f"u{u['id']}:%",)).fetchone()[0]
+    return score
+
+
+def dubli(conn, uchastki: List[dict], mer: Dict[int, List[dict]]) -> Tuple[List[dict], List[dict]]:
+    """Участки, заведённые дважды (например, из книги л/к и ещё раз вручную
+    или из QGIS): в ведомость идёт только самый заполненный, остальные —
+    в список дублей (на сайте кнопка «Объединить»). Возвращает
+    (участки без дублей, [{osnovnoy, lishnie, mesto}])."""
+    groups: Dict[tuple, List[dict]] = {}
+    for u in uchastki:
+        key = _dubl_klyuch(u)
+        if key is None:
+            continue
+        lesn = _norm(u.get("lesnichestvo"))
+        for (k, other_lesn), members in groups.items():
+            if k == key and (not lesn or not other_lesn or _lesn_match(lesn, other_lesn)):
+                members.append(u)
+                break
+        else:
+            groups[(key, lesn)] = [u]
+    skip, out = set(), []
+    rank = lambda group: sorted(group, key=lambda u: (-_zapolnennost(conn, u, mer.get(u["id"], [])), u["id"]))
+    for (key, _lesn), members in groups.items():
+        # Разные строки книги л/к в одном выделе — разные участки (посадки
+        # разных лет/частей), это не дубль. Дубль — участок, заведённый
+        # вручную или из QGIS поверх уже существующего.
+        iz_knigi = [u for u in members if str(u.get("istochnik") or "").startswith("книга")]
+        drugie = [u for u in members if u not in iz_knigi]
+        if len(members) < 2 or not drugie:
+            continue
+        if len(iz_knigi) <= 1:
+            ranked = rank(members)
+        else:
+            ranked = rank(iz_knigi)[:1] + rank(drugie)
+        main = ranked[0]
+        skip.update(u["id"] for u in ranked[1:])
+        out.append({
+            "osnovnoy": main["id"],
+            "lishnie": [u["id"] for u in ranked[1:]],
+            "mesto": f"{_mesto(main)} ({key[2]} г.)",
+            "uchastki": [{"id": u["id"], "vydel": u.get("vydel") or "", "ploshad": fmt(_num(u.get("ploshad"))),
+                          "primechaniya": u.get("primechaniya") or "", "created_at": u.get("created_at") or ""}
+                         for u in ranked],
+        })
+    return [u for u in uchastki if u["id"] not in skip], out
+
+
 def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:
     """Прил. 4, 7, 14 из «Лесных культур»."""
     mer = _meropriyatiya(conn)
-    for u in _uchastki(conn, lesnichestvo):
+    uchastki, result["dubli"] = dubli(conn, _uchastki(conn, lesnichestvo), mer)
+    for u in uchastki:
         kv = str(u.get("kvartal") or "").strip()
         parts = chasti(u)
         journal = mer.get(u["id"], [])
@@ -361,16 +437,30 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
             vozrast = t.get("vozrast")
             if vozrast in (None, "") and _year_of(u.get("god_sozdaniya")):
                 vozrast = god - _year_of(u.get("god_sozdaniya"))
+            sostav = t.get("sostav") or m["sostav_fakt"] or u.get("sostav_formula") or ""
+            # Диаметр у переводимых культур в карточке не пишется — всегда 2 см.
+            diametr = t.get("diametr") if t.get("diametr") not in (None, "") else DIAMETR_KULTUR_SM
+            # Полнота — по таблице молодняков из количества деревьев на 1 га.
+            polnota = t.get("polnota")
+            if polnota in (None, "") and _num(t.get("kolichestvo_tys_na_ga")):
+                polnota, _nizhe = polnota_mod.po_kolichestvu(_num(t.get("kolichestvo_tys_na_ga")), sostav)
+            if t.get("polnota_nizhe_tablicy"):
+                _warn(res, None, f"{_mesto(u)}: деревьев {fmt(t.get('kolichestvo_tys_na_ga'))} тыс./га — меньше, чем в "
+                                 f"таблице полноты; поставлено {fmt(polnota)}, проверьте")
             missing = [name for name, val in (("возраст", vozrast), ("высота", t.get("vysota")),
-                                              ("диаметр", t.get("diametr")), ("полнота", t.get("polnota")))
+                                              ("полнота", polnota))
                        if val in (None, "")]
             if missing:
                 _warn(res, f"u{u['id']}", f"{_mesto(u)}: в таксации при переводе нет — " + ", ".join(missing),
                       [6, 7, 8, 9])
+            # Несколько старых выделов стали одним новым («6,7,8,9 (30)» в
+            # карточке) и площади по выделам не заданы — одна строка.
+            if len(parts) > 1 and t.get("podvydel") and all(p["ploshad"] is None for p in parts):
+                parts = [{"vydel": ", ".join(p["vydel"] for p in parts), "podvydel": "",
+                          "ploshad": _num(u.get("ploshad"))}]
             warn = _chasti_warning(u, parts)
             if warn:
                 _warn(res, f"u{u['id']}", warn, [4])
-            sostav = t.get("sostav") or m["sostav_fakt"] or u.get("sostav_formula") or ""
             one = len(parts) == 1
             for i, p in enumerate(parts):
                 old = p["podvydel"] or p["vydel"]
@@ -379,7 +469,7 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
                     (t.get("podvydel") if one and t.get("podvydel") else old),
                     fmt(_num(t.get("ploshad")) if one and t.get("ploshad") else p["ploshad"]),
                     sostav, fmt(_num(vozrast) if _num(vozrast) is not None else vozrast), fmt(t.get("vysota")),
-                    fmt(t.get("diametr")), fmt(t.get("polnota")),
+                    fmt(diametr), fmt(polnota),
                 ])
 
         # --- Прил. 14: списание в отчётном году

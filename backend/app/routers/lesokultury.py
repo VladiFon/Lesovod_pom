@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadF
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app import legacy_bridge  # noqa: F401
+from app import kartochki_perevoda
 from app import lesokultury_kniga
 from app import vidy
 import db as legacy_db
@@ -81,6 +82,78 @@ def delete_uchastok(uchastok_id: int, conn=Depends(get_conn), _user=Depends(requ
         raise HTTPException(404, "Участок не найден")
     legacy_db.delete_lesokultury_uchastok(conn, uchastok_id)
     return {"ok": True}
+
+
+class ObedinitIn(BaseModel):
+    lishnie: List[int]
+
+
+# Не переносятся при объединении (служебные / собственные у каждого участка).
+_NE_PERENOSIT = {"id", "created_at", "updated_at", "updated_by"}
+
+
+@router.post("/uchastki/{uchastok_id}/obedinit")
+def obedinit_uchastki(uchastok_id: int, body: ObedinitIn, conn=Depends(get_conn),
+                      _user=Depends(require_permission("lesokultury.edit"))):
+    """Участок заведён дважды (из книги и ещё раз вручную / из QGIS):
+    пустые поля основного дополняются из лишних, их журнал мероприятий и
+    ссылки (пробы, отчёты) и дописанное к строкам ведомостей переходят к
+    основному, лишние удаляются."""
+    lishnie = [i for i in dict.fromkeys(body.lishnie) if i != uchastok_id]
+    if not lishnie:
+        raise HTTPException(400, "Не указаны лишние участки")
+    cols = [d[0] for d in conn.execute("SELECT * FROM lesokultury_uchastok LIMIT 0").description]
+
+    def row(uid):
+        r = conn.execute("SELECT * FROM lesokultury_uchastok WHERE id = ?", (uid,)).fetchone()
+        if r is None:
+            raise HTTPException(404, f"Участок №{uid} не найден")
+        return dict(zip(cols, r))
+
+    main = row(uchastok_id)
+    for uid in lishnie:
+        extra = row(uid)
+        fill = {c: extra[c] for c in cols
+                if c not in _NE_PERENOSIT and str(main.get(c) or "").strip() == "" and str(extra.get(c) or "").strip()}
+        if fill:
+            conn.execute(f"UPDATE lesokultury_uchastok SET {', '.join(f'{c} = ?' for c in fill)} WHERE id = ?",
+                         (*fill.values(), uchastok_id))
+            main.update(fill)
+        conn.execute("UPDATE lesokultury_meropriyatiya SET uchastok_id = ? WHERE uchastok_id = ?", (uchastok_id, uid))
+        for sql in ("UPDATE raw_reports SET lesokultury_uchastok_id = ? WHERE lesokultury_uchastok_id = ?",):
+            try:
+                conn.execute(sql, (uchastok_id, uid))
+            except Exception:  # noqa: BLE001 — таблицы может не быть в старой базе
+                pass
+        try:
+            for pid, ids_json in conn.execute(
+                "SELECT id, lesokultury_uchastok_ids_json FROM uhody_proby WHERE lesokultury_uchastok_ids_json LIKE ?",
+                (f"%{uid}%",),
+            ).fetchall():
+                ids = json.loads(ids_json or "[]")
+                if uid in ids:
+                    ids = list(dict.fromkeys(uchastok_id if i == uid else i for i in ids))
+                    conn.execute("UPDATE uhody_proby SET lesokultury_uchastok_ids_json = ? WHERE id = ?",
+                                 (json.dumps(ids), pid))
+        except Exception:  # noqa: BLE001
+            pass
+        # Дописанное к строкам ведомостей переходит к основному участку, если
+        # у него по той же строке своего нет (номер части тот же).
+        try:
+            for god, pril, klyuch in conn.execute(
+                "SELECT god, prilozhenie, klyuch FROM tek_izm_popravki WHERE klyuch LIKE ?", (f"u{uid}:%",)
+            ).fetchall():
+                novyy = f"u{uchastok_id}:" + klyuch.split(":", 1)[1]
+                if conn.execute("SELECT 1 FROM tek_izm_popravki WHERE god = ? AND prilozhenie = ? AND klyuch = ?",
+                                (god, pril, novyy)).fetchone() is None:
+                    conn.execute("UPDATE tek_izm_popravki SET klyuch = ? WHERE god = ? AND prilozhenie = ? AND klyuch = ?",
+                                 (novyy, god, pril, klyuch))
+            conn.execute("DELETE FROM tek_izm_popravki WHERE klyuch LIKE ?", (f"u{uid}:%",))
+        except Exception:  # noqa: BLE001 — таблицы может ещё не быть
+            pass
+        conn.execute("DELETE FROM lesokultury_uchastok WHERE id = ?", (uid,))
+    conn.commit()
+    return {"ok": True, "id": uchastok_id, "udaleno": lishnie}
 
 
 # --------------------------------------------------------------------------- #
@@ -222,6 +295,50 @@ async def import_kniga_apply(
     except ValueError:
         raise HTTPException(400, "skip: ожидается JSON-список")
     return lesokultury_kniga.apply_import(conn, plan, lesnichestvo.strip(), skip_keys)
+
+
+# --------------------------------------------------------------------------- #
+#   Полевые карточки перевода в покрытые лесом земли (Word) -> таксация для
+#   прил. 4 текущих изменений. См. app/kartochki_perevoda.py.
+# --------------------------------------------------------------------------- #
+async def _kartochki_plan(conn, file: UploadFile, god: int, lesnichestvo: str):
+    data = await file.read()
+    if len(data) > 50 * 1024 * 1024:
+        raise HTTPException(400, "Файл больше 50 МБ")
+    try:
+        cards = kartochki_perevoda.parse(data)
+    except kartochki_perevoda.KartochkiError as exc:
+        raise HTTPException(400, str(exc))
+    return kartochki_perevoda.plan(conn, cards, god, lesnichestvo.strip())
+
+
+@router.post("/kartochki-perevoda/preview")
+async def kartochki_perevoda_preview(
+    file: UploadFile = File(...),
+    god: int = Form(...),
+    lesnichestvo: str = Form(""),
+    conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit")),
+):
+    """Разбор карточек и сверка с участками — В БАЗУ НЕ ПИШЕТ."""
+    return await _kartochki_plan(conn, file, god, lesnichestvo)
+
+
+@router.post("/kartochki-perevoda/apply")
+async def kartochki_perevoda_apply(
+    file: UploadFile = File(...),
+    god: int = Form(...),
+    lesnichestvo: str = Form(""),
+    skip: Optional[str] = Form(None),
+    conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit")),
+):
+    """Та же сверка + запись таксации в переводы отчётного года. Повторная
+    загрузка тех же карточек только перезаписывает те же значения."""
+    plan = await _kartochki_plan(conn, file, god, lesnichestvo)
+    try:
+        skip_keys = json.loads(skip) if skip else []
+    except ValueError:
+        raise HTTPException(400, "skip: ожидается JSON-список")
+    return kartochki_perevoda.apply(conn, plan, god, skip_keys)
 
 
 # --------------------------------------------------------------------------- #

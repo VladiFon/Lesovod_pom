@@ -949,6 +949,197 @@ function KnigaImportModal({ open, onClose, onDone }) {
   );
 }
 
+// --------------------------------------------------------------------------- //
+//   Полевые карточки перевода в покрытые лесом земли (Word) -> таксация
+//   для прил. 4 текущих изменений: состав, новый выдел (в скобках), возраст,
+//   высота главной породы, диаметр 2 см, полнота по таблице молодняков.
+//   См. app/kartochki_perevoda.py.
+// --------------------------------------------------------------------------- //
+const KARTOCHKI_FILTERS = [
+  { key: "perevod", label: "Перевод", test: (r) => r.reshenie === "перевод" },
+  { key: "problem", label: "С замечаниями", test: (r) => r.problemy.length > 0 },
+  { key: "other", label: "Не переводятся / списание", test: (r) => r.reshenie !== "перевод" },
+];
+
+function KartochkiPerevodaModal({ open, onClose, onDone }) {
+  const toast = useToast();
+  const [file, setFile] = useState(null);
+  const [god, setGod] = useState(String(new Date().getFullYear()));
+  const [lesnichestvo, setLesnichestvo] = useState("");
+  const [preview, setPreview] = useState(null);
+  const [skip, setSkip] = useState(() => new Set());
+  const [filter, setFilter] = useState("perevod");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const reset = () => { setFile(null); setPreview(null); setSkip(new Set()); setFilter("perevod"); setResult(null); };
+  const handleClose = () => {
+    if (busy) return;
+    if (result) onDone();
+    reset();
+    onClose();
+  };
+  const formData = (withSkip) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("god", god);
+    fd.append("lesnichestvo", lesnichestvo.trim());
+    if (withSkip && skip.size) fd.append("skip", JSON.stringify([...skip]));
+    return fd;
+  };
+  const handlePreview = async () => {
+    if (!file) {
+      toast.show({ tone: "warning", title: "Выберите файл с карточками" });
+      return;
+    }
+    setBusy(true);
+    try {
+      setPreview(await api.upload("/lesokultury/kartochki-perevoda/preview", formData(false)));
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось прочитать карточки", description: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const k = preview ? preview.rows.filter((r) => r.reshenie === "перевод" && r.uchastok_id && !skip.has(r.key)).length : 0;
+  const handleApply = async () => {
+    if (!window.confirm(`Записать таксацию из ${k} карточек в переводы ${god} года?`)) return;
+    setBusy(true);
+    try {
+      setResult(await api.upload("/lesokultury/kartochki-perevoda/apply", formData(true)));
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось записать", description: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleSkip = (key) =>
+    setSkip((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const s = preview?.summary;
+  const rows = preview ? preview.rows.filter(KARTOCHKI_FILTERS.find((f) => f.key === filter).test) : [];
+  const footer = result ? (
+    <Button variant="primary" onClick={handleClose}>Готово</Button>
+  ) : preview ? (
+    <>
+      <Button variant="ghost" onClick={handleClose} disabled={busy}>Отмена</Button>
+      <Button variant="primary" onClick={handleApply} loading={busy} disabled={!k}>Записать {k} карт.</Button>
+    </>
+  ) : (
+    <>
+      <Button variant="ghost" onClick={handleClose} disabled={busy}>Отмена</Button>
+      <Button variant="primary" onClick={handlePreview} loading={busy}>Проверить карточки</Button>
+    </>
+  );
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Полевые карточки перевода в покрытые лесом земли" size="xl" footer={footer}>
+      {result ? (
+        <div className="flex flex-col gap-2 text-sm">
+          <p>Дописана таксация в переводы: <b>{result.obnovleno}</b></p>
+          {result.sozdano > 0 && <p>Заведено новых записей о переводе: <b>{result.sozdano}</b></p>}
+          {result.propushcheno > 0 && <p>Пропущено по вашему выбору: <b>{result.propushcheno}</b></p>}
+          <p className="text-muted">Проверьте прил. 4 на странице «Текущие изменения». Повторная загрузка тех же карточек дублей не создаёт.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(170px,1fr))] items-end">
+            <div className="col-span-2">
+              <label className="block text-[11.5px] font-semibold text-muted mb-1">Файл с карточками (.docx)</label>
+              <input type="file" accept=".docx" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); }} className="text-sm" />
+            </div>
+            <TextField label="Год перевода" type="number" value={god} onChange={(e) => { setGod(e.target.value); setPreview(null); }} />
+            <TextField label="Лесничество" placeholder="все" value={lesnichestvo} onChange={(e) => { setLesnichestvo(e.target.value); setPreview(null); }} />
+          </div>
+          {!preview && (
+            <p className="text-sm text-muted">
+              Из карточки берётся: состав (п. 12б), новый выдел в скобках, возраст (год перевода минус год закладки),
+              высота главной породы и количество деревьев на 1 га (п. 11). Диаметр — 2 см, полнота — по таблице
+              молодняков до 5 м. Сначала карточки только проверяются, в базу ничего не пишется.
+            </p>
+          )}
+          {s && (
+            <>
+              <div className="text-sm">
+                Карточек <b>{s.vsego}</b>: на перевод <b>{s.perevod}</b> (найдено в базе {s.naydeno}, не найдено {s.ne_naydeno}),
+                на списание {s.spisanie}, не переводятся {s.ne_perevoditsya}.
+                {s.nizhe_tablicy > 0 && <span className="text-oak"> Меньше 2,0 тыс./га (ниже таблицы полноты): {s.nizhe_tablicy}.</span>}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {KARTOCHKI_FILTERS.map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilter(f.key)}
+                    className={[
+                      "px-3 py-1 rounded-full text-xs border",
+                      filter === f.key ? "bg-mint text-pine border-pine font-bold" : "border-border text-muted hover:bg-hover",
+                    ].join(" ")}
+                  >
+                    {f.label} ({preview.rows.filter(f.test).length})
+                  </button>
+                ))}
+              </div>
+              <div className="max-h-[50vh] overflow-auto border border-border rounded-md">
+                <table className="w-full text-xs border-collapse">
+                  <thead className="sticky top-0 bg-surface-alt text-muted text-left">
+                    <tr>
+                      <th className="p-1.5 font-semibold" title="Записывать">✓</th>
+                      <th className="p-1.5 font-semibold">№</th>
+                      <th className="p-1.5 font-semibold">Кв.</th>
+                      <th className="p-1.5 font-semibold">Выдел</th>
+                      <th className="p-1.5 font-semibold">Новый</th>
+                      <th className="p-1.5 font-semibold">Га</th>
+                      <th className="p-1.5 font-semibold">Решение</th>
+                      <th className="p-1.5 font-semibold">Состав</th>
+                      <th className="p-1.5 font-semibold">Возр.</th>
+                      <th className="p-1.5 font-semibold">H, м</th>
+                      <th className="p-1.5 font-semibold">Тыс./га</th>
+                      <th className="p-1.5 font-semibold">Полн.</th>
+                      <th className="p-1.5 font-semibold">Участок в базе</th>
+                      <th className="p-1.5 font-semibold">Замечания</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => {
+                      const t = r.taksatsiya || {};
+                      const mozhno = r.reshenie === "перевод" && r.uchastok_id;
+                      return (
+                        <tr key={r.key} className={["border-t border-border", mozhno && skip.has(r.key) ? "opacity-50" : ""].join(" ")}>
+                          <td className="p-1.5">
+                            {mozhno && <input type="checkbox" checked={!skip.has(r.key)} onChange={() => toggleSkip(r.key)} className="accent-pine" />}
+                          </td>
+                          <td className="p-1.5">{r.nomer}</td>
+                          <td className="p-1.5">{r.kvartal}</td>
+                          <td className="p-1.5">{r.vydel}</td>
+                          <td className="p-1.5">{r.vydel_novyy || "—"}</td>
+                          <td className="p-1.5">{r.ploshad ?? "—"}</td>
+                          <td className="p-1.5 whitespace-nowrap">{r.reshenie}</td>
+                          <td className="p-1.5">{t.sostav || "—"}</td>
+                          <td className="p-1.5">{t.vozrast ?? ""}</td>
+                          <td className="p-1.5">{t.vysota ?? ""}</td>
+                          <td className="p-1.5">{t.kolichestvo_tys_na_ga ?? ""}</td>
+                          <td className={["p-1.5", t.polnota_nizhe_tablicy ? "text-oak font-semibold" : ""].join(" ")}>{t.polnota ?? ""}</td>
+                          <td className="p-1.5">{r.uchastok || "—"}</td>
+                          <td className="p-1.5 text-oak">{r.problemy.join("; ")}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export default function Lesokultury() {
   const toast = useToast();
   const [uchastki, setUchastki] = useState([]);
@@ -957,6 +1148,7 @@ export default function Lesokultury() {
   const [selectedId, setSelectedId] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [kartochkiOpen, setKartochkiOpen] = useState(false);
   const [gody, setGody] = useState([]);
   const [god, setGod] = useState("");
   const [search, setSearch] = useState("");
@@ -998,6 +1190,7 @@ export default function Lesokultury() {
         <div className="p-5 pb-3 flex flex-col gap-3 border-b border-border">
           <Button variant="primary" onClick={() => setCreateOpen(true)}>Новый участок</Button>
           <Button variant="secondary" onClick={() => setImportOpen(true)}>Загрузить книгу л/к</Button>
+          <Button variant="secondary" onClick={() => setKartochkiOpen(true)}>Загрузить карточки перевода</Button>
           <TextField
             placeholder="Поиск: квартал, выдел, лесничество, порода, делянка"
             value={search}
@@ -1082,6 +1275,7 @@ export default function Lesokultury() {
           api.get("/lesokultury/gody").then((rows) => setGody(rows || [])).catch(() => {});
         }}
       />
+      <KartochkiPerevodaModal open={kartochkiOpen} onClose={() => setKartochkiOpen(false)} onDone={loadList} />
       <CreateUchastokModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={(id) => { loadList(); setSelectedId(id); }} />
     </div>
   );

@@ -452,6 +452,33 @@ class LesokulturyIzQgis(BaseModel):
     primechaniya: Optional[str] = None
 
 
+def _naiti_lesokultury(conn, lesnichestvo, kvartal, vydel, god, area):
+    """Существующий участок культур на том же месте: квартал, общий выдел и
+    тот же год создания (если год указан). Из нескольких — без контура и
+    ближайший по площади."""
+    from app.lesokultury_kniga import vydel_tokens
+    from app.tekushchie_izmeneniya import _lesn_match, _norm, _year_of
+
+    tokens = set(vydel_tokens(str(vydel or "")))
+    kv = map_features.norm_id(kvartal)
+    god_n = _year_of(god)
+    if not tokens or not kv:
+        return None
+    cols = [d[0] for d in conn.execute("SELECT * FROM lesokultury_uchastok LIMIT 0").description]
+    found = []
+    for r in conn.execute("SELECT * FROM lesokultury_uchastok WHERE kvartal = ?", (kv,)).fetchall():
+        u = dict(zip(cols, r))
+        if lesnichestvo and not _lesn_match(_norm(lesnichestvo), u.get("lesnichestvo")):
+            continue
+        if god_n and _year_of(u.get("god_sozdaniya")) != god_n:
+            continue
+        if tokens & set(vydel_tokens(str(u.get("vydel") or ""))):
+            found.append(u)
+    if not found:
+        return None
+    return min(found, key=lambda u: (bool(u.get("geom_geojson")), abs((u.get("ploshad") or 0) - (area or 0))))
+
+
 @router.post("/qgis/lesokultury")
 def create_lesokultury_from_qgis(body: LesokulturyIzQgis, token: str, conn=Depends(get_conn)):
     """Создаёт участок лесных культур со своим контуром — в ГИСлесхозе такого
@@ -477,6 +504,18 @@ def create_lesokultury_from_qgis(body: LesokulturyIzQgis, token: str, conn=Depen
         raise HTTPException(400, str(exc))
     area = kontur_mod.area_ha(geometry)
     lesnichestvo = _lesnichestvo_name(body.lesnichestvo_num) if body.lesnichestvo_num else None
+    # Участок на этом месте уже есть (из книги л/к или заведён на сайте) —
+    # не заводим второй (он задвоит строки ведомостей), а даём ему контур.
+    est = _naiti_lesokultury(conn, lesnichestvo, body.kvartal, body.vydel, body.god_sozdaniya, area)
+    if est is not None:
+        dop = {k: v for k, v in (("vid_kultur", vid), ("glavnaya_poroda", (body.glavnaya_poroda or "").strip()))
+               if v and not str(est.get(k) or "").strip()}
+        dop["geom_geojson"] = json.dumps(geometry, ensure_ascii=False)
+        conn.execute(f"UPDATE lesokultury_uchastok SET {', '.join(f'{k} = ?' for k in dop)} WHERE id = ?",
+                     (*dop.values(), est["id"]))
+        conn.commit()
+        return {"id": est["id"], "ploshad_kontura": area, "lesnichestvo": est.get("lesnichestvo") or lesnichestvo,
+                "obnovlen": True}
     uchastok_id = legacy_db.create_lesokultury_uchastok(
         conn, lesnichestvo=lesnichestvo, kvartal=map_features.norm_id(body.kvartal),
         vydel=(body.vydel or "").strip(), ploshad=body.ploshad or area, vid_kultur=vid,
