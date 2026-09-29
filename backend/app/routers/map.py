@@ -23,7 +23,7 @@ import sklad as sklad_store
 
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
-from app import map_features
+from app import map_features, vidy
 from app.auth import get_current_user, map_reader, require_permission
 import webext
 
@@ -191,6 +191,8 @@ def _own_lesoseki(conn, lesnichestvo: Optional[str], existing: list) -> list:
             "item_id": None, "batch_id": None, "layer_name": "лесосеки_делянки",
             "kvartal": kv, "vydel": vd, "nazvanie": row["nazvanie"],
             "delyanka_id": row["delyanka_id"], "status_rabot": row["status_rabot"], "raw": {},
+            **{k: row[k] for k in ("vid_rubki_kod", "vid_rubki", "vid_rubki_color", "gruppa",
+                                   "gruppa_label", "gruppa_color")},
         }})
     return features
 
@@ -280,6 +282,19 @@ def get_work_colors(lesnichestvo_num: str, conn=Depends(get_conn), _user=Depends
     return map_features.work_colors(conn, lesnichestvo_num)
 
 
+@router.get("/legendy")
+def get_legendy(_user=Depends(get_current_user)):
+    """Справочники видов рубок, видов пользования и видов культур с цветами."""
+    return vidy.legendy()
+
+
+@router.get("/qgis/legendy.json")
+def get_legendy_for_qgis(token: str):
+    """То же для плагина QGIS (токен сервиса)."""
+    _check_service_token(token)
+    return vidy.legendy()
+
+
 @router.get("/delyanka-statuses")
 def get_delyanka_statuses(_user=Depends(get_current_user)):
     """Легенда статусов делянок (delyanka_item.status_rabot)."""
@@ -362,9 +377,10 @@ def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = 
     colors = {s["status"]: s["color"] for s in map_features.DELYANKA_STATUSES}
     wanted: dict = {}
     own = []
-    for item_id, d_id, nazvanie, kv, vd, lesn, status_rabot, ploshad, geom in conn.execute(
+    for (item_id, d_id, nazvanie, kv, vd, lesn, status_rabot, ploshad, geom,
+         vid_rubki_kod, mdo_raw_json, meropriyatiya, namechaemoe) in conn.execute(
         """SELECT i.id, d.id, d.nazvanie, i.kvartal, i.vydel, i.lesnichestvo, i.status_rabot, i.ploshad,
-                  i.geom_geojson
+                  i.geom_geojson, i.vid_rubki_kod, i.mdo_raw_json, d.meropriyatiya, d.listok_namechaemoe_meropriyatie
            FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id"""
     ).fetchall():
         num = _num_for_lesnichestvo(lesn)
@@ -376,6 +392,7 @@ def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = 
             "kvartal": map_features.norm_id(kv), "vydel": map_features.norm_id(vd),
             "lesnichestvo": lesn, "status_rabot": status, "color": colors.get(status, "#9e9e9e"),
             "ploshad": ploshad,
+            **vidy.vid_rubki_info(vid_rubki_kod, mdo_raw_json, meropriyatiya, namechaemoe),
         }
         if geom:
             try:
