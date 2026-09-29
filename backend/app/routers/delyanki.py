@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import delyanka/db/config
@@ -219,7 +220,7 @@ def update_item(item_id: int, fields: Dict[str, Any],
 
 
 @router.post("/items/{item_id}/abris")
-def upload_abris(item_id: int, file: UploadFile = File(...),
+def upload_abris(item_id: int, file: UploadFile = File(...), proekt: Optional[str] = Form(None),
                   user=Depends(require_permission("delyanka.edit")), conn=Depends(get_conn)):
     """Сохраняет PNG абриса, привязанный к выделу — заменяет мост
     QWebChannel (AbrisBridge) десктоп-версии обычной загрузкой файла.
@@ -237,7 +238,39 @@ def upload_abris(item_id: int, file: UploadFile = File(...),
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
     delyanka.save_abris_image(conn, item_id, str(dest))
+    # Весь абрис (знаки, пасеки, зона, настройки печати) — чтобы открыть и
+    # поправить. version >= 2 значит, что картинка — только поле чертежа
+    # для листа 5.10 по шаблону (см. app/skhema_docx.py).
+    if proekt is not None:
+        if len(proekt) > 5_000_000:
+            raise HTTPException(400, "Абрис слишком большой")
+        try:
+            json.loads(proekt)
+        except ValueError:
+            raise HTTPException(400, "Абрис: неверный формат данных")
+        conn.execute("UPDATE delyanka_item SET abris_proekt_json = ? WHERE id = ?", (proekt, item_id))
+        conn.commit()
     return {"ok": True, "abris_image_path": str(dest)}
+
+
+@router.get("/items/{item_id}/skhema.docx")
+def download_skhema_docx(item_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Лист «5.10. Схема разработки лесосеки» Word-файлом строго по шаблону."""
+    from app import skhema_docx
+
+    row = conn.execute("SELECT abris_image_path, abris_proekt_json, kvartal, vydel FROM delyanka_item WHERE id=?",
+                       (item_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Выдел делянки не найден")
+    image_path, proekt, kvartal, vydel = row
+    if not image_path or not Path(image_path).exists() or not skhema_docx.is_template_drawing(proekt):
+        raise HTTPException(409, "Откройте абрис и сохраните его заново — старый абрис сохранён целым листом")
+    data = skhema_docx.build_docx(image_path, legacy_config.RESOURCE_DIR)
+    from urllib.parse import quote
+
+    name = f"Схема_5.10_кв{kvartal or ''}_выд{vydel or ''}.docx"
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
 
 # Собственный контур лесосеки (delyanka_item.geom_geojson, WGS84): из QGIS,
@@ -257,16 +290,21 @@ def get_item_kontur(item_id: int, conn=Depends(get_conn), _user=Depends(get_curr
     from app import kontur as kontur_mod
 
     kvartal, vydel, lesnichestvo, ploshad, geom = _item_for_kontur(conn, item_id)
+    proekt_row = conn.execute("SELECT abris_proekt_json FROM delyanka_item WHERE id=?", (item_id,)).fetchone()
+    try:
+        proekt = json.loads(proekt_row[0]) if proekt_row and proekt_row[0] else None
+    except ValueError:
+        proekt = None
     if not geom:
-        return {"geometry": None, "ploshad_kontura": None, "abris": None}
+        return {"geometry": None, "ploshad_kontura": None, "abris": None, "proekt": proekt}
     try:
         geometry = json.loads(geom)
     except ValueError:
-        return {"geometry": None, "ploshad_kontura": None, "abris": None}
+        return {"geometry": None, "ploshad_kontura": None, "abris": None, "proekt": proekt}
     meta = {"item_id": item_id, "num_kv": kvartal, "num_vds": vydel, "lesnich_text": lesnichestvo,
             "num_lch": legacy_config.LCH_MAP.get(lesnichestvo or "")}
     return {"geometry": geometry, "ploshad_kontura": kontur_mod.area_ha(geometry),
-            "abris": kontur_mod.to_abris(geometry, meta)}
+            "abris": kontur_mod.to_abris(geometry, meta), "proekt": proekt}
 
 
 @router.post("/items/{item_id}/kontur")

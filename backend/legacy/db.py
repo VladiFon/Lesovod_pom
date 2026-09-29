@@ -878,6 +878,8 @@ def migrate_schema(conn):
         # Лесосека в нескольких выделах — площадь по каждому для ведомостей
         # текущих изменений: [{vydel, podvydel, ploshad}] (как у лесных культур).
         "chasti_json": "TEXT",
+        # весь абрис (контур, знаки, пасеки, зона, настройки печати) — abris_tool.html
+        "abris_proekt_json": "TEXT",
     }
     for col, coltype in new_item_cols.items():
         if col not in existing_item_cols:

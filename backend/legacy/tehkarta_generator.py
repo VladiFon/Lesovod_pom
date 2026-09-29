@@ -372,6 +372,25 @@ def generate_tehkarta(delyanka, item, output_path, templates_dir="."):
             # подстраховываемся и делаем разрыв сами, как раньше.
             _new_paragraph_before().add_run().add_break(WD_BREAK.PAGE)
 
+        try:
+            from app import skhema_docx
+        except ImportError:  # запуск вне backend'а — старый путь ниже
+            skhema_docx = None
+
+        if skhema_docx is not None and skhema_docx.is_template_drawing(item.get("abris_proekt_json")):
+            # Новый абрис: картинка — только поле чертежа; лист собираем как
+            # в шаблоне схемы 5.10 (заголовок, чертёж, условные обозначения).
+            usable_cm = _usable_page_height(doc) / 360000.0
+            try:
+                skhema_docx.insert_page(doc, insert_before, abris_image_path, templates_dir,
+                                        max_h_cm=max(8.0, min(skhema_docx.DRAW_H_CM, usable_cm - 7.5)))
+            except Exception:
+                _new_paragraph_before().text = "[не удалось вставить схему разработки лесосеки]"
+            if not has_reserved_page:
+                _new_paragraph_before().add_run().add_break(WD_BREAK.PAGE)
+            abris_image_path = None  # старый путь ниже не нужен
+
+    if anchor_p is not None and abris_image_path and Path(abris_image_path).exists():
         heading_p = _new_paragraph_before()
         heading_p.add_run("5.10. Схема разработки лесосеки")
 
