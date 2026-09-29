@@ -5,6 +5,7 @@ import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { useToast } from "../components/Toast.jsx";
+import ChastiForm from "../components/ChastiPoVydelam.jsx";
 
 /**
  * «Текущие изменения» (приказ Минлесхоза №130 от 10.06.2026) — ведомости
@@ -67,66 +68,6 @@ function RuchnayaForm({ columns, initial, onSave, onCancel }) {
       </div>
       <div className="flex gap-2">
         <Button variant="primary" size="sm" onClick={submit} loading={saving}>Сохранить строку</Button>
-        <Button variant="ghost" size="sm" onClick={onCancel}>Отмена</Button>
-      </div>
-    </div>
-  );
-}
-
-const num = (v) => Number(String(v ?? "").replace(",", "."));
-
-/**
- * Участок культур или лесосека в нескольких таксационных выделах: площадь
- * (и подвыдел) по каждому выделу. Сохраняется в сам участок / выдел делянки,
- * в ведомости — строка на каждую часть.
- */
-function ChastiForm({ info, onSave, onCancel }) {
-  const [parts, setParts] = useState(() =>
-    (info.chasti.length ? info.chasti : info.vydely.map((v) => ({ vydel: v })))
-      .map((c) => ({ vydel: c.vydel ?? "", podvydel: c.podvydel ?? "", ploshad: c.ploshad ?? "" }))
-  );
-  const [saving, setSaving] = useState(false);
-  const set = (i, key, v) => setParts((ps) => ps.map((c, j) => (j === i ? { ...c, [key]: v } : c)));
-  const total = Math.round(parts.reduce((s, c) => s + (num(c.ploshad) || 0), 0) * 100) / 100;
-  const vsego = num(info.ploshad);
-  const submit = async (list) => {
-    setSaving(true);
-    try {
-      await onSave(list.map((c) => ({
-        vydel: String(c.vydel).trim(), podvydel: String(c.podvydel).trim(),
-        ploshad: String(c.ploshad).trim() === "" ? null : num(c.ploshad),
-      })));
-    } finally {
-      setSaving(false);
-    }
-  };
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-2.5 bg-surface-alt text-xs">
-      <div className="font-semibold text-pine">
-        Кв. {info.kvartal}, выделы {info.vydel}: площадь по каждому выделу{info.ploshad && ` (всего ${info.ploshad} га)`}
-      </div>
-      {parts.map((c, i) => (
-        <div key={i} className="grid gap-2 grid-cols-[repeat(3,minmax(110px,1fr))_auto] items-end">
-          <TextField label="Выдел" value={c.vydel} onChange={(e) => set(i, "vydel", e.target.value)} />
-          <TextField label="Подвыдел (если новый)" placeholder={c.vydel ? `например, ${c.vydel}.1` : ""}
-            value={c.podvydel} onChange={(e) => set(i, "podvydel", e.target.value)} />
-          <TextField label={`Площадь, га${info.taks?.[c.vydel] ? ` (выдел по таксации ${info.taks[c.vydel]})` : ""}`}
-            value={c.ploshad} onChange={(e) => set(i, "ploshad", e.target.value)} />
-          <Button variant="ghost" size="sm" onClick={() => setParts((ps) => ps.filter((_, j) => j !== i))}>Убрать</Button>
-        </div>
-      ))}
-      <div className={total && vsego && Math.abs(total - vsego) > 0.05 ? "text-oak" : "text-muted"}>
-        Сумма: {total} га{vsego ? ` из ${vsego} га` : ""}
-        {total && vsego && Math.abs(total - vsego) > 0.05 ? " — не сходится с общей площадью" : ""}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="primary" size="sm" onClick={() => submit(parts)} loading={saving}>Сохранить</Button>
-        <Button variant="secondary" size="sm" onClick={() => setParts((ps) => [...ps, { vydel: "", podvydel: "", ploshad: "" }])}>
-          Добавить выдел
-        </Button>
-        {info.chasti.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={() => submit([])}>Убрать разбивку</Button>
-        )}
         <Button variant="ghost" size="sm" onClick={onCancel}>Отмена</Button>
       </div>
     </div>

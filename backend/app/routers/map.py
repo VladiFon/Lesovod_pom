@@ -350,15 +350,24 @@ def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = 
 
 @router.get("/qgis/lesokultury.geojson")
 def get_lesokultury_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
-    """Участки лесных культур — полигоны выделов, для QGIS."""
+    """Участки лесных культур для QGIS: свой контур участка, если загружен,
+    иначе полигоны выделов."""
     _check_service_token(token)
     wanted: dict = {}
+    own = []
     for u in map_features.lesokultury_for_map(conn, lesnichestvo_num):
         num = _num_for_lesnichestvo(u["lesnichestvo"])
         if num is None or (lesnichestvo_num and num != str(lesnichestvo_num)):
             continue
+        if u.get("has_kontur"):
+            geometry = u.pop("geometry", None)
+            if geometry is not None:
+                own.append({"type": "Feature", "geometry": geometry, "properties": u})
+            continue
         wanted.setdefault((num, u["kvartal"], u["vydel"]), []).append(u)
-    return _vydel_polygons(lesnichestvo_num, wanted)
+    result = _vydel_polygons(lesnichestvo_num, wanted) if wanted else {"type": "FeatureCollection", "features": []}
+    result["features"].extend(own)
+    return result
 
 
 @router.get("/qgis/tracks.geojson")

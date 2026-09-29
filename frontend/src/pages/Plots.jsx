@@ -10,6 +10,7 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
+import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.jsx";
 
 /**
  * Экран "Делянки" (screens/plots/) — Этап 5 плана.
@@ -550,6 +551,18 @@ function PlotDetail({ delyankaId, onListChanged }) {
 
   // Статус работ по выделу делянки — цвет на карте приложения
   // ("в работе" ставится сам по первому отчёту, "выполнено" — здесь).
+  const [chastiItem, setChastiItem] = useState(null);
+  const saveChasti = async (chasti) => {
+    try {
+      await api.put("/tekushchie-izmeneniya/chasti", { istochnik: "d", id: chastiItem.id, chasti });
+      setChastiItem(null);
+      toast.show({ tone: "success", title: "Площадь по выделам сохранена" });
+      await load();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    }
+  };
+
   const updateItemStatus = async (item, status) => {
     try {
       await api.patch(`/delyanki/items/${item.id}`, { status_rabot: status });
@@ -828,6 +841,12 @@ function PlotDetail({ delyankaId, onListChanged }) {
           </div>
         </div>
 
+        <Modal open={!!chastiItem} onClose={() => setChastiItem(null)} title="Площадь по выделам" size="lg">
+          {chastiItem && (
+            <ChastiForm info={chastiInfo(chastiItem)} onSave={saveChasti} onCancel={() => setChastiItem(null)} />
+          )}
+        </Modal>
+
         <ActivateDelyankaModal
           open={activateModalOpen}
           onClose={() => setActivateModalOpen(false)}
@@ -851,6 +870,7 @@ function PlotDetail({ delyankaId, onListChanged }) {
                   <th className="px-3 py-2">Площадь, га</th>
                   <th className="px-3 py-2">Состав</th>
                   <th className="px-3 py-2">Статус работ</th>
+                  <th className="px-3 py-2">По выделам</th>
                   <th className="px-3 py-2">Абрис</th>
                 </tr>
               </thead>
@@ -873,6 +893,19 @@ function PlotDetail({ delyankaId, onListChanged }) {
                           <option key={s} value={s}>{s}</option>
                         ))}
                       </select>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {(vydelyIz(it.vydel).length > 1 || it.chasti_json) ? (
+                        <button
+                          onClick={() => setChastiItem(it)}
+                          title="Лесосека в нескольких выделах: площадь по каждому (для ведомостей текущих изменений)"
+                          className={`text-[12px] font-semibold rounded-lg px-2.5 py-1 ${it.chasti_json ? "text-pine bg-mint-soft hover:bg-mint" : "text-oak bg-surface-alt hover:bg-hover border border-oak"}`}
+                        >
+                          {it.chasti_json ? "Задано" : "Разбить площадь"}
+                        </button>
+                      ) : (
+                        <span className="text-faint">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       <button

@@ -72,6 +72,65 @@ def delete_uchastok(uchastok_id: int, conn=Depends(get_conn), _user=Depends(requ
     return {"ok": True}
 
 
+# --------------------------------------------------------------------------- #
+#   Контур участка (схема-чертёж) — для карты вместо всего выдела
+# --------------------------------------------------------------------------- #
+def _kontur_row(conn, uchastok_id: int):
+    row = conn.execute("SELECT ploshad, geom_geojson FROM lesokultury_uchastok WHERE id = ?",
+                       (uchastok_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Участок не найден")
+    return row
+
+
+@router.get("/uchastki/{uchastok_id}/kontur")
+def get_kontur(uchastok_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """{"geometry": GeoJSON | null, "ploshad_kontura": га}."""
+    _, geom = _kontur_row(conn, uchastok_id)
+    if not geom:
+        return {"geometry": None, "ploshad_kontura": None}
+    from shapely.geometry import shape
+
+    geometry = json.loads(geom)
+    from app import kontur as kontur_mod
+    import geopandas as gpd
+
+    area = gpd.GeoSeries([shape(geometry)], crs="EPSG:4326").to_crs(kontur_mod.DEFAULT_METRIC_CRS).area.iloc[0]
+    return {"geometry": geometry, "ploshad_kontura": round(float(area) / 10000.0, 2)}
+
+
+@router.post("/uchastki/{uchastok_id}/kontur")
+async def upload_kontur(uchastok_id: int, file: UploadFile = File(...), conn=Depends(get_conn),
+                        _user=Depends(require_permission("lesokultury.edit"))):
+    """Файл контура участка: GeoJSON, shp в .zip, KML или GPKG (из QGIS / GPS)."""
+    from app import kontur as kontur_mod
+
+    ploshad, _ = _kontur_row(conn, uchastok_id)
+    try:
+        geometry, area = kontur_mod.parse(await file.read(), file.filename or "")
+    except kontur_mod.KonturError as exc:
+        raise HTTPException(400, str(exc))
+    conn.execute("UPDATE lesokultury_uchastok SET geom_geojson = ? WHERE id = ?",
+                 (json.dumps(geometry, ensure_ascii=False), uchastok_id))
+    conn.commit()
+    try:
+        own = float(str(ploshad).replace(",", "."))
+    except (TypeError, ValueError):
+        own = None
+    warning = None
+    if own and abs(own - area) > max(0.1, own * 0.1):
+        warning = f"Площадь контура {area} га, у участка записано {own} га — проверьте"
+    return {"ok": True, "ploshad_kontura": area, "warning": warning}
+
+
+@router.delete("/uchastki/{uchastok_id}/kontur")
+def delete_kontur(uchastok_id: int, conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit"))):
+    _kontur_row(conn, uchastok_id)
+    conn.execute("UPDATE lesokultury_uchastok SET geom_geojson = NULL WHERE id = ?", (uchastok_id,))
+    conn.commit()
+    return {"ok": True}
+
+
 @router.get("/uchastki/{uchastok_id}/meropriyatiya")
 def list_meropriyatiya(uchastok_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
     return legacy_db.list_lesokultury_meropriyatiya(conn, uchastok_id)

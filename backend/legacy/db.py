@@ -1058,6 +1058,10 @@ def migrate_schema(conn):
         for col, sql_type in LESOKULTURY_EXTRA_COLUMNS:
             if col not in existing_lku_cols:
                 conn.execute(f"ALTER TABLE lesokultury_uchastok ADD COLUMN {col} {sql_type}")
+        # Контур участка (GeoJSON geometry, WGS84) — см. app/kontur.py. Не в
+        # LESOKULTURY_EXTRA_COLUMNS: правится только загрузкой файла, не PATCH.
+        if "geom_geojson" not in existing_lku_cols:
+            conn.execute("ALTER TABLE lesokultury_uchastok ADD COLUMN geom_geojson TEXT")
     # sluzhebnye_zametki и breakdown_reports создаются выше через
     # executescript(SCHEMA) (CREATE TABLE IF NOT EXISTS), но подстрахуемся
     # явной проверкой на случай баз, созданных до этого добавления.

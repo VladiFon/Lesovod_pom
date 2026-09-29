@@ -285,21 +285,49 @@ def search(conn, q: str, lesnichestvo_num: Optional[str] = None, limit: int = 20
 # --------------------------------------------------------------------------- #
 #   Лесные культуры на карте
 # --------------------------------------------------------------------------- #
+def _lk_vydely(vd, chasti_json) -> List[str]:
+    """Выделы участка: из частей по выделам, иначе из записи «1, 2, 9»."""
+    try:
+        parts = json.loads(chasti_json) if chasti_json else []
+    except (TypeError, ValueError):
+        parts = []
+    from_parts = [norm_id(p.get("vydel")) for p in parts if isinstance(p, dict) and norm_id(p.get("vydel"))]
+    if from_parts:
+        return list(dict.fromkeys(from_parts))
+    from app.lesokultury_kniga import vydel_tokens
+
+    tokens = [norm_id(t) for t in vydel_tokens(str(vd or "")) if norm_id(t)]
+    return tokens or ([norm_id(vd)] if norm_id(vd) else [])
+
+
 def lesokultury_for_map(conn, lesnichestvo_num: Optional[str]) -> List[dict]:
+    """Участки культур по выделам (участок в нескольких выделах — запись на
+    каждый). has_kontur — у участка есть свой контур (geometry — только в
+    первой его записи): тогда рисуется контур, а не весь выдел."""
     lesn_name = lesnichestvo_name_for_num(lesnichestvo_num)
     rows = conn.execute(
-        """SELECT id, kvartal, vydel, lesnichestvo, glavnaya_poroda, god_sozdaniya, ploshad, status, sostav_formula
+        """SELECT id, kvartal, vydel, lesnichestvo, glavnaya_poroda, god_sozdaniya, ploshad, status, sostav_formula,
+                  chasti_json, geom_geojson
            FROM lesokultury_uchastok WHERE status IS NULL OR status != 'списан'"""
     ).fetchall()
     out = []
-    for u_id, kv, vd, lesn, poroda, god, ploshad, status, sostav in rows:
+    for u_id, kv, vd, lesn, poroda, god, ploshad, status, sostav, chasti_json, geom in rows:
         if lesn_name and lesn and not same_lesnichestvo(lesn, lesn_name):
             continue
-        if not norm_id(kv) or not norm_id(vd):
+        vydely = _lk_vydely(vd, chasti_json)
+        if not norm_id(kv) or not vydely:
             continue
-        out.append({"id": u_id, "kvartal": norm_id(kv), "vydel": norm_id(vd), "lesnichestvo": lesn,
+        try:
+            geometry = json.loads(geom) if geom else None
+        except (TypeError, ValueError):
+            geometry = None
+        for i, v in enumerate(vydely):
+            item = {"id": u_id, "kvartal": norm_id(kv), "vydel": v, "lesnichestvo": lesn,
                     "glavnaya_poroda": poroda, "god_sozdaniya": god, "ploshad": ploshad,
-                    "status": status, "sostav_formula": sostav})
+                    "status": status, "sostav_formula": sostav, "has_kontur": geometry is not None}
+            if i == 0 and geometry is not None:
+                item["geometry"] = geometry
+            out.append(item)
     return out
 
 
@@ -314,7 +342,8 @@ def vydel_history(conn, lesnichestvo_num: Optional[str], kvartal: str, vydel: st
     for w in works:
         w["has_photo"] = bool(w.pop("photo_path", None))
 
-    lesokultury = [u for u in lesokultury_for_map(conn, lesnichestvo_num) if u["kvartal"] == kv and u["vydel"] == vd]
+    lesokultury = [{k: v for k, v in u.items() if k != "geometry"}
+                   for u in lesokultury_for_map(conn, lesnichestvo_num) if u["kvartal"] == kv and u["vydel"] == vd]
     meropriyatiya = []
     for u in lesokultury:
         for tip, data, prizh in conn.execute(
