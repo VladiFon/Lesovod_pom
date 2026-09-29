@@ -1077,6 +1077,9 @@ _EGAIS_COL_DATA_DOK = _normalize_egais_header("Дата документа")
 _EGAIS_COL_SOTRUDNIK = _normalize_egais_header("Сотрудник")
 _EGAIS_COL_SKLAD_KONTRAGENT = _normalize_egais_header("Склад контрагент")
 _EGAIS_COL_KOLVO = _normalize_egais_header("Кол-во")
+# Лесничество, в котором находится квартал (у разных лесничеств номера
+# кварталов повторяются) - см. resolve_egais_sklady.
+_EGAIS_COL_LESNICHESTVO = _normalize_egais_header("Структурное подразделение")
 
 # Служебные/технические колонки выгрузки — не участвуют в ключе
 # дедупликации журнала (см. compute_egais_operation_key) - это метаданные
@@ -1289,31 +1292,343 @@ def _extract_vydel_numbers(value):
     return set(re.findall(r"\d+", str(value)))
 
 
-def find_egais_entry_for_item(loaded_egais_data, item):
-    """Умный поиск записи(-ей) в загруженной выгрузке ЕГАИС для делянки с
-    возможно составным выделом (см. _extract_vydel_numbers) - используется
-    вместо простого loaded_egais_data.get((kvartal, vydel)), который для
-    составных выделов всегда возвращал None (главная причина, по которой
-    колонка "Факт (ЕГАИС)" оставалась пустой у многовыдельных делянок).
+# =========================================================================
+#   Сопоставление "склад ЕГАИС -> выдел делянки (delyanka_item)"
+# =========================================================================
+#
+# Раньше данные ЕГАИС привязывались к делянке ТОЛЬКО по кварталу и
+# пересечению номеров выдела. Если в одном квартале/выделе несколько
+# лесосек - реальный пример (выгрузка Болбасовского л-ва, 29.09.2026):
+#   ПЛС кв.35, выд.7 л.1 0,4 га ССР
+#   ПЛС кв.35, выд.7 л.3 0,1 га ССР
+#   ПЛС кв.35, выд.7,8 л.2 0,3 га ССР
+#   ПЛС кв.35, выд.7,8 (ЛС кв.35, выд.7,8, №3)
+# - все четыре склада попадали в КАЖДУЮ делянку с выделом 7 квартала 35:
+# приход одной лесосеки показывался (и считался в балансе) у соседних.
+#
+# Теперь единица привязки - склад ЕГАИС ("Склад операции"): каждый склад
+# относится ровно к одному выделу делянки. Сначала действует ручная
+# привязка лесничего (egais_sklad_link, один раз на склад), иначе -
+# автоматическая: квартал + выдел, затем номер лесосеки (л.N / №N из
+# названия склада), точный набор выделов, площадь, активная делянка.
+# Если однозначно выбрать не удалось - склад НЕ приписывается никому
+# (раньше приписывался всем сразу) и ждёт привязки на экране
+# "Разбор ЕГАИС → Склады ЕГАИС". Пересчёт идёт по уже сохранённому
+# журналу (egais_operation), поэтому старые выгрузки исправляются сами,
+# без удаления и повторной загрузки.
 
-    Ищет ВСЕ ключи (kvartal, vydel) в loaded_egais_data с тем же кварталом
-    и непустым пересечением чисел выдела, и сливает их в одну запись:
-    объёмы по породам/сортиментам суммируются, названия складов и
-    корректировки остатков объединяются. Возвращает None, если совпадений
-    не нашлось (в т.ч. если файл ЕГАИС не загружен вовсе)."""
+_SKLAD_KV_RE = re.compile(r"кв\.?\s*(\d+)", re.IGNORECASE)
+_SKLAD_VYD_RE = re.compile(r"выд\.?\s*(\d+(?:\s*[,/]\s*\d+)*)", re.IGNORECASE)
+_SKLAD_LESOSEKA_RES = (
+    re.compile(r"(?<![А-Яа-яЁё])л\.\s*(\d+)"),  # "л.3", "л. 3" (но не "л-во")
+    re.compile(r"\(\s*ЛС[^)]*№\s*(\d+)\s*\)"),  # "(ЛС кв.35, выд.7,8, №3)"
+    re.compile(r"№\s*(\d+)"),                  # "д.Дубровка ( кв176 выд 5 №4)"
+)
+_SKLAD_PLOSHAD_RE = re.compile(r"(\d+[.,]\d+|\d+)\s*га")
+
+# Как сопоставлен склад (поле "how" в resolve_egais_sklady)
+SKLAD_HOW_MANUAL = "manual"        # лесничий привязал вручную
+SKLAD_HOW_AUTO = "auto"            # однозначно определён автоматически
+SKLAD_HOW_IGNORED = "ignored"      # лесничий отметил "не наш склад"
+SKLAD_HOW_AMBIGUOUS = "ambiguous"  # подходит несколько выделов
+SKLAD_HOW_CONFLICT = "conflict"    # один кандидат, но номер лесосеки другой
+SKLAD_HOW_NONE = "none"            # ни одного подходящего выдела
+SKLAD_HOWS_PROBLEM = (SKLAD_HOW_AMBIGUOUS, SKLAD_HOW_CONFLICT, SKLAD_HOW_NONE)
+
+
+def egais_sklad_key(sklad, kvartal="", vydel=""):
+    """Ключ склада для сопоставления: точное название склада ЕГАИС, а для
+    редких строк без склада - квартал/выдел (иначе все такие строки всех
+    кварталов слиплись бы под одним пустым ключом)."""
+    sklad = str(sklad or "").strip()
+    if sklad:
+        return sklad
+    return f"(без склада) кв.{kvartal or '?'}, выд.{vydel or '?'}"
+
+
+def _op_sklad_key(op):
+    return egais_sklad_key(op.get("sklad"), op.get("kvartal"), op.get("vydel"))
+
+
+def parse_egais_sklad_name(name):
+    """Разбирает название склада ЕГАИС на части: квартал(ы), номера
+    выделов, номер лесосеки и площадь. Любая часть может отсутствовать
+    (None / пустое множество) - форматы названий в ЕГАИС свободные."""
+    text = str(name or "")
+    kvartaly = set(_SKLAD_KV_RE.findall(text))
+    vydely = set()
+    for m in _SKLAD_VYD_RE.findall(text):
+        vydely |= set(re.findall(r"\d+", m))
+    lesoseka = None
+    for rx in _SKLAD_LESOSEKA_RES:
+        m = rx.search(text)
+        if m:
+            lesoseka = m.group(1).lstrip("0") or "0"
+            break
+    ploshad = None
+    m = _SKLAD_PLOSHAD_RE.search(text)
+    if m:
+        try:
+            ploshad = float(m.group(1).replace(",", "."))
+        except ValueError:
+            ploshad = None
+    return {"kvartaly": kvartaly, "vydely": vydely, "lesoseka": lesoseka, "ploshad": ploshad}
+
+
+def _lesnichestvo_stem(value):
+    """"Болбасовское лесничество" / "Болбасовское" -> "болбас"; для кодов
+    (цифр) и пустых значений - None (сравнивать не с чем)."""
+    text = re.sub(r"лесничество|л-во", "", str(value or ""), flags=re.IGNORECASE).strip().lower()
+    if not text or not re.search(r"[а-яё]", text):
+        return None
+    return text[:6]
+
+
+def _item_lesoseka(item):
+    digits = re.findall(r"\d+", str(item.get("lesoseka_nomer") or ""))
+    return (digits[0].lstrip("0") or "0") if digits else None
+
+
+def _item_ploshad(item):
+    try:
+        return float(str(item.get("ploshad") or "").replace(",", ".").strip())
+    except ValueError:
+        return None
+
+
+def egais_item_label(item):
+    """Короткая подпись выдела делянки для экранов привязки складов."""
+    parts = [f"кв.{item.get('kvartal') or '—'} выд.{item.get('vydel') or '—'}"]
+    les = _item_lesoseka(item)
+    if les:
+        parts[0] += f" л.{les}"
+    if item.get("ploshad"):
+        parts.append(f"{item.get('ploshad')} га")
+    if item.get("delyanka_nazvanie"):
+        parts.append(str(item.get("delyanka_nazvanie")))
+    label = " · ".join(parts)
+    if item.get("delyanka_status") and item.get("delyanka_status") != "активна":
+        label += f" ({item.get('delyanka_status')})"
+    return label
+
+
+def _load_items_for_sklad_match(conn):
+    rows = conn.execute(
+        "SELECT di.id, di.delyanka_id, di.lesnichestvo, di.kvartal, di.vydel, "
+        "di.lesoseka_nomer, di.ploshad, d.nazvanie, d.status "
+        "FROM delyanka_item di LEFT JOIN delyanka d ON d.id = di.delyanka_id"
+    ).fetchall()
+    return [
+        {
+            "id": r[0], "delyanka_id": r[1], "lesnichestvo": r[2], "kvartal": r[3],
+            "vydel": r[4], "lesoseka_nomer": r[5], "ploshad": r[6],
+            "delyanka_nazvanie": r[7], "delyanka_status": r[8],
+        }
+        for r in rows
+    ]
+
+
+def _narrow(candidates, keep):
+    """Сужает список кандидатов, только если хоть кто-то остаётся."""
+    narrowed = [c for c in candidates if keep(c)]
+    return narrowed if narrowed else candidates
+
+
+def _auto_match_sklad(info, items_by_kvartal):
+    """Автоматический выбор выдела для одного склада. info - сводка по
+    складу (см. resolve_egais_sklady). Возвращает (how, item_id,
+    candidate_ids, finalist_ids): candidate_ids - все выделы с тем же
+    кварталом/выделом, finalist_ids - оставшиеся после сужения (между ними
+    и не получилось выбрать)."""
+    parsed = info["parsed"]
+    kvartaly = set(info["kvartaly"]) | parsed["kvartaly"]
+    row_vydely = [_extract_vydel_numbers(v) for v in info["vydely"]]
+    all_vydel_numbers = set().union(*row_vydely) if row_vydely else set()
+    all_vydel_numbers |= parsed["vydely"]
+    if not kvartaly or not all_vydel_numbers:
+        return SKLAD_HOW_NONE, None, [], []
+
+    les_stems = {_lesnichestvo_stem(x) for x in info["lesnichestva"]} - {None}
+    candidates = []
+    for kv in kvartaly:
+        for item in items_by_kvartal.get(kv, []):
+            if not (all_vydel_numbers & _extract_vydel_numbers(item.get("vydel"))):
+                continue
+            item_stem = _lesnichestvo_stem(item.get("lesnichestvo"))
+            if les_stems and item_stem and item_stem not in les_stems:
+                continue  # тот же номер квартала, но другое лесничество
+            candidates.append(item)
+    candidate_ids = [c["id"] for c in candidates]
+    if not candidates:
+        return SKLAD_HOW_NONE, None, [], []
+
+    lesoseka = parsed["lesoseka"]
+    narrowed = candidates
+    if lesoseka:
+        # Сначала точное совпадение номера; если такого нет - выдел без
+        # номера лесосеки в приложении не отбрасываем (номер неизвестен).
+        narrowed = _narrow(narrowed, lambda c: _item_lesoseka(c) == lesoseka)
+        narrowed = _narrow(narrowed, lambda c: _item_lesoseka(c) in (None, lesoseka))
+    exact_sets = [s for s in row_vydely if s] + ([parsed["vydely"]] if parsed["vydely"] else [])
+    narrowed = _narrow(
+        narrowed, lambda c: any(_extract_vydel_numbers(c.get("vydel")) == s for s in exact_sets)
+    )
+    if parsed["ploshad"] is not None:
+        def same_area(c):
+            return _item_ploshad(c) is not None and abs(_item_ploshad(c) - parsed["ploshad"]) < 0.051
+        narrowed = _narrow(narrowed, same_area)
+        narrowed = _narrow(narrowed, lambda c: same_area(c) or _item_ploshad(c) is None)
+    narrowed = _narrow(narrowed, lambda c: c.get("delyanka_status") == "активна")
+
+    finalist_ids = [c["id"] for c in narrowed]
+    if len(narrowed) != 1:
+        return SKLAD_HOW_AMBIGUOUS, None, candidate_ids, finalist_ids
+    chosen = narrowed[0]
+    if lesoseka and _item_lesoseka(chosen) not in (None, lesoseka):
+        # Единственный подходящий по выделу, но номер лесосеки другой -
+        # скорее всего делянку этой лесосеки просто не завели в
+        # приложении. Молча приписывать нельзя (именно так приход л.3
+        # попадал в л.1) - пусть лесничий подтвердит.
+        return SKLAD_HOW_CONFLICT, None, candidate_ids, finalist_ids
+    return SKLAD_HOW_AUTO, chosen["id"], candidate_ids, finalist_ids
+
+
+def resolve_egais_sklady(conn):
+    """Сопоставляет каждый склад, встречающийся в журнале ЕГАИС
+    (egais_operation), с выделом делянки. Возвращает
+    {ключ_склада: {"sklad", "how", "item_id", "candidates": [item_id...],
+    "finalists": [item_id...],
+    "kvartaly", "vydely", "lesnichestva", "rows", "parsed"}} - ключ см.
+    egais_sklad_key. item_id is None для ambiguous/conflict/none/ignored:
+    объём такого склада не приписывается ни одному выделу."""
+    try:
+        rows = conn.execute(
+            "SELECT sklad, kvartal, vydel, COALESCE(lesnichestvo, ''), COUNT(*) "
+            "FROM egais_operation GROUP BY sklad, kvartal, vydel, lesnichestvo"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    if not rows:
+        return {}
+
+    sklady = {}
+    for sklad, kvartal, vydel, lesnichestvo, count in rows:
+        key = egais_sklad_key(sklad, kvartal, vydel)
+        info = sklady.setdefault(key, {
+            "sklad": key, "real_sklad": str(sklad or "").strip(), "kvartaly": set(), "vydely": set(), "lesnichestva": set(), "rows": 0,
+        })
+        if kvartal:
+            info["kvartaly"].add(kvartal)
+        if vydel:
+            info["vydely"].add(vydel)
+        if lesnichestvo:
+            info["lesnichestva"].add(lesnichestvo)
+        info["rows"] += count
+
+    items = _load_items_for_sklad_match(conn)
+    items_by_id = {it["id"]: it for it in items}
+    items_by_kvartal = {}
+    for it in items:
+        items_by_kvartal.setdefault(_egais_clean_number(it.get("kvartal")), []).append(it)
+
+    try:
+        links = {
+            r[0]: (r[1], r[2])
+            for r in conn.execute("SELECT sklad, delyanka_item_id, status FROM egais_sklad_link").fetchall()
+        }
+    except sqlite3.OperationalError:
+        links = {}
+
+    for key, info in sklady.items():
+        info["parsed"] = parse_egais_sklad_name(key)
+        how, item_id, candidates, finalists = _auto_match_sklad(info, items_by_kvartal)
+        link = links.get(key)
+        if link is not None:
+            linked_item_id, status = link
+            if status == "ignored":
+                how, item_id = SKLAD_HOW_IGNORED, None
+            elif linked_item_id in items_by_id:
+                how, item_id = SKLAD_HOW_MANUAL, linked_item_id
+            # привязка к удалённому выделу - как будто её нет
+        info.update(how=how, item_id=item_id, candidates=candidates, finalists=finalists)
+    return sklady
+
+
+def _sklad_keys_for_item(resolution, item):
+    item_id = item.get("id")
+    if item_id is None:
+        return set()
+    return {key for key, info in resolution.items() if info.get("item_id") == item_id}
+
+
+def egais_unresolved_sklady_for_item(resolution, item):
+    """Склады, которые МОГУТ относиться к этому выделу, но не привязаны
+    однозначно (их объём сейчас не учитывается нигде) - для предупреждения
+    на экране выдела."""
+    item_id = item.get("id")
+    return [
+        {"sklad": key, "how": info["how"]}
+        for key, info in sorted(resolution.items())
+        if info["how"] in (SKLAD_HOW_AMBIGUOUS, SKLAD_HOW_CONFLICT) and item_id in info["finalists"]
+    ]
+
+
+def _egais_journal_rows_for_item(conn, item, columns, resolution=None):
+    """Строки журнала ЕГАИС, относящиеся к выделу через сопоставление
+    складов (см. resolve_egais_sklady). Возвращает список dict по columns."""
+    if resolution is None:
+        resolution = resolve_egais_sklady(conn)
+    keys = _sklad_keys_for_item(resolution, item)
+    if not keys:
+        return []
+    names = [resolution[k]["real_sklad"] for k in keys if resolution[k]["real_sklad"]]
+    where, params = [], []
+    if names:
+        where.append(f"sklad IN ({','.join('?' * len(names))})")
+        params.extend(names)
+    for k in keys:
+        info = resolution[k]
+        if not info["real_sklad"]:
+            where.append("(COALESCE(sklad, '') = '' AND COALESCE(kvartal, '') = ? AND COALESCE(vydel, '') = ?)")
+            params.extend([next(iter(info["kvartaly"]), ""), next(iter(info["vydely"]), "")])
+    rows = conn.execute(
+        f"SELECT {', '.join(columns)} FROM egais_operation WHERE {' OR '.join(where)} "
+        "ORDER BY data_dokumenta_sort DESC, id DESC",
+        params,
+    ).fetchall()
+    return [dict(zip(columns, row)) for row in rows]
+
+
+def find_egais_entry_for_item(loaded_egais_data, item):
+    """Запись(-и) загруженных данных ЕГАИС, относящиеся к выделу делянки,
+    слитые в одну: объёмы по породам/сортиментам суммируются, названия
+    складов и корректировки остатков объединяются. None - если ничего нет
+    (в т.ч. если выгрузка ЕГАИС не загружена вовсе).
+
+    Данные из журнала (load_egais_snapshot) разбиты по складам ЕГАИС и уже
+    несут item_id - выдел, к которому склад привязан (см.
+    resolve_egais_sklady); берутся только они. Так разные лесосеки одного
+    квартала/выдела больше не попадают друг к другу. Для старого снимка
+    без журнала (_load_egais_snapshot_legacy) - прежний поиск по кварталу
+    и пересечению номеров выдела (delyanka_item.vydel бывает составным,
+    '6,10,12,18', а в ЕГАИС склад привязан к одному выделу)."""
     if not loaded_egais_data:
         return None
 
+    item_id = item.get("id")
     kvartal_clean = _egais_clean_number(item.get("kvartal"))
     wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
-    if not wanted_vydel_numbers:
-        return None
 
-    matched = [
-        entry
-        for (kv, vd), entry in loaded_egais_data.items()
-        if kv == kvartal_clean and wanted_vydel_numbers & _extract_vydel_numbers(vd)
-    ]
+    def belongs(entry):
+        if "item_id" in entry:
+            return item_id is not None and entry["item_id"] == item_id
+        return (
+            bool(wanted_vydel_numbers)
+            and _egais_clean_number(entry.get("kvartal")) == kvartal_clean
+            and bool(wanted_vydel_numbers & _extract_vydel_numbers(entry.get("vydel")))
+        )
+
+    matched = [entry for entry in loaded_egais_data.values() if belongs(entry)]
     if not matched:
         return None
     if len(matched) == 1:
@@ -1425,6 +1740,7 @@ def _operations_from_raw_rows(rows):
             "osnovanie": _egais_str(row.get(_EGAIS_COL_OSNOVANIE)),
             "nomer_osnovaniya": _egais_str(row.get(_EGAIS_COL_OSNOVANIE_NUM)),
             "sotrudnik": _egais_str(row.get(_EGAIS_COL_SOTRUDNIK)),
+            "lesnichestvo": _egais_str(row.get(_EGAIS_COL_LESNICHESTVO)),
         })
     return operations
 
@@ -1447,13 +1763,21 @@ def save_egais_operations(conn, operations):
         "(natural_key, data_dokumenta, data_dokumenta_sort, tip_dokumenta, nomer_dokumenta, "
         "nomer_svyazannogo_dokumenta, kvartal, vydel, sklad, sklad_kontragent, "
         "poroda, sort, tehnicheskaya_godnost, nomenklatura, gruppa_diametrov, "
-        "kolvo, obyom, osnovanie, nomer_osnovaniya, sotrudnik, imported_at) "
+        "kolvo, obyom, osnovanie, nomer_osnovaniya, sotrudnik, imported_at, lesnichestvo) "
         "VALUES (:natural_key, :data_dokumenta, :data_dokumenta_sort, :tip_dokumenta, "
         ":nomer_dokumenta, :nomer_svyazannogo_dokumenta, :kvartal, :vydel, :sklad, "
         ":sklad_kontragent, :poroda, :sort, :tehnicheskaya_godnost, :nomenklatura, "
         ":gruppa_diametrov, :kolvo, :obyom, :osnovanie, :nomer_osnovaniya, :sotrudnik, "
-        ":imported_at)",
-        [dict(op, imported_at=now) for op in operations],
+        ":imported_at, :lesnichestvo)",
+        [dict(op, imported_at=now, lesnichestvo=op.get("lesnichestvo") or "") for op in operations],
+    )
+    # Строки, импортированные до появления колонки lesnichestvo, получают
+    # её при повторном импорте той же выгрузки (INSERT OR IGNORE выше их
+    # не трогает) - нужно для сопоставления складов с делянками.
+    conn.executemany(
+        "UPDATE egais_operation SET lesnichestvo=? "
+        "WHERE natural_key=? AND (lesnichestvo IS NULL OR lesnichestvo='')",
+        [(op.get("lesnichestvo"), op["natural_key"]) for op in operations if op.get("lesnichestvo")],
     )
     conn.commit()
     # rowcount по executemany с INSERT OR IGNORE в sqlite3 считает и
@@ -1474,32 +1798,16 @@ _EGAIS_OPERATION_COLUMNS = (
     "nomer_svyazannogo_dokumenta", "kvartal", "vydel", "sklad", "sklad_kontragent",
     "poroda", "sort", "tehnicheskaya_godnost", "nomenklatura", "gruppa_diametrov",
     "kolvo", "obyom", "osnovanie", "nomer_osnovaniya", "sotrudnik", "imported_at",
+    "lesnichestvo",
 )
 
 
 def list_egais_operations_for_item(conn, item, limit=1000):
     """Журнал ЕГАИС (сырые строки egais_operation) по ОДНОМУ выделу делянки,
-    для видимого экрана "Журнал ЕГАИС" - та же "умная" привязка по
-    пересечению чисел выдела, что и find_egais_entry_for_item
-    (delyanka_item.vydel может быть составным: "6,10,12,18"). Сортировка -
-    по дате документа по убыванию (сначала свежее)."""
-    kvartal_clean = _egais_clean_number(item.get("kvartal"))
-    wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
-    if not kvartal_clean or not wanted_vydel_numbers:
-        return []
-    rows = conn.execute(
-        f"SELECT {', '.join(_EGAIS_OPERATION_COLUMNS)} FROM egais_operation "
-        "WHERE kvartal=? ORDER BY data_dokumenta_sort DESC, id DESC",
-        (kvartal_clean,),
-    ).fetchall()
-    result = []
-    for row in rows:
-        d = dict(zip(_EGAIS_OPERATION_COLUMNS, row))
-        if wanted_vydel_numbers & _extract_vydel_numbers(d["vydel"]):
-            result.append(d)
-            if len(result) >= limit:
-                break
-    return result
+    для видимого экрана "Журнал ЕГАИС" - только строки складов, которые
+    привязаны к этому выделу (см. resolve_egais_sklady). Сортировка - по
+    дате документа по убыванию (сначала свежее)."""
+    return _egais_journal_rows_for_item(conn, item, _EGAIS_OPERATION_COLUMNS)[:limit]
 
 
 def list_egais_operations(conn, kvartal=None, vydel=None, tip_dokumenta=None, limit=500):
@@ -1568,19 +1876,15 @@ def compute_egais_balance_check(conn, item):
         explained (bool - дефицит покрывается неразобранными ФЛС/
         корректировками, ничего дополнительно делать не нужно, кроме как
         разобрать именно их)."""
-    kvartal_clean = _egais_clean_number(item.get("kvartal"))
-    wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
-    if not kvartal_clean or not wanted_vydel_numbers:
-        return None
-
-    rows = conn.execute(
-        "SELECT tip_dokumenta, nomer_dokumenta, osnovanie, nomer_osnovaniya, sklad, vydel, obyom "
-        "FROM egais_operation WHERE kvartal=?",
-        (kvartal_clean,),
-    ).fetchall()
-    matched = [r for r in rows if wanted_vydel_numbers & _extract_vydel_numbers(r[5])]
+    resolution = resolve_egais_sklady(conn)
+    columns = ("tip_dokumenta", "nomer_dokumenta", "osnovanie", "nomer_osnovaniya", "sklad", "vydel", "obyom")
+    matched = [
+        tuple(r[c] for c in columns)
+        for r in _egais_journal_rows_for_item(conn, item, columns, resolution)
+    ]
     if not matched:
         return None
+    item_keys = _sklad_keys_for_item(resolution, item)
 
     linked = _egais_linked_doc_numbers(conn)
     prihod_chisty = 0.0
@@ -1602,10 +1906,9 @@ def compute_egais_balance_check(conn, item):
 
     def _sum_unresolved(table):
         rows = conn.execute(
-            f"SELECT vydel, obyom FROM {table} WHERE kvartal=? AND status='new'",
-            (kvartal_clean,),
+            f"SELECT kvartal, vydel, sklad, obyom FROM {table} WHERE status='new'"
         ).fetchall()
-        return sum(o or 0.0 for vd, o in rows if wanted_vydel_numbers & _extract_vydel_numbers(vd))
+        return sum(o or 0.0 for kv, vd, sk, o in rows if egais_sklad_key(sk, kv, vd) in item_keys)
 
     fls_unresolved = _sum_unresolved("egais_fls_prihod_review")
     korrektirovki_unresolved = _sum_unresolved("egais_korrektirovka_review")
@@ -1764,17 +2067,47 @@ def delete_egais_snapshot_for_item(conn, item):
     Возвращает True, если что-то было удалено, иначе False (нечего
     удалять - выгрузка ЕГАИС не загружена вовсе, либо в ней нет данных по
     этому выделу)."""
-    kvartal_clean = _egais_clean_number(item.get("kvartal"))
-    wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
-    if not wanted_vydel_numbers:
-        return False
+    deleted = _delete_egais_data_for_item(conn, item)
+    if deleted:
+        conn.commit()
+    return deleted
 
-    matched_keys = _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers)
-    if not matched_keys:
-        return False
 
-    _delete_egais_data_for_keys(conn, matched_keys)
-    conn.commit()
+def _delete_egais_data_for_item(conn, item):
+    """Общая часть delete_egais_snapshot_for_item/_for_delyanka (без
+    commit). Когда журнал есть - удаляются только строки СКЛАДОВ, привязанных
+    к этому выделу (см. resolve_egais_sklady): удаление по кварталу/выделу
+    стёрло бы и данные соседних лесосек того же выдела. Старый снимок
+    (egais_snapshot*) по кварталу/выделу чистится, только если в журнале по
+    этому кварталу/выделу ничего не осталось. Без журнала - прежнее
+    поведение по кварталу/выделу."""
+    try:
+        journal_has_rows = conn.execute("SELECT 1 FROM egais_operation LIMIT 1").fetchone() is not None
+    except sqlite3.OperationalError:
+        journal_has_rows = False
+
+    if not journal_has_rows:
+        kvartal_clean = _egais_clean_number(item.get("kvartal"))
+        wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
+        if not wanted_vydel_numbers:
+            return False
+        matched_keys = _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers)
+        if not matched_keys:
+            return False
+        _delete_egais_data_for_keys(conn, matched_keys)
+        return True
+
+    rows = _egais_journal_rows_for_item(conn, item, ("id", "kvartal", "vydel"))
+    if not rows:
+        return False
+    conn.executemany("DELETE FROM egais_operation WHERE id=?", [(r["id"],) for r in rows])
+    for kv, vd in {(r["kvartal"], r["vydel"]) for r in rows}:
+        still = conn.execute(
+            "SELECT 1 FROM egais_operation WHERE kvartal=? AND vydel=? LIMIT 1", (kv, vd)
+        ).fetchone()
+        if still is None:
+            conn.execute("DELETE FROM egais_snapshot_detail WHERE kvartal=? AND vydel=?", (kv, vd))
+            conn.execute("DELETE FROM egais_snapshot WHERE kvartal=? AND vydel=?", (kv, vd))
     return True
 
 
@@ -1795,15 +2128,8 @@ def delete_egais_snapshot_for_delyanka(conn, items):
     "удалено N из M выделов"."""
     touched = []
     for item in items:
-        kvartal_clean = _egais_clean_number(item.get("kvartal"))
-        wanted_vydel_numbers = _extract_vydel_numbers(item.get("vydel"))
-        if not wanted_vydel_numbers:
-            continue
-        matched_keys = _egais_matched_keys_for_item(conn, kvartal_clean, wanted_vydel_numbers)
-        if not matched_keys:
-            continue
-        _delete_egais_data_for_keys(conn, matched_keys)
-        touched.append(item)
+        if _delete_egais_data_for_item(conn, item):
+            touched.append(item)
     if touched:
         conn.commit()
     return touched
@@ -1920,7 +2246,7 @@ def _parse_egais_reestr_impl(excel_path):
     return _aggregate_egais_operations(operations)
 
 
-def _aggregate_egais_operations(operations):
+def _aggregate_egais_operations(operations, key_fn=None):
     """Общая логика агрегации нормализованных операций ЕГАИС (формат
     extract_egais_operations/egais_operation, см. _EGAIS_OPERATION_COLUMNS)
     в {(kvartal, vydel): {...}} + stats — раньше это был единственный
@@ -1930,7 +2256,14 @@ def _aggregate_egais_operations(operations):
     задвоений, классификация крупности, отсрочка ФЛС, корректировки,
     неизвестные типы) используется ЕЩЁ и load_egais_snapshot() для
     агрегации НАКОПЛЕННОГО журнала (egais_operation) - и на одном свежем
-    файле, и на всей истории объёмы считаются идентично, одним кодом."""
+    файле, и на всей истории объёмы считаются идентично, одним кодом.
+
+    key_fn(op) -> ключ записи результата; по умолчанию (kvartal, vydel).
+    load_egais_snapshot передаёт ключ (kvartal, vydel, склад), чтобы
+    разные лесосеки одного квартала/выдела (разные склады ЕГАИС) не
+    сливались в одну запись - см. resolve_egais_sklady."""
+    if key_fn is None:
+        key_fn = lambda op: (op.get("kvartal") or "", op.get("vydel") or "")  # noqa: E731
     # 1) множество номеров документов, которые являются "вторичным приходом"
     #    (парой к "Расходу при внутреннем перемещении")
     linked_doc_numbers = set()
@@ -1985,7 +2318,7 @@ def _aggregate_egais_operations(operations):
             vydel_str = op.get("vydel") or ""
             if not kvartal_str and not vydel_str:
                 continue
-            delyanka_key = (kvartal_str, vydel_str)
+            delyanka_key = key_fn(op)
             entry = result.setdefault(delyanka_key, {
                 "nazvanie_sklada": "",
                 "kvartal": kvartal_str,
@@ -2055,7 +2388,7 @@ def _aggregate_egais_operations(operations):
             # совсем без привязки к участку - пропускаем строку, чтобы не
             # собрать мусорный ключ ("", "")
             continue
-        delyanka_key = (kvartal_str, vydel_str)
+        delyanka_key = key_fn(op)
 
         entry = result.setdefault(delyanka_key, {
             "nazvanie_sklada": "",
@@ -2462,12 +2795,46 @@ def load_egais_snapshot(conn):
         return _load_egais_snapshot_legacy(conn)
 
     operations = [dict(zip(_EGAIS_OPERATION_COLUMNS, row)) for row in rows]
-    data, _stats = _aggregate_egais_operations(operations)
+    # Запись на каждый СКЛАД ЕГАИС отдельно (а не на квартал/выдел) и
+    # item_id - выдел делянки, к которому склад привязан (None - не
+    # привязан ни к одному), см. resolve_egais_sklady/find_egais_entry_for_item.
+    data, _stats = _aggregate_egais_operations(
+        operations,
+        key_fn=lambda op: (op.get("kvartal") or "", op.get("vydel") or "", _op_sklad_key(op)),
+    )
+    resolution = resolve_egais_sklady(conn)
+    fls_counted = _fls_prihod_counted_separately(conn)
+    for (kvartal, vydel, sklad_key), entry in data.items():
+        info = resolution.get(sklad_key) or {}
+        entry["sklad_key"] = sklad_key
+        entry["item_id"] = info.get("item_id")
+        entry["nazvanie_sklada"] = entry.get("nazvanie_sklada") or sklad_key
+        # Приход на ФЛС, который лесничий на разборе отметил "отдельная
+        # заготовка (учесть)", - раньше учитывался только в старом снимке
+        # (add_fls_prihod_to_egais_snapshot) и терялся, как только баланс
+        # стал считаться по журналу.
+        for f in entry.get("fls_prihod") or []:
+            if (kvartal, vydel, f.get("nomer_dokumenta") or "", f.get("poroda") or "") in fls_counted:
+                sorts = entry["porody"].setdefault(f["poroda"], {})
+                sorts[f["sortiment"]] = sorts.get(f["sortiment"], 0) + (f.get("obyom") or 0.0)
     imported_at = max(
         (op["imported_at"] for op in operations if op.get("imported_at")),
         default=None,
     )
     return data, imported_at
+
+
+def _fls_prihod_counted_separately(conn):
+    """Ключи (kvartal, vydel, nomer_dokumenta, poroda) строк очереди ФЛС,
+    разобранных как "отдельная заготовка (учесть)"."""
+    try:
+        rows = conn.execute(
+            "SELECT kvartal, vydel, nomer_dokumenta, poroda FROM egais_fls_prihod_review "
+            "WHERE status='schitat_otdelno'"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return set()
+    return {tuple(r) for r in rows}
 
 
 def _load_egais_snapshot_legacy(conn):

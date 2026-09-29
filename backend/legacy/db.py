@@ -729,11 +729,13 @@ CREATE TABLE IF NOT EXISTS egais_operation (
     osnovanie TEXT,
     nomer_osnovaniya TEXT,
     sotrudnik TEXT,
-    imported_at TEXT NOT NULL
+    imported_at TEXT NOT NULL,
+    lesnichestvo TEXT  -- "Структурное подразделение" выгрузки
 );
 CREATE INDEX IF NOT EXISTS idx_egais_operation_kv ON egais_operation(kvartal, vydel);
 CREATE INDEX IF NOT EXISTS idx_egais_operation_data ON egais_operation(data_dokumenta_sort);
 CREATE INDEX IF NOT EXISTS idx_egais_operation_tip ON egais_operation(tip_dokumenta);
+CREATE INDEX IF NOT EXISTS idx_egais_operation_sklad ON egais_operation(sklad);
 
 -- ------------------------------------------------------------------- --
 --   Экран "Расход → ЕГАИС" — очереди на ручной разбор при импорте.
@@ -821,6 +823,24 @@ CREATE TABLE IF NOT EXISTS egais_fls_prihod_review (
 );
 CREATE INDEX IF NOT EXISTS idx_egais_fls_prihod_review_status
     ON egais_fls_prihod_review(status);
+
+-- 4) Привязка "склад ЕГАИС -> выдел делянки (delyanka_item)" - разовая
+-- настройка лесничего (см. resolve_egais_sklady в raskhod_v2.py). Нужна,
+-- когда в одном квартале/выделе несколько лесосек (например "ПЛС кв.35,
+-- выд.7 л.1 0,4 га ССР" и "ПЛС кв.35, выд.7 л.3 0,1 га ССР"): по одному
+-- кварталу/выделу их не различить, а автоматическое сопоставление по
+-- номеру лесосеки/площади не всегда однозначно. Ключ - точное название
+-- склада ЕГАИС ("Склад операции"). status: linked (весь склад относится к
+-- delyanka_item_id) | ignored (склад не относится ни к одной делянке
+-- приложения - его объём не учитывается нигде). Нет строки - склад
+-- сопоставляется автоматически.
+CREATE TABLE IF NOT EXISTS egais_sklad_link (
+    sklad TEXT PRIMARY KEY,
+    delyanka_item_id INTEGER REFERENCES delyanka_item(id),
+    status TEXT NOT NULL DEFAULT 'linked',
+    linked_by TEXT,
+    linked_at TEXT
+);
 """
 def migrate_schema(conn):
     """Применяет схему и добавляет недостающие колонки в уже существующую
@@ -1356,6 +1376,17 @@ def migrate_schema(conn):
     # каждом старте приложения, а не отдельным ручным скриптом: обычно
     # запрос ниже находит 0 строк (все новые разборы уже помечены флагом
     # сразу самим resolve_fls_prihod), поэтому лишней нагрузки на старте нет.
+    # "Структурное подразделение" (лесничество) в журнале ЕГАИС - добавлено
+    # 2026-09-29 для сопоставления складов с делянками (номера кварталов
+    # повторяются в разных лесничествах). Старые строки получат значение
+    # при повторном импорте любой выгрузки, где они есть (см.
+    # save_egais_operations).
+    existing_egais_op_cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(egais_operation)").fetchall()
+    }
+    if existing_egais_op_cols and "lesnichestvo" not in existing_egais_op_cols:
+        conn.execute("ALTER TABLE egais_operation ADD COLUMN lesnichestvo TEXT")
+
     pending_fls = conn.execute(
         "SELECT id, kvartal, vydel, poroda, sortiment, obyom, sklad "
         "FROM egais_fls_prihod_review "
