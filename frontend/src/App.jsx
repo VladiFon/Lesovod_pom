@@ -44,7 +44,7 @@ const READY_SCREENS = {
   taxation: { title: "Таксация", subtitle: "Поиск участка по кварталу/выделу и карточка-досье", Page: Taxation },
   forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: Lesokultury },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
-  tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса: прил. 4, 7, 14 из лесных культур", Page: TekushchieIzmeneniya },
+  tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса по приказу №130: прил. 1–15", Page: TekushchieIzmeneniya },
   raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: Raskhod },
   inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: Inspection },
   // C.3 плана — независимые пробы рубок ухода (не привязаны к делянке,

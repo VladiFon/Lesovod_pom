@@ -10,6 +10,9 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
+import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.jsx";
+import KonturBlock from "../components/KonturBlock.jsx";
+import { useLegendy } from "../hooks/useLegendy.js";
 
 /**
  * Экран "Делянки" (screens/plots/) — Этап 5 плана.
@@ -520,6 +523,35 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
 
 const STATUS_RABOT_OPTIONS = ["ожидает", "в работе", "выполнено"];
 
+// Вид рубки выдела делянки — цвет на карте (QGIS, приложение) при окраске
+// «по виду рубки». Пусто — определяется по МДО («Авто: …»).
+function VidRubkiSelect({ item, vidy, onChange }) {
+  const known = vidy.filter((v) => v.kod);
+  const avto = known.find((v) => v.kod === item.vid_rubki_avto_kod);
+  const current = known.find((v) => v.kod === item.vid_rubki_kod) || (!item.vid_rubki_kod ? avto : null);
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className="inline-block w-3 h-3 rounded-full border border-border shrink-0"
+        style={{ background: current ? current.color : "#9e9e9e" }}
+      />
+      <select
+        value={item.vid_rubki_kod || ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-surface border border-border focus:border-pine rounded-lg px-2 h-8 text-[12.5px] text-ink outline-none max-w-[220px]"
+        title="Цвет лесосеки на карте при окраске по виду рубки / виду пользования"
+      >
+        <option value="">
+          {avto ? `Авто по МДО: ${avto.kod} — ${avto.label}` : item.gruppa_avto ? `Авто: ${item.gruppa_avto}` : "Авто: не определён"}
+        </option>
+        {known.map((v) => (
+          <option key={v.kod} value={v.kod}>{v.kod} — {v.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function PlotDetail({ delyankaId, onListChanged }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -550,6 +582,28 @@ function PlotDetail({ delyankaId, onListChanged }) {
 
   // Статус работ по выделу делянки — цвет на карте приложения
   // ("в работе" ставится сам по первому отчёту, "выполнено" — здесь).
+  const [chastiItem, setChastiItem] = useState(null);
+  const saveChasti = async (chasti) => {
+    try {
+      await api.put("/tekushchie-izmeneniya/chasti", { istochnik: "d", id: chastiItem.id, chasti });
+      setChastiItem(null);
+      toast.show({ tone: "success", title: "Площадь по выделам сохранена" });
+      await load();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    }
+  };
+
+  const legendy = useLegendy();
+  const updateItemVidRubki = async (item, kod) => {
+    try {
+      await api.patch(`/delyanki/items/${item.id}`, { vid_rubki_kod: kod });
+      setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, vid_rubki_kod: kod || null } : it)));
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сменить вид рубки", description: e.message });
+    }
+  };
+
   const updateItemStatus = async (item, status) => {
     try {
       await api.patch(`/delyanki/items/${item.id}`, { status_rabot: status });
@@ -828,6 +882,12 @@ function PlotDetail({ delyankaId, onListChanged }) {
           </div>
         </div>
 
+        <Modal open={!!chastiItem} onClose={() => setChastiItem(null)} title="Площадь по выделам" size="lg">
+          {chastiItem && (
+            <ChastiForm info={chastiInfo(chastiItem)} onSave={saveChasti} onCancel={() => setChastiItem(null)} />
+          )}
+        </Modal>
+
         <ActivateDelyankaModal
           open={activateModalOpen}
           onClose={() => setActivateModalOpen(false)}
@@ -851,6 +911,8 @@ function PlotDetail({ delyankaId, onListChanged }) {
                   <th className="px-3 py-2">Площадь, га</th>
                   <th className="px-3 py-2">Состав</th>
                   <th className="px-3 py-2">Статус работ</th>
+                  <th className="px-3 py-2">Вид рубки</th>
+                  <th className="px-3 py-2">По выделам</th>
                   <th className="px-3 py-2">Абрис</th>
                 </tr>
               </thead>
@@ -874,6 +936,22 @@ function PlotDetail({ delyankaId, onListChanged }) {
                         ))}
                       </select>
                     </td>
+                    <td className="px-3 py-2">
+                      <VidRubkiSelect item={it} vidy={legendy.vidy_rubok} onChange={(kod) => updateItemVidRubki(it, kod)} />
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {(vydelyIz(it.vydel).length > 1 || it.chasti_json) ? (
+                        <button
+                          onClick={() => setChastiItem(it)}
+                          title="Лесосека в нескольких выделах: площадь по каждому (для ведомостей текущих изменений)"
+                          className={`text-[12px] font-semibold rounded-lg px-2.5 py-1 ${it.chasti_json ? "text-pine bg-mint-soft hover:bg-mint" : "text-oak bg-surface-alt hover:bg-hover border border-oak"}`}
+                        >
+                          {it.chasti_json ? "Задано" : "Разбить площадь"}
+                        </button>
+                      ) : (
+                        <span className="text-faint">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       <button
                         onClick={() => openAbrisTool(it)}
@@ -888,6 +966,15 @@ function PlotDetail({ delyankaId, onListChanged }) {
             </table>
           </div>
         )}
+
+        {items.map((it) => (
+          <KonturBlock
+            // абрис при сохранении пишет и контур — после него перечитываем
+            key={`${it.id}-${it.abris_image_path || ""}`}
+            path={`/delyanki/items/${it.id}/kontur`}
+            title={`Контур лесосеки${items.length > 1 ? ` (кв. ${it.kvartal || "?"}, выд. ${it.vydel || "?"})` : ""} — на карте лесосека будет показана им, абрис откроется с ним`}
+          />
+        ))}
 
         <div className="flex flex-wrap gap-2">
           {DOC_ACTIONS.map((action) => (

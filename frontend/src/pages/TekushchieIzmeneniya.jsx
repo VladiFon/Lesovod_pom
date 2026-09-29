@@ -5,6 +5,7 @@ import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { useToast } from "../components/Toast.jsx";
+import ChastiForm from "../components/ChastiPoVydelam.jsx";
 
 /**
  * «Текущие изменения» (приказ Минлесхоза №130 от 10.06.2026) — ведомости
@@ -78,8 +79,41 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
   const [showAll, setShowAll] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [editKey, setEditKey] = useState(null);
+  const [chastiKey, setChastiKey] = useState(null);
+  const [onlyEmpty, setOnlyEmpty] = useState(false);
   const ruchnyeById = Object.fromEntries(p.ruchnye.map((r, i) => [p.avto + i, r]));
-  const visible = showAll ? p.rows : p.rows.slice(0, 15);
+  const nedopisano = p.pustye.filter((x) => x.length > 0).length;
+  const indexed = p.rows.map((r, i) => i).filter((i) => !onlyEmpty || p.pustye[i].length > 0);
+  const visible = showAll ? indexed : indexed.slice(0, 15);
+
+  const savePopravka = async (klyuch, values) => {
+    try {
+      await api.put("/tekushchie-izmeneniya/popravki", { god: Number(god), lesnichestvo, prilozhenie: p.nomer, klyuch, values });
+      setEditKey(null);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    }
+  };
+  const saveChasti = async (prefix, chasti) => {
+    try {
+      await api.put("/tekushchie-izmeneniya/chasti", { istochnik: prefix[0], id: Number(prefix.slice(1)), chasti });
+      setChastiKey(null);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить части", description: e.message });
+    }
+  };
+  const resetPopravka = async (klyuch) => {
+    if (!window.confirm("Вернуть строку к данным из программы (убрать дописанное)?")) return;
+    try {
+      await api.delete(`/tekushchie-izmeneniya/popravki?god=${god}&prilozhenie=${p.nomer}&klyuch=${encodeURIComponent(klyuch)}`);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сбросить", description: e.message });
+    }
+  };
 
   const save = async (values, id) => {
     try {
@@ -112,7 +146,9 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
           </span>
         </div>
         <p className="text-xs text-muted">
-          {p.istochnik ? `Откуда: ${p.istochnik}. Можно добавить строки вручную.` : "В программе этих данных нет — строки вводятся вручную."}
+          {p.istochnik
+            ? `Откуда: ${p.istochnik}. Красным — чего не хватает: нажмите «Дописать» у строки. Можно добавить и свои строки.`
+            : "В программе этих данных нет — строки вводятся вручную."}
         </p>
         {p.warnings.length > 0 && (
           <details className="text-xs">
@@ -138,8 +174,33 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((r, i) => {
+                {visible.map((i) => {
+                  const r = p.rows[i];
+                  const key = p.keys[i];
+                  const empty = new Set(p.pustye[i]);
                   const ruch = ruchnyeById[i];
+                  const prefix = String(key).split(":")[0];
+                  const info = !ruch && p.chasti_info?.[prefix];
+                  const firstOfGroup = info && (i === 0 || String(p.keys[i - 1]).split(":")[0] !== prefix);
+                  if (info && chastiKey === key) {
+                    return (
+                      <tr key={key} className="border-t border-border">
+                        <td colSpan={p.columns.length + 1} className="p-1.5">
+                          <ChastiForm info={info} onSave={(chasti) => saveChasti(prefix, chasti)} onCancel={() => setChastiKey(null)} />
+                        </td>
+                      </tr>
+                    );
+                  }
+                  if (!ruch && editKey === key) {
+                    return (
+                      <tr key={key} className="border-t border-border">
+                        <td colSpan={p.columns.length + 1} className="p-1.5">
+                          <RuchnayaForm columns={p.columns} initial={r}
+                            onSave={(values) => savePopravka(key, values)} onCancel={() => setEditKey(null)} />
+                        </td>
+                      </tr>
+                    );
+                  }
                   if (ruch && editId === ruch.id) {
                     return (
                       <tr key={i} className="border-t border-border">
@@ -153,9 +214,23 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                   return (
                     <tr key={i} className={`border-t border-border ${ruch ? "bg-surface-alt" : ""}`}>
                       {r.map((v, j) => (
-                        <td key={j} className="p-1.5 whitespace-nowrap">{v || <span className="text-faint">—</span>}</td>
+                        <td key={j} className={`p-1.5 whitespace-nowrap ${empty.has(j) ? "bg-error-soft" : ""}`}>
+                          {v || <span className={empty.has(j) ? "text-error" : "text-faint"}>—</span>}
+                        </td>
                       ))}
                       <td className="p-1.5 whitespace-nowrap text-right">
+                        {!ruch && (
+                          <span className="inline-flex gap-1 items-center">
+                            {p.popravleno[i] && <span className="text-muted">дописано</span>}
+                            {firstOfGroup && (
+                              <Button variant="ghost" size="sm" onClick={() => setChastiKey(key)}>По выделам</Button>
+                            )}
+                            <Button variant="ghost" size="sm" onClick={() => setEditKey(key)}>Дописать</Button>
+                            {p.popravleno[i] && (
+                              <Button variant="ghost" size="sm" onClick={() => resetPopravka(key)}>Сбросить</Button>
+                            )}
+                          </span>
+                        )}
                         {ruch && (
                           <span className="inline-flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setEditId(ruch.id)}>Изменить</Button>
@@ -171,9 +246,14 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          {p.rows.length > 15 && (
+          {indexed.length > 15 && (
             <Button variant="ghost" size="sm" onClick={() => setShowAll((v) => !v)}>
-              {showAll ? "Свернуть" : `Показать все ${p.rows.length}`}
+              {showAll ? "Свернуть" : `Показать все ${indexed.length}`}
+            </Button>
+          )}
+          {nedopisano > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setOnlyEmpty((v) => !v)}>
+              {onlyEmpty ? "Показать все строки" : `Только недописанные (${nedopisano})`}
             </Button>
           )}
           {!adding && <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>Добавить строку</Button>}
@@ -214,6 +294,48 @@ function SvodnayaCard({ rows }) {
   );
 }
 
+const DIAG_LISTS = [
+  ["kultury_lesnichestva", "Лесничества у участков культур"],
+  ["kultury_gody_sozdaniya", "Годы создания культур (в выбранном лесничестве)"],
+  ["zhurnal_po_godam", "Журнал культур: мероприятие — год"],
+  ["delyanki_lesnichestva", "Лесничества у выделов делянок"],
+  ["delyanki_statusy", "Выделы делянок: статус — год выполнения"],
+  ["akty_po_godam", "Акты освидетельствования по годам"],
+];
+
+function DiagnostikaCard({ d, open }) {
+  return (
+    <Card>
+      <details open={open} className="text-xs">
+        <summary className="cursor-pointer font-semibold text-pine">
+          Что есть в базе (если ведомости пустые — посмотрите сюда)
+        </summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <p>
+            Участков культур всего: {d.kultury_vsego}, в лесничестве «{d.lesnichestvo_filtr || "все"}»: {d.kultury_v_lesnichestve}.
+          </p>
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
+            {DIAG_LISTS.map(([key, title]) => (
+              <div key={key}>
+                <div className="font-semibold text-muted mb-0.5">{title}</div>
+                {(d[key] || []).length === 0 ? (
+                  <div className="text-faint">нет</div>
+                ) : (
+                  <ul>
+                    {d[key].map(([k, n]) => (
+                      <li key={k}>{k}: {n}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
+    </Card>
+  );
+}
+
 export default function TekushchieIzmeneniya() {
   const toast = useToast();
   const [god, setGod] = useState(String(new Date().getFullYear()));
@@ -238,7 +360,10 @@ export default function TekushchieIzmeneniya() {
     }
     setLoading(true);
     try {
-      setData(await api.get("/tekushchie-izmeneniya", { god, lesnichestvo: lesnichestvo.trim() || undefined }));
+      const res = await api.get("/tekushchie-izmeneniya", { god, lesnichestvo: lesnichestvo.trim() || undefined });
+      // Настройки входа хранят лесничество номером («5») — сервер вернёт название.
+      if (res.lesnichestvo && res.lesnichestvo !== lesnichestvo.trim()) setLesnichestvo(res.lesnichestvo);
+      setData(res);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось собрать ведомости", description: e.message });
     } finally {
@@ -295,9 +420,12 @@ export default function TekushchieIzmeneniya() {
 
       {data ? (
         <>
+          {data.diagnostika && (
+            <DiagnostikaCard d={data.diagnostika} open={data.prilozheniya.every((p) => p.avto === 0)} />
+          )}
           <SvodnayaCard rows={data.svodnaya} />
           {data.prilozheniya.map((p) => (
-            <PrilozhenieCard key={p.nomer} p={p} god={data.god} lesnichestvo={lesnichestvo.trim()} onChanged={load} />
+            <PrilozhenieCard key={p.nomer} p={p} god={data.god} lesnichestvo={data.lesnichestvo || ""} onChanged={load} />
           ))}
         </>
       ) : (

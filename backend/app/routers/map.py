@@ -6,6 +6,7 @@ get_sanitary_vydely()). Требует geopandas в окружении backend'�
 AUDIT.md/requirements.txt) и файлы map_kvartala.geojson/map_vydela.geojson
 в RESOURCE_DIR (legacy/config.py); folium нужен только для /generate
 (HTML-экспорт), сама живая карта на нём больше не основана."""
+import json
 from pathlib import Path
 from typing import Optional
 import hmac
@@ -22,7 +23,7 @@ import sklad as sklad_store
 
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
-from app import map_features
+from app import map_features, vidy
 from app.auth import get_current_user, map_reader, require_permission
 import webext
 
@@ -162,7 +163,47 @@ async def import_map_layer(
 def get_import_layers(lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn), _user=Depends(map_reader)):
     """FeatureCollection всех импортированных слоёв — независимый от
     делянок оверлей на Живой карте (см. LiveMap.jsx)."""
-    return map_import.list_import_layer_geojson(conn, lesnichestvo=_lesnichestvo_name(lesnichestvo_num))
+    lesn = _lesnichestvo_name(lesnichestvo_num)
+    result = map_import.list_import_layer_geojson(conn, lesnichestvo=lesn)
+    for f in result["features"]:
+        # лесосеки из ГИСлесхоза (плагин «Лесовод-мост») несут вид рубки и вид
+        # пользования в cuttingtyp / usetype — тот же цвет, что у делянок
+        raw = {str(k).lower(): v for k, v in (f["properties"].get("raw") or {}).items()}
+        if raw.get("cuttingtyp") or raw.get("usetype"):
+            info = vidy.vid_rubki_info(None, None, raw.get("cuttingtyp"), raw.get("usetype"))
+            f["properties"].update({k: info[k] for k in _VID_RUBKI_KEYS})
+    result["features"].extend(_own_lesoseki(conn, lesn, result["features"]))
+    return result
+
+
+_VID_RUBKI_KEYS = ("vid_rubki_kod", "vid_rubki", "vid_rubki_color", "gruppa", "gruppa_label", "gruppa_color")
+
+
+def _own_lesoseki(conn, lesnichestvo: Optional[str], existing: list) -> list:
+    """Собственные контуры лесосек из карточек делянок (delyanka_item.geom_geojson)
+    — как слой «лесосеки_делянки», чтобы телефон рисовал их вместо примерного
+    прямоугольника. Лесосеки, уже присланные из QGIS тем же кв/выд, не дублируем."""
+    import delyanka as delyanka_store
+
+    have = {(map_features.norm_id(f["properties"].get("kvartal")), map_features.norm_id(f["properties"].get("vydel")))
+            for f in existing if "лесосек" in str(f["properties"].get("layer_name") or "").lower()}
+    features = []
+    for row in delyanka_store.list_delyanka_geometries(conn, lesnichestvo=lesnichestvo):
+        kv = map_features.norm_id(row["kvartal"])
+        vd = map_features.norm_id(str(row["vydel"] or "").replace(";", ",").split(",")[0])
+        if (kv, vd) in have:
+            continue
+        try:
+            geometry = json.loads(row["geom_geojson"])
+        except (TypeError, ValueError):
+            continue
+        features.append({"type": "Feature", "geometry": geometry, "properties": {
+            "item_id": None, "batch_id": None, "layer_name": "лесосеки_делянки",
+            "kvartal": kv, "vydel": vd, "nazvanie": row["nazvanie"],
+            "delyanka_id": row["delyanka_id"], "status_rabot": row["status_rabot"], "raw": {},
+            **{k: row[k] for k in _VID_RUBKI_KEYS},
+        }})
+    return features
 
 
 @router.get("/import-layers/batches")
@@ -250,6 +291,19 @@ def get_work_colors(lesnichestvo_num: str, conn=Depends(get_conn), _user=Depends
     return map_features.work_colors(conn, lesnichestvo_num)
 
 
+@router.get("/legendy")
+def get_legendy(_user=Depends(get_current_user)):
+    """Справочники видов рубок, видов пользования и видов культур с цветами."""
+    return vidy.legendy()
+
+
+@router.get("/qgis/legendy.json")
+def get_legendy_for_qgis(token: str):
+    """То же для плагина QGIS (токен сервиса)."""
+    _check_service_token(token)
+    return vidy.legendy()
+
+
 @router.get("/delyanka-statuses")
 def get_delyanka_statuses(_user=Depends(get_current_user)):
     """Легенда статусов делянок (delyanka_item.status_rabot)."""
@@ -327,38 +381,113 @@ def _num_for_lesnichestvo(name: Optional[str]) -> Optional[str]:
 
 @router.get("/qgis/delyanki.geojson")
 def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
-    """Делянки со статусом работ — полигоны выделов, для QGIS."""
+    """Делянки со статусом работ для QGIS: свой контур лесосеки, если есть, иначе полигоны выделов."""
     _check_service_token(token)
     colors = {s["status"]: s["color"] for s in map_features.DELYANKA_STATUSES}
     wanted: dict = {}
-    for item_id, d_id, nazvanie, kv, vd, lesn, status_rabot, ploshad in conn.execute(
-        """SELECT i.id, d.id, d.nazvanie, i.kvartal, i.vydel, i.lesnichestvo, i.status_rabot, i.ploshad
+    own = []
+    for (item_id, d_id, nazvanie, kv, vd, lesn, status_rabot, ploshad, geom,
+         vid_rubki_kod, mdo_raw_json, meropriyatiya, namechaemoe) in conn.execute(
+        """SELECT i.id, d.id, d.nazvanie, i.kvartal, i.vydel, i.lesnichestvo, i.status_rabot, i.ploshad,
+                  i.geom_geojson, i.vid_rubki_kod, i.mdo_raw_json, d.meropriyatiya, d.listok_namechaemoe_meropriyatie
            FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id"""
     ).fetchall():
         num = _num_for_lesnichestvo(lesn)
         if num is None or (lesnichestvo_num and num != str(lesnichestvo_num)):
             continue
         status = status_rabot or map_features.STATUS_WAITING
-        wanted.setdefault((num, map_features.norm_id(kv), map_features.norm_id(vd)), []).append({
+        props = {
             "item_id": item_id, "delyanka_id": d_id, "nazvanie": nazvanie,
             "kvartal": map_features.norm_id(kv), "vydel": map_features.norm_id(vd),
             "lesnichestvo": lesn, "status_rabot": status, "color": colors.get(status, "#9e9e9e"),
             "ploshad": ploshad,
-        })
-    return _vydel_polygons(lesnichestvo_num, wanted)
+            **vidy.vid_rubki_info(vid_rubki_kod, mdo_raw_json, meropriyatiya, namechaemoe),
+        }
+        if geom:
+            try:
+                own.append({"type": "Feature", "geometry": json.loads(geom), "properties": props})
+                continue
+            except (TypeError, ValueError):
+                pass
+        wanted.setdefault((num, props["kvartal"], props["vydel"]), []).append(props)
+    result = _vydel_polygons(lesnichestvo_num, wanted) if wanted else {"type": "FeatureCollection", "features": []}
+    result["features"].extend(own)
+    return result
 
 
 @router.get("/qgis/lesokultury.geojson")
 def get_lesokultury_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
-    """Участки лесных культур — полигоны выделов, для QGIS."""
+    """Участки лесных культур для QGIS: свой контур участка, если загружен,
+    иначе полигоны выделов."""
     _check_service_token(token)
     wanted: dict = {}
+    own = []
     for u in map_features.lesokultury_for_map(conn, lesnichestvo_num):
         num = _num_for_lesnichestvo(u["lesnichestvo"])
         if num is None or (lesnichestvo_num and num != str(lesnichestvo_num)):
             continue
+        if u.get("has_kontur"):
+            geometry = u.pop("geometry", None)
+            if geometry is not None:
+                own.append({"type": "Feature", "geometry": geometry, "properties": u})
+            continue
         wanted.setdefault((num, u["kvartal"], u["vydel"]), []).append(u)
-    return _vydel_polygons(lesnichestvo_num, wanted)
+    result = _vydel_polygons(lesnichestvo_num, wanted) if wanted else {"type": "FeatureCollection", "features": []}
+    result["features"].extend(own)
+    return result
+
+
+class LesokulturyIzQgis(BaseModel):
+    """Участок лесных культур, отмеченный в QGIS (плагин «Лесовод-мост»):
+    контур в WGS84 и то, что ввели в окне плагина."""
+
+    geometry: dict
+    lesnichestvo_num: Optional[str] = None
+    kvartal: str
+    vydel: str = ""
+    vid_kultur: Optional[str] = None
+    god_sozdaniya: Optional[str] = None
+    glavnaya_poroda: Optional[str] = None
+    ploshad: Optional[float] = None
+    primechaniya: Optional[str] = None
+
+
+@router.post("/qgis/lesokultury")
+def create_lesokultury_from_qgis(body: LesokulturyIzQgis, token: str, conn=Depends(get_conn)):
+    """Создаёт участок лесных культур со своим контуром — в ГИСлесхозе такого
+    признака нет, поэтому л/к отмечают в QGIS, а хранятся они в «Лесоводе»."""
+    _check_service_token(token)
+    from shapely.geometry import shape
+
+    import db as legacy_db
+    from app import kontur as kontur_mod
+
+    try:
+        geom = shape(body.geometry)
+        if geom.is_empty or geom.geom_type not in ("Polygon", "MultiPolygon"):
+            raise ValueError
+        geometry = kontur_mod._checked(geom)
+    except kontur_mod.KonturError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception:  # noqa: BLE001 — не GeoJSON-полигон
+        raise HTTPException(400, "Нужен полигон GeoJSON в WGS84")
+    try:
+        vid = vidy.proverit_vid_kultur(body.vid_kultur)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    area = kontur_mod.area_ha(geometry)
+    lesnichestvo = _lesnichestvo_name(body.lesnichestvo_num) if body.lesnichestvo_num else None
+    uchastok_id = legacy_db.create_lesokultury_uchastok(
+        conn, lesnichestvo=lesnichestvo, kvartal=map_features.norm_id(body.kvartal),
+        vydel=(body.vydel or "").strip(), ploshad=body.ploshad or area, vid_kultur=vid,
+        god_sozdaniya=(body.god_sozdaniya or "").strip() or None,
+        glavnaya_poroda=(body.glavnaya_poroda or "").strip() or None,
+        primechaniya=(body.primechaniya or "").strip() or "Отмечено в QGIS",
+    )
+    conn.execute("UPDATE lesokultury_uchastok SET geom_geojson = ? WHERE id = ?",
+                 (json.dumps(geometry, ensure_ascii=False), uchastok_id))
+    conn.commit()
+    return {"id": uchastok_id, "ploshad_kontura": area, "lesnichestvo": lesnichestvo}
 
 
 @router.get("/qgis/tracks.geojson")

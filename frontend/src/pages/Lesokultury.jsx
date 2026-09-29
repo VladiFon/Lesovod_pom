@@ -9,6 +9,8 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
+import KonturBlock from "../components/KonturBlock.jsx";
+import { useLegendy } from "../hooks/useLegendy.js";
 
 /**
  * Экран "Лесные культуры" (screens/lesokultury/) — Этап 8 плана.
@@ -51,7 +53,7 @@ const UCHASTOK_FIELDS = [
   "tlu", "god_sozdaniya", "metod_sozdaniya", "sposob_obrabotki", "glavnaya_poroda",
   "sostav_formula", "shema_mezhdu_ryadami", "shema_v_ryadu", "gustota_posadki",
   "posadochnyy_material", "normativ_perevoda", "naznachenie_plantatsii", "primechaniya",
-  "chasti_json",
+  "chasti_json", "vid_kultur",
 ];
 
 const NUMERIC_FIELDS = new Set([
@@ -100,6 +102,11 @@ function ChastiEditor({ value, onChange, vydel }) {
       <div className="text-[11.5px] font-semibold text-muted">
         Части по выделам (для ведомостей текущих изменений, если участок в нескольких выделах)
       </div>
+      {chasti.length === 0 && vydely.length > 1 && (
+        <div className="text-xs text-oak">
+          Участок в {vydely.length} выделах ({vydely.join(", ")}) — нажмите «Разбить по выделам» и впишите площадь каждой части.
+        </div>
+      )}
       {chasti.map((c, i) => (
         <div key={i} className="flex gap-2 items-end">
           <TextField label={i === 0 ? "Выдел" : undefined} value={c.vydel ?? ""} onChange={(e) => setPart(i, "vydel", e.target.value)} className="w-24" />
@@ -139,6 +146,30 @@ function SelectField({ label, value, onChange, options }) {
           <option key={o} value={o}>{o}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+// Вид культур — цвет участка на карте (QGIS, приложение). Пусто — по
+// назначению плантации / методу создания, иначе «Лесные культуры».
+function VidKulturField({ value, onChange }) {
+  const { vidy_kultur: vidy } = useLegendy();
+  const current = vidy.find((v) => v.kod === value);
+  return (
+    <div>
+      <label className="block text-[11.5px] font-semibold text-muted mb-1">Вид культур</label>
+      <div className="flex items-center gap-1.5">
+        <span
+          className="inline-block w-3 h-3 rounded-full border border-border shrink-0"
+          style={{ background: current ? current.color : "#9e9e9e" }}
+        />
+        <select value={value || ""} onChange={onChange} className={SELECT_CLASS}>
+          <option value="">Авто (обычные, плантационные по назначению)</option>
+          {vidy.map((v) => (
+            <option key={v.kod} value={v.kod}>{v.label}</option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
@@ -184,6 +215,7 @@ function UchastokFormFields({ form, setForm }) {
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <TextField label="Площадь, га" type="number" step="0.01" value={form.ploshad} onChange={setField("ploshad")} />
         <TextField label="Категория площади" value={form.kategoriya_ploshadi} onChange={setField("kategoriya_ploshadi")} />
+        <VidKulturField value={form.vid_kultur} onChange={setField("vid_kultur")} />
         <TextField label="ТЛУ" value={form.tlu} onChange={setField("tlu")} />
       </div>
       <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
@@ -549,6 +581,11 @@ function UchastokDetail({ uchastokId, onListChanged }) {
         <div>
           <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
         </div>
+
+        <KonturBlock
+          path={`/lesokultury/uchastki/${uchastokId}/kontur`}
+          title="Схема-чертёж (контур участка) — на карте участок будет показан им, а не всем выделом"
+        />
 
         <div>
           <h3 className="font-ui font-extrabold text-pine text-[14px] mb-3">Журнал мероприятий</h3>

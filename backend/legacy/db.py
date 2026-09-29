@@ -30,6 +30,9 @@ LESOKULTURY_EXTRA_COLUMNS = [
     # JSON [{"vydel", "podvydel", "ploshad"}, ...] — когда культура заходит в
     # несколько выделов и в каждом стала своим подвыделом
     ("chasti_json", "TEXT"),
+    # вид культур (код из app/vidy.py: ЛК, ПП, ПЛ…) для окраски карты;
+    # пусто — по назначению плантации / способу создания
+    ("vid_kultur", "TEXT"),
 ]
 
 SCHEMA = """
@@ -875,6 +878,15 @@ def migrate_schema(conn):
         # часть выдела). source_srid не храним отдельно: reprojection в
         # EPSG:4326 делается один раз при импорте, на входе.
         "geom_geojson": "TEXT",
+        # Лесосека в нескольких выделах — площадь по каждому для ведомостей
+        # текущих изменений: [{vydel, podvydel, ploshad}] (как у лесных культур).
+        "chasti_json": "TEXT",
+        # Вид рубки, выбранный вручную (код из app/vidy.py: ССР, УЗ, ПРЖ…);
+        # пусто — угадывается по МДО. Для окраски карты по виду рубки.
+        "vid_rubki_kod": "TEXT",
+        # Абрис целиком (пасеки, знаки, зона, параметры печати) — JSON из
+        # abris_tool.html, чтобы при повторном открытии ничего не пропадало.
+        "abris_proekt_json": "TEXT",
     }
     for col, coltype in new_item_cols.items():
         if col not in existing_item_cols:
@@ -1055,6 +1067,10 @@ def migrate_schema(conn):
         for col, sql_type in LESOKULTURY_EXTRA_COLUMNS:
             if col not in existing_lku_cols:
                 conn.execute(f"ALTER TABLE lesokultury_uchastok ADD COLUMN {col} {sql_type}")
+        # Контур участка (GeoJSON geometry, WGS84) — см. app/kontur.py. Не в
+        # LESOKULTURY_EXTRA_COLUMNS: правится только загрузкой файла, не PATCH.
+        if "geom_geojson" not in existing_lku_cols:
+            conn.execute("ALTER TABLE lesokultury_uchastok ADD COLUMN geom_geojson TEXT")
     # sluzhebnye_zametki и breakdown_reports создаются выше через
     # executescript(SCHEMA) (CREATE TABLE IF NOT EXISTS), но подстрахуемся
     # явной проверкой на случай баз, созданных до этого добавления.

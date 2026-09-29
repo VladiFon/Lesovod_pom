@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import delyanka/db/config
@@ -27,7 +28,7 @@ import tehkarta_generator
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
-from app.auth import map_reader, require_permission
+from app.auth import get_current_user, map_reader, require_permission
 import webext
 
 router = APIRouter(prefix="/api/delyanki", tags=["delyanki"])
@@ -148,6 +149,14 @@ def get_delyanka(delyanka_id: int, conn=Depends(get_conn)):
     d, items = delyanka.get_delyanka_full(conn, delyanka_id)
     if d is None:
         raise HTTPException(404, "Делянка не найдена")
+    from app import vidy
+
+    for it in items:
+        # что карта покажет без ручного выбора — подсказка рядом с выпадающим списком
+        avto = vidy.vid_rubki_info(None, it.get("mdo_raw_json"), d.get("meropriyatiya"),
+                                   d.get("listok_namechaemoe_meropriyatie"))
+        it["vid_rubki_avto_kod"] = avto["vid_rubki_kod"]
+        it["gruppa_avto"] = avto["gruppa_label"] if avto["gruppa"] else ""
     return {"delyanka": d, "items": items}
 
 
@@ -211,6 +220,10 @@ def activate_delyanka(delyanka_id: int, body: ActivateDelyankaIn,
 def update_item(item_id: int, fields: Dict[str, Any],
                  user=Depends(require_permission("delyanka.edit")), conn=Depends(get_conn)):
     try:
+        if "vid_rubki_kod" in fields:
+            from app import vidy
+
+            fields["vid_rubki_kod"] = vidy.proverit_vid_rubki(fields["vid_rubki_kod"])
         delyanka.update_delyanka_item(conn, item_id, **fields)
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -219,7 +232,7 @@ def update_item(item_id: int, fields: Dict[str, Any],
 
 
 @router.post("/items/{item_id}/abris")
-def upload_abris(item_id: int, file: UploadFile = File(...),
+def upload_abris(item_id: int, file: UploadFile = File(...), proekt: Optional[str] = Form(None),
                   user=Depends(require_permission("delyanka.edit")), conn=Depends(get_conn)):
     """Сохраняет PNG абриса, привязанный к выделу — заменяет мост
     QWebChannel (AbrisBridge) десктоп-версии обычной загрузкой файла.
@@ -237,7 +250,106 @@ def upload_abris(item_id: int, file: UploadFile = File(...),
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
     delyanka.save_abris_image(conn, item_id, str(dest))
+    # Весь абрис (знаки, пасеки, зона, настройки печати) — чтобы открыть и
+    # поправить. version >= 2 значит, что картинка — только поле чертежа
+    # для листа 5.10 по шаблону (см. app/skhema_docx.py).
+    if proekt is not None:
+        if len(proekt) > 5_000_000:
+            raise HTTPException(400, "Абрис слишком большой")
+        try:
+            json.loads(proekt)
+        except ValueError:
+            raise HTTPException(400, "Абрис: неверный формат данных")
+        conn.execute("UPDATE delyanka_item SET abris_proekt_json = ? WHERE id = ?", (proekt, item_id))
+        conn.commit()
     return {"ok": True, "abris_image_path": str(dest)}
+
+
+@router.get("/items/{item_id}/skhema.docx")
+def download_skhema_docx(item_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Лист «5.10. Схема разработки лесосеки» Word-файлом строго по шаблону."""
+    from app import skhema_docx
+
+    row = conn.execute("SELECT abris_image_path, abris_proekt_json, kvartal, vydel FROM delyanka_item WHERE id=?",
+                       (item_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Выдел делянки не найден")
+    image_path, proekt, kvartal, vydel = row
+    if not image_path or not Path(image_path).exists() or not skhema_docx.is_template_drawing(proekt):
+        raise HTTPException(409, "Откройте абрис и сохраните его заново — старый абрис сохранён целым листом")
+    data = skhema_docx.build_docx(image_path, legacy_config.RESOURCE_DIR)
+    from urllib.parse import quote
+
+    name = f"Схема_5.10_кв{kvartal or ''}_выд{vydel or ''}.docx"
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+
+
+# Собственный контур лесосеки (delyanka_item.geom_geojson, WGS84): из QGIS,
+# JSON «Лесного стража» или сохранённый из абриса. На карте лесосека тогда
+# рисуется им, а абрис открывается с ним вместо примера.
+def _item_for_kontur(conn, item_id: int):
+    row = conn.execute("SELECT kvartal, vydel, lesnichestvo, ploshad, geom_geojson FROM delyanka_item WHERE id=?",
+                       (item_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Выдел делянки не найден")
+    return row
+
+
+@router.get("/items/{item_id}/kontur")
+def get_item_kontur(item_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """{"geometry", "ploshad_kontura", "abris"} — abris: точки для абриса (UTM 35N)."""
+    from app import kontur as kontur_mod
+
+    kvartal, vydel, lesnichestvo, ploshad, geom = _item_for_kontur(conn, item_id)
+    proekt_row = conn.execute("SELECT abris_proekt_json FROM delyanka_item WHERE id=?", (item_id,)).fetchone()
+    try:
+        proekt = json.loads(proekt_row[0]) if proekt_row and proekt_row[0] else None
+    except ValueError:
+        proekt = None
+    if not geom:
+        return {"geometry": None, "ploshad_kontura": None, "abris": None, "proekt": proekt}
+    try:
+        geometry = json.loads(geom)
+    except ValueError:
+        return {"geometry": None, "ploshad_kontura": None, "abris": None, "proekt": proekt}
+    meta = {"item_id": item_id, "num_kv": kvartal, "num_vds": vydel, "lesnich_text": lesnichestvo,
+            "num_lch": legacy_config.LCH_MAP.get(lesnichestvo or "")}
+    return {"geometry": geometry, "ploshad_kontura": kontur_mod.area_ha(geometry),
+            "abris": kontur_mod.to_abris(geometry, meta), "proekt": proekt}
+
+
+@router.post("/items/{item_id}/kontur")
+async def upload_item_kontur(item_id: int, file: UploadFile = File(...), conn=Depends(get_conn),
+                             user=Depends(require_permission("delyanka.edit"))):
+    """Файл контура лесосеки: GeoJSON, shp в .zip, KML, GPKG или JSON «Лесного стража»."""
+    from app import kontur as kontur_mod
+
+    ploshad = _item_for_kontur(conn, item_id)[3]
+    try:
+        geometry, area = kontur_mod.parse(await file.read(), file.filename or "")
+    except kontur_mod.KonturError as exc:
+        raise HTTPException(400, str(exc))
+    conn.execute("UPDATE delyanka_item SET geom_geojson = ? WHERE id = ?",
+                 (json.dumps(geometry, ensure_ascii=False), item_id))
+    conn.commit()
+    webext.touch_updated_by(conn, "delyanka_item", item_id, user["login"])
+    try:
+        own = float(str(ploshad).replace(",", "."))
+    except (TypeError, ValueError):
+        own = None
+    warning = None
+    if own and abs(own - area) > max(0.1, own * 0.1):
+        warning = f"Площадь контура {area} га, у лесосеки записано {own} га — проверьте"
+    return {"ok": True, "ploshad_kontura": area, "warning": warning}
+
+
+@router.delete("/items/{item_id}/kontur")
+def delete_item_kontur(item_id: int, conn=Depends(get_conn), user=Depends(require_permission("delyanka.edit"))):
+    _item_for_kontur(conn, item_id)
+    conn.execute("UPDATE delyanka_item SET geom_geojson = NULL WHERE id = ?", (item_id,))
+    conn.commit()
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #

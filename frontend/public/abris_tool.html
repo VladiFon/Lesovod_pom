@@ -490,8 +490,10 @@
   <div class="top-controls">
     <span class="scale-label">Масштаб печати</span>
     <div class="scale-row">
+      <div class="toolbtn active" data-scale="auto" title="Самый крупный масштаб, при котором чертёж помещается в поле листа">Авто</div>
+      <div class="toolbtn" data-scale="2000">1:2000</div>
       <div class="toolbtn" data-scale="2500">1:2500</div>
-      <div class="toolbtn active" data-scale="5000">1:5000</div>
+      <div class="toolbtn" data-scale="5000">1:5000</div>
       <div class="toolbtn" data-scale="10000">1:10000</div>
       <div class="scale-sep"></div>
       <span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);">1 :</span>
@@ -552,7 +554,7 @@
           <label class="file-btn">Загрузить JSON выгрузку
             <input type="file" id="fileInput" accept=".json">
           </label>
-          <div class="hint">Формат — выгрузка оборудования (area / area_data / area_points). Сейчас показан пример из вашего файла.</div>
+          <div class="hint" id="dataSourceHint">Формат — выгрузка оборудования (area / area_data / area_points). Сейчас показан пример.</div>
 
           <div class="rp-title" style="margin-top:16px;">Данные участка</div>
           <div id="areaFields"></div>
@@ -585,6 +587,11 @@
             <div class="toolbtn" data-infra="park">Стоянка техники</div>
             <div class="toolbtn" data-infra="gsm">Склад ГСМ</div>
             <div class="toolbtn" data-infra="fire">Кострище</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" data-infra="ostatki">Порубочные остатки ***</div>
+            <div class="toolbtn" data-infra="road">Дорога</div>
+            <div class="toolbtn" data-infra="tropa">Тропинка</div>
           </div>
           <div class="btnrow">
             <div class="toolbtn" data-infra="manual">Ручная линия (N кликов)</div>
@@ -631,6 +638,9 @@
           <div class="btnrow">
             <div class="toolbtn primary" id="btnBuild" disabled>Построить пасеки</div>
             <div class="toolbtn" id="btnClearStrips">Очистить</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" id="btnReverseNums" title="Пасека №1 с другой стороны делянки">⇅ Нумерация с другой стороны</div>
           </div>
           <div class="status" id="dirStatus">Вектор не задан.</div>
           <div class="hint">Клик по холсту — 2 точки задают направление. Или наведите на сторону контура и кликните по ней.</div>
@@ -700,16 +710,26 @@
             <div class="toolbtn primary" id="btnSaveToApp">💾 Сохранить в приложение</div>
           </div>
           <div class="btnrow">
+            <div class="toolbtn" id="btnPreview">👁 Предпросмотр листа (ч/б)</div>
+          </div>
+          <div class="btnrow">
+            <div class="toolbtn" id="btnExportWord">Скачать Word (по шаблону)</div>
+          </div>
+          <div class="btnrow">
             <div class="toolbtn" id="btnExportPng">Скачать PNG</div>
             <div class="toolbtn" id="btnExportPdf">Скачать PDF</div>
           </div>
-          <div class="hint">«Сохранить в приложение» передаёт чертёж напрямую в Техкарту (пункт 5.10). PNG/PDF — для отдельного файла на диск.</div>
+          <div class="rp-title" style="margin-top:12px;">В печать</div>
+          <label class="checkrow"><input type="checkbox" id="optVertexNums"> номера точек контура</label>
+          <label class="checkrow"><input type="checkbox" id="optArrows"> стрелки направления разработки</label>
+          <label class="checkrow"><input type="checkbox" id="optTrails"> волоки</label>
+          <label class="checkrow"><input type="checkbox" id="optTrees"> деревья / пни (условно)</label>
+          <div class="hint">Лист 5.10 собирается строго по шаблону: заголовок, чертёж, 11 условных обозначений, всё чёрным для ч/б принтера. «Сохранить в приложение» сохраняет чертёж и весь абрис (пасеки, знаки, зону) — его можно открыть и поправить; в Техкарту и Word он встаёт в пустое поле шаблона.</div>
           <div class="status" id="exportStatus"></div>
 
           <div class="rp-title" style="margin-top:16px;">Экспорт-пресеты <span class="layer-count">1 клик → PDF</span></div>
-          <div class="presetbtn" data-preset="full"><b>Для лесничества</b><span>Полный комплект: контур, зона безопасности, пасеки, вся инфраструктура и знаки, все поля участка.</span></div>
-          <div class="presetbtn" data-preset="tenant"><b>Для арендатора</b><span>Рабочий чертёж без служебных полей (ответственный, дата подготовки) — только участок, площадь, вид рубки.</span></div>
-          <div class="presetbtn" data-preset="glr"><b>Для ГЛР</b><span>Только контур делянки и таблица координат — без пасек и внутренней инфраструктуры.</span></div>
+          <div class="presetbtn" data-preset="full"><b>Полный</b><span>Лист 5.10 со всем чертежом: контур, пасеки, зона безопасности, знаки.</span></div>
+          <div class="presetbtn" data-preset="glr"><b>Только контур</b><span>Лист 5.10 только с границей лесосеки — без пасек, зоны и знаков.</span></div>
           <div class="hint">Пресет не меняет включённые/выключенные слои на экране — переопределяет их только в собираемом документе.</div>
           <div class="status" id="presetStatus"></div>
         </div>
@@ -762,7 +782,16 @@ let STATE = {
   rasterLayer: null,     // svg <g> holding the tracing underlay <image>, painted first (bottom-most)
   guideLayer: null,      // svg <g> holding live smart-guide lines/highlights while dragging
   rasterUnderlay: null,  // {dataUrl, naturalW, naturalH, widthM, offsetX, offsetY, opacity, includeInPrint} or null
-  rasterMoveMode: false  // true while "Двигать перетаскиванием" is armed for the raster underlay
+  rasterMoveMode: false, // true while "Двигать перетаскиванием" is armed for the raster underlay
+  // Параметры построенных пасек и зоны безопасности — по ним слои
+  // перестраиваются после любой перерисовки (перетаскивание узла, отмена)
+  // и сохраняются вместе с абрисом, чтобы его можно было открыть и поправить.
+  stripParams: null,     // {theta, width, reverse}
+  stripData: null,       // {segments, trailSegments, strips:[{label, poly, num}], theta, width}
+  safetyParams: null,    // {dist, spacing}
+  safetyData: null,      // {offset, signs}
+  printScaleMode: "auto",// "auto" — подобрать масштаб под поле листа; иначе STATE.printScale
+  printOpts: {vertexNums:false, arrows:true, trails:false, trees:false}
 };
 
 // Показывает/скрывает слои по STATE.layerVisibility — вызывается после
@@ -1008,6 +1037,10 @@ function loadData(data){
   STATE.vectorClicks = [];
   STATE.mode = null;
   STATE.infrastructure = [];
+  STATE.stripParams = null;
+  STATE.stripData = null;
+  STATE.safetyParams = null;
+  STATE.safetyData = null;
   STATE.history = {undo: [], redo: []}; // новый документ — старая история отмены не имеет смысла
   document.getElementById("dirStatus").textContent = "Вектор не задан.";
   document.getElementById("btnBuild").setAttribute("disabled", "true");
@@ -1130,8 +1163,8 @@ function renderBBoxAndSvg(points){
   screenPts.forEach(p => {
     el("circle", {cx:p.s.x, cy:p.s.y, r:5.5, fill:"#efe7d4", stroke:"#7fa37a", "stroke-width":2}, contourLayer);
     el("text", {
-      x: p.s.x + 12, y: p.s.y - 10,
-      "font-size":13, fill:"#c9a24b", "font-weight":"600"
+      x: p.s.x + 10, y: p.s.y - 8,
+      "font-size":11, fill:"#c9a24b", "font-style":"italic"
     }, contourLayer).textContent = p.n;
   });
 
@@ -1146,6 +1179,15 @@ function renderBBoxAndSvg(points){
   // абсолютно всего, иначе линии-направляющие терялись бы под значками
   const guideLayer = el("g", {id:"guideLayer"}, svg);
   STATE.guideLayer = guideLayer;
+
+  // пасеки и зона безопасности — производные от контура: перестраиваем
+  // по сохранённым параметрам (после перетаскивания узла, отмены и т.п.)
+  if(STATE.stripParams && points.length >= 3){
+    buildStrips(points, STATE.stripParams.theta, STATE.stripParams.width);
+  }
+  if(STATE.safetyParams && points.length >= 3){
+    buildSafetyZone(points, STATE.safetyParams.dist, STATE.safetyParams.spacing);
+  }
 
   applyLayerVisibility();
   runContourCheck();
@@ -1322,6 +1364,9 @@ document.getElementById("fileInput").addEventListener("change", (e) => {
     try{
       const data = JSON.parse(ev.target.result);
       loadData(data);
+      if(typeof ABRIS_CONTOUR_SOURCE !== "undefined") ABRIS_CONTOUR_SOURCE = "file";
+      const hint = document.getElementById("dataSourceHint");
+      if(hint) hint.textContent = "Показан загруженный файл. При сохранении абриса контур лесосеки запишется в базу и появится на карте.";
     }catch(err){
       alert("Не удалось разобрать JSON: " + err.message);
     }
@@ -1347,6 +1392,8 @@ document.getElementById("btnVector").addEventListener("click", () => setMode("ve
 document.getElementById("btnEdge").addEventListener("click", () => setMode("edge"));
 
 document.getElementById("btnClearStrips").addEventListener("click", () => {
+  STATE.stripParams = null;
+  STATE.stripData = null;
   if(STATE.stripLayer) STATE.stripLayer.innerHTML = "";
   document.getElementById("stripInfoCard").style.display = "none";
 });
@@ -1354,7 +1401,14 @@ document.getElementById("btnClearStrips").addEventListener("click", () => {
 document.getElementById("btnBuild").addEventListener("click", () => {
   if(!STATE.direction) return;
   const width = parseFloat(document.getElementById("stripWidth").value) || 30;
+  STATE.stripParams = {theta: STATE.direction.angle, width, reverse: !!(STATE.stripParams && STATE.stripParams.reverse)};
   buildStrips(STATE.points, STATE.direction.angle, width);
+});
+
+document.getElementById("btnReverseNums").addEventListener("click", () => {
+  if(!STATE.stripParams) return;
+  STATE.stripParams.reverse = !STATE.stripParams.reverse;
+  buildStrips(STATE.points, STATE.stripParams.theta, STATE.stripParams.width);
 });
 
 function wireCanvasInteraction(){
@@ -1892,13 +1946,14 @@ function buildStrips(points, theta, width){
     if(clipped.length < 3) { strips.push({index:i, trees:[], felled:[], label:null}); continue; }
 
     const label = unrotate(centroidOf(clipped), theta);
+    const poly = clipped.map(p => unrotate(p, theta));
     const clearOfTrail = (p) => Math.abs(p.y - mid) > TRAIL_CLEAR_MARGIN;
 
     if(i % 2 === 0){
       const treePtsRotated = scatterInPolygon(clipped, TREE_SPACING_STANDING, 0.5, 250)
         .filter(clearOfTrail);
       strips.push({
-        index:i, kind:"standing", label,
+        index:i, kind:"standing", label, poly,
         trees: treePtsRotated.map(p => unrotate(p, theta))
       });
     } else {
@@ -1917,9 +1972,16 @@ function buildStrips(points, theta, width){
           tip: unrotate(tipRotated, theta)
         };
       });
-      strips.push({index:i, kind:"felled", label, stumps: stumpPtsRotated.map(p=>unrotate(p,theta)), felled});
+      strips.push({index:i, kind:"felled", label, poly, stumps: stumpPtsRotated.map(p=>unrotate(p,theta)), felled});
     }
   }
+
+  // номера пасек: подряд по порядку полос, либо в обратную сторону
+  const reverse = !!(STATE.stripParams && STATE.stripParams.reverse);
+  const numbered = strips.filter(st => st.label);
+  numbered.forEach((st, k) => { st.num = reverse ? numbered.length - k : k + 1; });
+  STATE.stripParams = {theta, width, reverse};
+  STATE.stripData = {segments: allSegmentsWorld, trailSegments: trailSegmentsWorld, strips, theta, width};
 
   drawStrips(allSegmentsWorld, trailSegmentsWorld, strips, theta, width);
 }
@@ -1981,23 +2043,24 @@ function drawStrips(segments, trailSegments, strips, theta, width){
   //   including thin edge slivers where boundary-line pairing would desync.
   const dir = {x: Math.cos(theta), y: Math.sin(theta)};
 
-  strips.forEach((strip, i) => {
+  strips.forEach((strip) => {
     if(!strip.label) return;
     const sMid = worldToScreen(strip.label);
-
-    el("circle", {cx:sMid.x, cy:sMid.y, r:11, fill:"#efe7d4", "fill-opacity":"0.88", stroke:"#c9a24b", "stroke-width":1.2}, layer);
-    el("text", {
-      x:sMid.x, y:sMid.y+4.5, "font-size":13, fill:"#c9a24b", "font-weight":"700",
-      "text-anchor":"middle"
-    }, layer).textContent = (i+1);
-
     drawArrow(layer, strip.label, dir, 22);
+    // номер пасеки — белый кружок с тёмным кольцом, крупная цифра: читается
+    // и на экране, и на ч/б печати (в печать рисуется отдельно, см. buildPrintDrawing)
+    el("circle", {cx:sMid.x, cy:sMid.y, r:13, fill:"#ffffff", stroke:"#111111", "stroke-width":2.2}, layer);
+    el("text", {
+      x:sMid.x, y:sMid.y+5.5, "font-size":16, fill:"#111111", "font-weight":"800",
+      "text-anchor":"middle", "font-family":"Arial,sans-serif"
+    }, layer).textContent = strip.num;
   });
 
   document.getElementById("stripInfoCard").style.display = "block";
   document.getElementById("stripMeta").innerHTML = `
     <div class="row"><span>Ширина пасеки</span><span>${width} м</span></div>
-    <div class="row"><span>Число полос</span><span>${strips.length}</span></div>
+    <div class="row"><span>Число пасек</span><span>${strips.filter(st => st.label).length}</span></div>
+    <div class="row"><span>Нумерация</span><span>${STATE.stripParams && STATE.stripParams.reverse ? "в обратную сторону" : "по порядку"}</span></div>
     <div class="row"><span>Направление</span><span>${(theta*180/Math.PI).toFixed(1)}°</span></div>
     <div class="row"><span>Источник вектора</span><span>${STATE.directionSourceLabel}</span></div>
     <div class="row"><span>Волок (просвет)</span><span>${(TRAIL_HALF_GAP*2).toFixed(1)} м</span></div>
@@ -2171,6 +2234,8 @@ function buildSafetyZone(points, dist, signSpacing){
   }, layer);
 
   const signs = samplePerimeter(offset, signSpacing);
+  STATE.safetyParams = {dist, spacing: signSpacing};
+  STATE.safetyData = {offset, signs};
   signs.forEach(p => {
     const s = worldToScreen(p);
     el("circle", {cx:s.x, cy:s.y, r:11, fill:"#efe7d4", stroke:"#c9a24b", "stroke-width":1.6}, layer);
@@ -2189,6 +2254,8 @@ document.getElementById("btnSafety").addEventListener("click", () => {
 });
 
 document.getElementById("btnClearSafety").addEventListener("click", () => {
+  STATE.safetyParams = null;
+  STATE.safetyData = null;
   if(STATE.safetyLayer) STATE.safetyLayer.innerHTML = "";
 });
 
@@ -2222,7 +2289,7 @@ function closestPointOnSegment(p, a, b){
 
 function armInfra(type){
   const kind = type === "kvartal" ? "line"
-             : type === "manual" ? "polyline"
+             : (type === "manual" || type === "road" || type === "tropa") ? "polyline"
              : type === "measure" ? "measure"
              : "point";
   STATE.mode = {kind, type, clicks:[]};
@@ -2246,7 +2313,7 @@ document.getElementById("btnFinishLine").addEventListener("click", () => {
   const mode = STATE.mode;
   if(mode && mode.kind === "polyline" && mode.clicks.length >= 2){
     pushHistory();
-    STATE.infrastructure.push({type:"manual", kind:"polyline", points: mode.clicks.slice()});
+    STATE.infrastructure.push({type:mode.type, kind:"polyline", points: mode.clicks.slice()});
   }
   clearInfraMode();
   if(STATE.previewLayer) STATE.previewLayer.innerHTML = "";
@@ -2479,7 +2546,7 @@ function renderInfra(){
 // чтобы человек сразу понимал, какие два знака нужно раздвинуть, не
 // разглядывая пиктограммы на чертеже.
 const INFRA_LABELS = {
-  ck:"СК склад", stack:"Штабеля", mo:"МО", mz:"МЗ",
+  ck:"СК склад", stack:"Штабеля", mo:"МО", mz:"МЗ", ostatki:"Порубочные остатки",
   corner:"Угловой столб", park:"Стоянка техники", gsm:"Склад ГСМ", fire:"Кострище"
 };
 
@@ -2529,7 +2596,15 @@ function drawInfraItem(layer, item){
   if(item.kind === "polyline"){
     const screenPts = item.points.map(worldToScreen);
     const d = screenPts.map((p,i) => `${i===0?'M':'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
-    el("path", {d, fill:"none", stroke:"#7fa37a", "stroke-width":1.4}, layer);
+    if(item.type === "road"){
+      // дорога — двойная линия (как «========» в условных обозначениях)
+      el("path", {d, fill:"none", stroke:"#d8cfb8", "stroke-width":6, "stroke-linejoin":"round"}, layer);
+      el("path", {d, fill:"none", stroke:"#0f1a13", "stroke-width":3, "stroke-linejoin":"round"}, layer);
+    } else if(item.type === "tropa"){
+      el("path", {d, fill:"none", stroke:"#d8cfb8", "stroke-width":1.4, "stroke-dasharray":"6 4"}, layer);
+    } else {
+      el("path", {d, fill:"none", stroke:"#7fa37a", "stroke-width":1.4}, layer);
+    }
     return;
   }
   const s = worldToScreen(item.pos);
@@ -2562,6 +2637,9 @@ function drawInfraItem(layer, item){
     case "corner":
       el("circle", {cx:s.x, cy:s.y, r:6, fill:"none", stroke:"#7fa37a", "stroke-width":1.6}, layer);
       break;
+    case "ostatki":
+      el("text", {x:s.x, y:s.y+6, "font-size":16, "text-anchor":"middle", "font-weight":"700", fill:"#d8cfb8"}, layer).textContent = "***";
+      break;
     case "park":
       // Стоянка техники — прямоугольник с "P", по аналогии с МО/МЗ, но
       // квадратный (не круглый), чтобы не путать со знаками на кружке.
@@ -2591,366 +2669,437 @@ function drawInfraItem(layer, item){
 }
 
 // ======================================================================
-// ЭТАП 5 — сборка макета (чертёж + таблица + условные обозначения) и экспорт
+// ЭТАП 5 — лист «5.10. Схема разработки лесосеки» строго по шаблону
+// (Шаблон схема-чертежа.docx): заголовок, поле под чертёж, «Условные
+// обозначения» из 11 знаков шаблона. Всё чёрным по белому — лист
+// печатается на ч/б принтере, поэтому знаки различаются типом и толщиной
+// линий, а не цветом. Чертёж для печати рисуется заново из STATE прямо в
+// миллиметрах листа (buildPrintDrawing), а не копией экранного SVG: так
+// номера пасек и знаки имеют постоянный размер на бумаге при любом масштабе.
 // ======================================================================
 
-// У каждой записи легенды есть категория `cat` — используется пресетами
-// экспорта, чтобы, например, лист "для ГЛР" показывал только то, что
-// реально относится к границе/координатам делянки, без пасек и служебной
-// инфраструктуры (см. EXPORT_PRESETS.glr.legendCats ниже).
-const LEGEND_LEFT = [
-  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="2.2"/>`), label: "Граница лесосеки, погрузочных пунктов", cat:"boundary"},
-  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="14" y2="10" stroke="#c1542c" stroke-width="1.6"/><circle cx="18" cy="10" r="1.6" fill="#c1542c"/><line x1="22" y1="10" x2="35" y2="10" stroke="#c1542c" stroke-width="1.6"/>`), label: "Границы зон безопасности", cat:"safety"},
-  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="1.3" stroke-dasharray="4 3"/>`), label: "Границы пасек", cat:"strip"},
-  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="27" y2="10" stroke="#111111" stroke-width="1.4"/><path d="M27 10 L20 6 L20 14 Z" fill="#111111"/>`), label: "Направление разработки пасеки", cat:"strip"},
-  {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="9" fill="#ffffff" stroke="#c1542c" stroke-width="1.2"/><text x="18" y="13" font-size="10" text-anchor="middle" fill="#c1542c" font-weight="700">1</text>`), label: "Номер участка (пасеки лесозаготовки) 1,2,3…", cat:"strip"},
-  {swatch: () => svgSwatch(`<text x="18" y="14" font-size="13" text-anchor="middle" fill="#111111">***</text>`), label: "Порубочные остатки", cat:"other"},
-  {swatch: () => svgSwatch(`<text x="18" y="14" font-size="11" text-anchor="middle" font-weight="700" fill="#111111">СК</text>`), label: "Промежуточный лесопромышленный склад", cat:"infra"},
-  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="1.4" stroke-dasharray="8 2 1 2"/>`), label: "Квартальная просека", cat:"boundary"},
-];
-
-const LEGEND_RIGHT = [
-  {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="9" fill="#ffffff" stroke="#c1542c" stroke-width="1.4"/><text x="18" y="13" font-size="9" text-anchor="middle" font-weight="700" fill="#c1542c">D</text>`), label: "Знак ограждения опасной зоны", cat:"safety"},
-  {swatch: () => svgSwatch(`<rect x="2" y="4" width="30" height="12" fill="#ffffff" stroke="#111111" stroke-width="1.1"/><line x1="2" y1="8" x2="32" y2="8" stroke="#111111" stroke-width="0.7"/><line x1="2" y1="12" x2="32" y2="12" stroke="#111111" stroke-width="0.7"/>`), label: "Штабеля лесопродукции", cat:"infra"},
-  {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="6" fill="none" stroke="#111111" stroke-width="1.6"/>`), label: "Угловые столбы (по углам визиров)", cat:"boundary"},
-  {swatch: () => svgSwatch(`<text x="18" y="14" font-size="11" text-anchor="middle" font-weight="700" fill="#111111">МО</text>`), label: "Место отдыха", cat:"infra"},
-  {swatch: () => svgSwatch(`<text x="18" y="14" font-size="11" text-anchor="middle" font-weight="700" fill="#111111">МЗ</text>`), label: "Место заправки", cat:"infra"},
-  {swatch: () => svgSwatch(`<line x1="1" y1="7" x2="35" y2="7" stroke="#111111" stroke-width="1"/><line x1="1" y1="13" x2="35" y2="13" stroke="#111111" stroke-width="1"/>`), label: "Дорога", cat:"infra"},
-  {swatch: () => svgSwatch(`<line x1="1" y1="10" x2="35" y2="10" stroke="#111111" stroke-width="1" stroke-dasharray="4 3"/>`), label: "Тропинки", cat:"infra"},
-  {swatch: () => svgSwatch(`<rect x="8" y="3" width="20" height="14" rx="2" fill="#ffffff" stroke="#111111" stroke-width="1.2"/><text x="18" y="14" font-size="10" text-anchor="middle" font-weight="700" fill="#111111">P</text>`), label: "Стоянка техники", cat:"infra"},
-  {swatch: () => svgSwatch(`<path d="M18 2 L27 17 L9 17 Z" fill="#ffffff" stroke="#111111" stroke-width="1.2"/><text x="18" y="15.5" font-size="10" text-anchor="middle" font-weight="700" fill="#111111">!</text>`), label: "Место хранения ГСМ", cat:"infra"},
-  {swatch: () => svgSwatch(`<circle cx="18" cy="10" r="8" fill="#ffffff" stroke="#111111" stroke-width="1.2"/>`), label: "Кострище / место для курения", cat:"infra"},
-];
-
-// Экспорт-пресеты (Этап 6, доп. пункт "экспорт-пресеты одной кнопкой") —
-// каждый переопределяет, какие слои чертежа, поля легенды и поля шапки
-// попадут в СОБИРАЕМЫЙ ДОКУМЕНТ, не трогая текущие вкл/выкл слоёв на
-// экране (те применяются только когда preset.layers === null).
-const EXPORT_PRESETS = {
-  full: {
-    key:"full", label:"Для лесничества", filenameTag:"lesnichestvo",
-    layers: null, legendCats: null, metaKeys: null
-  },
-  tenant: {
-    key:"tenant", label:"Для арендатора", filenameTag:"arendator",
-    layers: {contour:true, safety:true, strips:true, infra:true, labels:true},
-    legendCats: null,
-    metaKeys: ["leshos_text","lesnich_text","num_kv","num_vds","num","area","cuttingtyp"]
-  },
-  glr: {
-    key:"glr", label:"Для ГЛР", filenameTag:"glr",
-    layers: {contour:true, safety:false, strips:false, infra:false, labels:false},
-    legendCats: ["boundary"],
-    metaKeys: null
-  }
-};
-
-function svgSwatch(innerSvg){
-  return `<svg width="36" height="20" viewBox="0 0 36 20" xmlns="http://www.w3.org/2000/svg">${innerSvg}</svg>`;
-}
-
-const PRINT_DPI = 200;      // physical DPI used to convert real-world metres into export pixels
+const PRINT_DPI = 200;                 // px на дюйм у собираемого листа
+const MM = PRINT_DPI / 25.4;           // px в 1 мм
+const PT = PRINT_DPI / 72;             // px в 1 пт
 const A4_WIDTH_MM = 210;
 const A4_HEIGHT_MM = 297;
+// Поля как в шаблоне (слева 1,75 см, справа 1,5 см); верх/низ в шаблоне
+// 0,25/0,5 см — большинство принтеров так близко к краю не печатает, берём 8 мм.
+const PAGE_MM = {left:17.5, right:15, top:8, bottom:8};
+// Поле под чертёж — то пустое место, что оставлено в шаблоне между
+// заголовком и условными обозначениями. Той же величины картинка идёт в
+// Word/техкарту (см. app/skhema_docx.py).
+const DRAW_AREA_MM = {w: 177.5, h: 200};
+const PRINT_SCALES = [500, 1000, 2000, 2500, 5000, 10000, 25000];
+const PRINT_FONT = "'Times New Roman',Times,serif";
 
-// Экранная палитра (светлые зелёные/золотистые/охристые тона) рассчитана
-// на тёмный фон интерфейса редактора. На белой бумаге, особенно при
-// печати на ч/б принтере (цвет -> градация серого по яркости), эти тона
-// превращаются в бледно-серый и становятся почти неразличимы - раньше
-// здесь был ручной список конкретных hex-замен (PRINT_COLOR_MAP), но он
-// не покрывал все цвета, использующиеся в чертеже (например, цвет зоны
-// безопасности #c56a4d/#c1542c в нём не было вовсе - поэтому на печати
-// эта зона пропадала). Вместо ручного списка теперь используется общий
-// алгоритм: любой заливочный/обводочный цвет клона, чья яркость выше
-// print-safe порога, автоматически затемняется под этот порог. Это
-// гарантированно ловит все текущие и будущие цвета слоёв, а не только
-// перечисленные вручную. На сам рабочий чертёж на экране (STATE.stage)
-// это не влияет - правится только клон, который уходит в PDF/PNG/Техкарту.
-const PRINT_LUMINANCE_CEILING = 95; // 0 (чёрный) - 255 (белый); ниже — печатается уверенно даже на бледном тонере
-const PRINT_MIN_FILL_ALPHA = 0.32;  // минимальная непрозрачность полупрозрачных заливок (напр. контур делянки) для печати
-// Эти два цвета - НЕ данные чертежа, а намеренно светлый "бумажный" фон
-// плашек-подложек под подписи/пикетами (см. #efe7d4 в местах вида
-// fill:"#efe7d4", stroke:"#7fa37a") и сам белый лист - их не темним.
-const PRINT_KEEP_LIGHT = new Set(["#ffffff", "#efe7d4"]);
+// Условные обозначения — ровно как в шаблоне (15 знаков), в том же порядке.
+const TEMPLATE_LEGEND = {
+  left: [
+    {key:"boundary",  label:"Граница лесосеки, погрузочных пунктов"},
+    {key:"safety",    label:"Границы зон безопасности"},
+    {key:"stripline", label:"Границы пасек"},
+    {key:"arrow",     label:"Направление разработки пасеки"},
+    {key:"stripnum",  label:"Номер участка (пасеки лесозаготовки) 1,2,3…"},
+    {key:"ostatki",   label:"Порубочные остатки"},
+    {key:"ck",        label:"Промежуточный лесопромышленный склад"},
+    {key:"kvartal",   label:"Квартальная просека"},
+  ],
+  right: [
+    {key:"dsign",     label:"Знак ограждения опасной зоны"},
+    {key:"stack",     label:"Штабеля лесопродукции"},
+    {key:"corner",    label:"Угловые столбы (по углам визиров)"},
+    {key:"mo",        label:"Место отдыха"},
+    {key:"mz",        label:"Место заправки"},
+    {key:"road",      label:"Дорога"},
+    {key:"tropa",     label:"Тропинки"},
+  ]
+};
+// Знаки редактора, которых нет в шаблоне: в легенду попадают, только
+// если реально нарисованы на чертеже.
+const EXTRA_LEGEND = [
+  {key:"park",      label:"Стоянка техники", when: o => o.types.has("park")},
+  {key:"gsm",       label:"Место хранения ГСМ", when: o => o.types.has("gsm")},
+  {key:"fire",      label:"Кострище / место для курения", when: o => o.types.has("fire")},
+];
 
-function hexToRgb(hex){
-  let h = hex.replace("#", "");
-  if(h.length === 3) h = h.split("").map(c => c + c).join("");
-  const n = parseInt(h, 16);
-  return {r:(n >> 16) & 255, g:(n >> 8) & 255, b:n & 255};
+// ---- знаки для печати (координаты в px листа, размеры в мм) ----
+function pBoundaryStyle(){ return `fill="none" stroke="#000" stroke-width="${0.6*MM}" stroke-linejoin="round"`; }
+function pSafetyStyle(){
+  return `fill="none" stroke="#000" stroke-width="${0.35*MM}" stroke-linecap="round" ` +
+         `stroke-dasharray="${5*MM} ${1.3*MM} 0.01 ${1.3*MM}"`;
 }
-function rgbToHex(r, g, b){
-  const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
-  return "#" + c(r) + c(g) + c(b);
+function pStripLineStyle(){ return `fill="none" stroke="#000" stroke-width="${0.25*MM}" stroke-dasharray="${4.5*MM} ${1.5*MM}"`; }
+function pKvartalStyle(){
+  return `fill="none" stroke="#000" stroke-width="${0.35*MM}" stroke-linecap="round" ` +
+         `stroke-dasharray="${4*MM} ${1.1*MM} 0.01 ${1.1*MM} 0.01 ${1.1*MM}"`;
 }
-function luminance(r, g, b){
-  return 0.299 * r + 0.587 * g + 0.114 * b;
+function pText(x, y, txt, sizeMm, extra){
+  extra = extra || "";
+  // атрибуты из extra имеют приоритет (повтор атрибута ломает SVG)
+  const anchor = /text-anchor=/.test(extra) ? "" : `text-anchor="middle" `;
+  const family = /font-family=/.test(extra) ? "" : `font-family="${PRINT_FONT}" `;
+  return `<text x="${x}" y="${y}" font-size="${sizeMm*MM}" ${family}${anchor}fill="#000" ${extra}>${escapeXml(txt)}</text>`;
 }
-// Затемняет hex-цвет до print-safe яркости, сохраняя оттенок. Уже
-// достаточно тёмные цвета (например #111111 контуров) возвращает как есть.
-function printSafeHex(hex){
-  const {r, g, b} = hexToRgb(hex);
-  const lum = luminance(r, g, b);
-  if(lum <= PRINT_LUMINANCE_CEILING) return hex;
-  const factor = PRINT_LUMINANCE_CEILING / lum;
-  return rgbToHex(r * factor, g * factor, b * factor);
+function escapeXml(t){
+  return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
-// Поднимает альфа-канал у полупрозрачных rgba(...)-заливок минимум до
-// PRINT_MIN_FILL_ALPHA - на белом листе низкая непрозрачность выглядит
-// почти невидимой полоской, даже если сам базовый цвет тёмный.
-function printSafeRgba(v){
-  const m = v.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/);
-  if(!m) return v;
-  const r = +m[1], g = +m[2], b = +m[3];
-  const a = Math.max(parseFloat(m[4]), PRINT_MIN_FILL_ALPHA);
-  return `rgba(${r},${g},${b},${a})`;
+function pDSign(x, y){
+  return `<circle cx="${x}" cy="${y}" r="${2.2*MM}" fill="#fff" stroke="#000" stroke-width="${0.3*MM}"/>` +
+         pText(x, y + 1.05*MM, "D", 3, `font-weight="700"`);
 }
-function applyPrintPalette(root){
-  root.querySelectorAll("*").forEach(node => {
-    // Спец-случай: подписи на экране - светлый текст с тёмным хало
-    // (для тёмного фона редактора). На белом листе инвертируем: тёмная
-    // буква + белая обводка, иначе текст выглядит полым/невидимым.
-    if(node.getAttribute("fill") === "#eaeee4"){
-      node.setAttribute("fill", "#1a1408");
-      if(node.getAttribute("stroke")) node.setAttribute("stroke", "#ffffff");
-      return;
+function pStripNum(x, y, n){
+  return `<circle cx="${x}" cy="${y}" r="${3*MM}" fill="#fff" stroke="#000" stroke-width="${0.45*MM}"/>` +
+         pText(x, y + 1.3*MM, n, 3.8, `font-weight="700" font-family="Arial,Helvetica,sans-serif"`);
+}
+function pStack(x, y){
+  let s = "";
+  [-1.7, 0, 1.7].forEach(dy => {
+    s += `<rect x="${x-4*MM}" y="${y+(dy-0.8)*MM}" width="${8*MM}" height="${1.6*MM}" fill="#fff" stroke="#000" stroke-width="${0.25*MM}"/>`;
+  });
+  return s;
+}
+function pLetters(x, y, txt, frame){
+  const halo = `stroke="#fff" stroke-width="${0.8*MM}" paint-order="stroke" font-weight="700"`;
+  let s = "";
+  if(frame) s += `<rect x="${x-3.6*MM}" y="${y-2.6*MM}" width="${7.2*MM}" height="${5.2*MM}" fill="#fff" stroke="#000" stroke-width="${0.3*MM}"/>`;
+  return s + pText(x, y + 1.1*MM, txt, 3.1, frame ? `font-weight="700"` : halo);
+}
+function pInfraPoint(item, x, y){
+  switch(item.type){
+    case "ck": return pLetters(x, y, "СК", true);
+    case "stack": return pStack(x, y);
+    case "mz": return pLetters(x, y, "МЗ", false);
+    case "mo": return pLetters(x, y, "МО", false);
+    case "ostatki": return pText(x, y + 1.5*MM, "***", 4, `font-weight="700"`);
+    case "corner": return `<circle cx="${x}" cy="${y}" r="${1.3*MM}" fill="#fff" stroke="#000" stroke-width="${0.35*MM}"/>`;
+    case "park": return pLetters(x, y, "P", true);
+    case "gsm":
+      return `<path d="M ${x} ${y-2.8*MM} L ${x+2.6*MM} ${y+2*MM} L ${x-2.6*MM} ${y+2*MM} Z" fill="#fff" stroke="#000" stroke-width="${0.3*MM}"/>` +
+             pText(x, y + 1.5*MM, "!", 2.8, `font-weight="700"`);
+    case "fire":
+      return `<circle cx="${x}" cy="${y}" r="${2*MM}" fill="#fff" stroke="#000" stroke-width="${0.3*MM}"/>` +
+             `<circle cx="${x}" cy="${y}" r="${0.7*MM}" fill="#000"/>`;
+    case "text":
+      return pText(x, y, item.text, Math.max(2.4, (item.size || 13) * 0.24), `text-anchor="start" stroke="#fff" stroke-width="${0.7*MM}" paint-order="stroke"`);
+  }
+  return "";
+}
+function pPolyline(item, pts){
+  const d = pts.map((p,i) => `${i===0?'M':'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  if(item.type === "road"){
+    return `<path d="${d}" fill="none" stroke="#000" stroke-width="${1.5*MM}" stroke-linejoin="round"/>` +
+           `<path d="${d}" fill="none" stroke="#fff" stroke-width="${0.8*MM}" stroke-linejoin="round"/>`;
+  }
+  if(item.type === "tropa"){
+    return `<path d="${d}" fill="none" stroke="#000" stroke-width="${0.3*MM}" stroke-dasharray="${1.2*MM} ${1.2*MM}"/>`;
+  }
+  return `<path d="${d}" fill="none" stroke="#000" stroke-width="${0.3*MM}"/>`;
+}
+
+// Образцы знаков для легенды (маленькое SVG 14×5 мм).
+function legendSwatch(key){
+  const w = 14*MM, h = 5.5*MM, cy = h/2;
+  let inner = "";
+  switch(key){
+    case "boundary": inner = `<line x1="${0.5*MM}" y1="${cy}" x2="${w-0.5*MM}" y2="${cy}" stroke="#000" stroke-width="${0.6*MM}"/>`; break;
+    case "safety": inner = `<path d="M ${0.5*MM} ${cy} L ${w-0.5*MM} ${cy}" ${pSafetyStyle()}/>`; break;
+    case "stripnum": inner = pStripNum(w/2, cy, "1").replace(`r="${3*MM}"`, `r="${2.3*MM}"`); break;
+    case "ostatki": inner = pText(w/2, cy + 1.5*MM, "***", 4, `font-weight="700"`); break;
+    case "ck": inner = pLetters(w/2, cy, "СК", true); break;
+    case "kvartal": inner = `<path d="M ${0.5*MM} ${cy} L ${w-0.5*MM} ${cy}" ${pKvartalStyle()}/>`; break;
+    case "dsign": inner = pDSign(w/2, cy); break;
+    case "stack": inner = pStack(w/2, cy); break;
+    case "mz": inner = pLetters(w/2, cy, "МЗ", false); break;
+    case "mo": inner = pLetters(w/2, cy, "МО", false); break;
+    case "road": inner = pPolyline({type:"road"}, [{x:0.5*MM, y:cy}, {x:w-0.5*MM, y:cy}]); break;
+    case "tropa": inner = pPolyline({type:"tropa"}, [{x:0.5*MM, y:cy}, {x:w-0.5*MM, y:cy}]); break;
+    case "stripline": inner = `<path d="M ${0.5*MM} ${cy} L ${w-0.5*MM} ${cy}" ${pStripLineStyle()}/>`; break;
+    case "arrow": inner = `<line x1="${0.5*MM}" y1="${cy}" x2="${w-2.5*MM}" y2="${cy}" stroke="#000" stroke-width="${0.3*MM}"/>` +
+                          `<path d="M ${w-0.5*MM} ${cy} L ${w-3*MM} ${cy-1.1*MM} L ${w-3*MM} ${cy+1.1*MM} Z" fill="#000"/>`; break;
+    default: inner = pInfraPoint({type:key}, w/2, cy);
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${inner}</svg>`;
+}
+
+// «Круглая» длина линейного масштаба ~ 30 мм на бумаге.
+function niceScaleBarMeters(S){
+  const target = 30 * S / 1000;
+  const steps = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000];
+  return steps.reduce((best, v) => Math.abs(v - target) < Math.abs(best - target) ? v : best, steps[0]);
+}
+
+// Мировые границы всего, что попадёт на чертёж.
+function printWorldBounds(opts){
+  const xs = [], ys = [];
+  const add = p => { xs.push(p.x); ys.push(p.y); };
+  STATE.points.forEach(add);
+  if(opts.safety && STATE.safetyData) STATE.safetyData.offset.forEach(add);
+  if(opts.infra){
+    STATE.infrastructure.forEach(it => {
+      if(it.pos) add(it.pos);
+      if(it.a) add(it.a);
+      if(it.b) add(it.b);
+      (it.points || []).forEach(add);
+    });
+  }
+  return {minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys)};
+}
+
+// Чертёж для печати: SVG-строка размером wMm×hMm. Масштаб — выбранный
+// пользователем или (по умолчанию) самый крупный из стандартного ряда,
+// при котором всё помещается в поле.
+function buildPrintDrawing(wMm, hMm, overrides){
+  const o = Object.assign({
+    contour:true, safety:true, strips:true, infra:true, labels:true,
+    vertexNums: STATE.printOpts.vertexNums, arrows: STATE.printOpts.arrows,
+    trails: STATE.printOpts.trails, trees: STATE.printOpts.trees
+  }, overrides || {});
+  const W = wMm*MM, H = hMm*MM;
+  const b = printWorldBounds(o);
+  const bw = Math.max(b.maxX - b.minX, 1), bh = Math.max(b.maxY - b.minY, 1);
+  const padMm = 9; // место под знаки D, номера и подписи по краям
+  const fits = S => bw*1000/S <= wMm - 2*padMm && bh*1000/S <= hMm - 2*padMm;
+
+  let S, shrunk = false;
+  if(STATE.printScaleMode === "auto"){
+    S = PRINT_SCALES.find(fits) || PRINT_SCALES[PRINT_SCALES.length - 1];
+  } else {
+    S = STATE.printScale;
+  }
+  let ppm = MM * 1000 / S; // px листа на метр местности
+  if(!fits(S)){
+    ppm = Math.min((W - 2*padMm*MM) / bw, (H - 2*padMm*MM) / bh);
+    shrunk = true;
+  }
+  const ox = (W - bw*ppm)/2, oy = (H - bh*ppm)/2;
+  const T = p => ({x: ox + (p.x - b.minX)*ppm, y: oy + (b.maxY - p.y)*ppm});
+  const pathOf = (pts, close) => pts.map((p,i) => { const s = T(p); return `${i===0?'M':'L'} ${s.x.toFixed(1)} ${s.y.toFixed(1)}`; }).join(" ") + (close ? " Z" : "");
+
+  const parts = [];
+  const obstacles = []; // {x,y,r} — куда номера пасек ставить нельзя
+  const types = new Set();
+
+  // пасеки
+  const sd = STATE.stripData;
+  const hasStrips = o.strips && sd && sd.strips.some(st => st.label);
+  if(hasStrips){
+    sd.segments.forEach(([p1,p2]) => {
+      const a = T(p1), c = T(p2);
+      parts.push(`<line x1="${a.x}" y1="${a.y}" x2="${c.x}" y2="${c.y}" ${pStripLineStyle()}/>`);
+    });
+    if(o.trails){
+      sd.trailSegments.forEach(([p1,p2]) => {
+        const a = T(p1), c = T(p2);
+        parts.push(`<line x1="${a.x}" y1="${a.y}" x2="${c.x}" y2="${c.y}" stroke="#000" stroke-width="${0.15*MM}"/>`);
+      });
     }
-    ["fill", "stroke"].forEach(attr => {
-      const v = node.getAttribute(attr);
-      if(!v || v === "none") return;
-      if(/^#[0-9a-fA-F]{6}$/.test(v)){
-        if(PRINT_KEEP_LIGHT.has(v.toLowerCase())) return;
-        const safe = printSafeHex(v);
-        if(safe !== v) node.setAttribute(attr, safe);
-      } else if(v.indexOf("rgba(") === 0){
-        const safe = printSafeRgba(v);
-        if(safe !== v) node.setAttribute(attr, safe);
+    if(o.trees){
+      sd.strips.forEach(st => {
+        (st.trees || []).concat(st.stumps || []).forEach(pw => {
+          const s = T(pw);
+          parts.push(`<circle cx="${s.x}" cy="${s.y}" r="${0.45*MM}" fill="none" stroke="#000" stroke-width="${0.12*MM}"/>`);
+        });
+      });
+    }
+  }
+
+  // зона безопасности + знаки D
+  if(o.safety && STATE.safetyData){
+    parts.push(`<path d="${pathOf(STATE.safetyData.offset, true)}" ${pSafetyStyle()}/>`);
+    STATE.safetyData.signs.forEach(pw => {
+      const s = T(pw);
+      parts.push(pDSign(s.x, s.y));
+      obstacles.push({x:s.x, y:s.y, r:2.3*MM});
+    });
+  }
+
+  // контур лесосеки
+  if(o.contour){
+    parts.push(`<path d="${pathOf(STATE.points, true)}" ${pBoundaryStyle()}/>`);
+    const cx = STATE.points.reduce((a,p) => a + p.x, 0) / STATE.points.length;
+    const cy = STATE.points.reduce((a,p) => a + p.y, 0) / STATE.points.length;
+    STATE.points.forEach(p => {
+      const s = T(p);
+      // углы лесосеки — «угловые столбы (по углам визиров)», как в условных обозначениях
+      parts.push(`<circle cx="${s.x}" cy="${s.y}" r="${1.3*MM}" fill="#fff" stroke="#000" stroke-width="${0.35*MM}"/>`);
+      obstacles.push({x:s.x, y:s.y, r:1.5*MM});
+      if(o.vertexNums){
+        // номер точки — наружу от центра делянки, мелким курсивом (не путать с пасеками)
+        const dx = p.x - cx, dy = p.y - cy, len = Math.hypot(dx, dy) || 1;
+        const lx = s.x + dx/len*2.6*MM, ly = s.y - dy/len*2.6*MM + 0.9*MM;
+        parts.push(pText(lx, ly, p.n, 2.5, `font-style="italic" stroke="#fff" stroke-width="${0.5*MM}" paint-order="stroke"`));
+        obstacles.push({x:lx, y:ly - 0.9*MM, r:1.6*MM});
       }
     });
-  });
-}
-
-function buildPrintLayout(preset){
-  const meta = STATE.areaMeta || {};
-
-  // Лист фиксирован под А4 - раньше ширина/высота вычислялись из реального
-  // масштаба (totalMeters * pxPerMeter) и получался холст произвольного
-  // размера, который потом либо давил лишними полями в docx, либо не
-  // влезал в печатный лист без искажений. Теперь холст = ровно А4 в
-  // пикселях при PRINT_DPI, а чертёж вписывается в оставшееся место под
-  // заголовком/таблицей/легендой - результат гарантированно ложится в
-  // страницу техкарты "спокойно", без ручной подгонки на стороне docx.
-  const pageW = Math.round(A4_WIDTH_MM / 25.4 * PRINT_DPI);
-  const pageH = Math.round(A4_HEIGHT_MM / 25.4 * PRINT_DPI);
-  const padding = 50;
-
-  const wrap = document.createElement("div");
-  wrap.style.cssText = `position:absolute; left:-99999px; top:0; width:${pageW}px; height:${pageH}px; ` +
-    `background:#ffffff; font-family:Georgia,serif; color:#111111; padding:${padding}px; ` +
-    `box-sizing:border-box; display:flex; flex-direction:column;`;
-
-  const title = document.createElement("div");
-  title.textContent = "5.10. Схема разработки лесосеки" + (preset ? ` — ${preset.label}` : "");
-  title.style.cssText = "text-align:center; font-size:19px; font-weight:600; margin-bottom:4px; flex:0 0 auto;";
-  wrap.appendChild(title);
-
-  const scaleLabel = document.createElement("div");
-  scaleLabel.style.cssText = "text-align:center; font-size:12.5px; margin-bottom:14px; letter-spacing:.4px; flex:0 0 auto;";
-  wrap.appendChild(scaleLabel);
-
-  // Резиновая ячейка под чертёж - занимает весь остаток высоты страницы
-  // после того, как остальные (переменной высоты - например таблица
-  // координат растёт с числом точек) блоки уже посчитаны браузером.
-  const drawSlot = document.createElement("div");
-  drawSlot.style.cssText = "flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden;";
-  wrap.appendChild(drawSlot);
-
-  // ПЛС — погрузочный пункт (стопка брёвен), статичный пиктограф под чертежом, как на эталоне
-  const plsWrap = document.createElement("div");
-  plsWrap.style.cssText = "display:flex; justify-content:center; margin:6px 0 18px; flex:0 0 auto;";
-  plsWrap.innerHTML = `
-    <svg width="180" height="60" viewBox="0 0 180 60">
-      <line x1="10" y1="46" x2="170" y2="46" stroke="#111111" stroke-width="1.2"/>
-      <g stroke="#111111" stroke-width="1.1" fill="none">
-        <ellipse cx="35" cy="42" rx="7" ry="3"/><ellipse cx="48" cy="38" rx="7" ry="3"/><ellipse cx="61" cy="34" rx="7" ry="3"/>
-        <ellipse cx="42" cy="34" rx="7" ry="3"/><ellipse cx="55" cy="30" rx="7" ry="3"/><ellipse cx="49" cy="26" rx="7" ry="3"/>
-        <ellipse cx="105" cy="42" rx="7" ry="3"/><ellipse cx="119" cy="42" rx="7" ry="3"/><ellipse cx="133" cy="42" rx="7" ry="3"/>
-      </g>
-      <text x="90" y="58" font-size="11" text-anchor="middle" font-family="Georgia,serif" fill="#111111">ПЛС</text>
-    </svg>`;
-  wrap.appendChild(plsWrap);
-
-  // meta row
-  const metaRow = document.createElement("div");
-  metaRow.style.cssText = "display:flex; flex-wrap:wrap; gap:18px; font-size:12px; margin-bottom:16px; border-top:1px solid #111111; border-bottom:1px solid #111111; padding:8px 0; flex:0 0 auto;";
-  const metaFieldsAll = [
-    ["Лесхоз", meta.leshos_text, "leshos_text"], ["Лесничество", meta.lesnich_text, "lesnich_text"],
-    ["Квартал", meta.num_kv, "num_kv"], ["Выдел", meta.num_vds, "num_vds"], ["Участок №", meta.num, "num"],
-    ["Площадь, га", meta.area, "area"], ["Вид рубки", meta.cuttingtyp, "cuttingtyp"],
-    ["Ответственный", meta.fio, "fio"], ["Дата", meta.date, "date"]
-  ];
-  const metaFields = (preset && preset.metaKeys)
-    ? metaFieldsAll.filter(f => preset.metaKeys.includes(f[2]))
-    : metaFieldsAll;
-  metaFields.forEach(([k,v]) => {
-    const f = document.createElement("div");
-    f.innerHTML = `<b>${k}:</b> ${(v===undefined||v==="")?"—":v}`;
-    metaRow.appendChild(f);
-  });
-  wrap.appendChild(metaRow);
-
-  // two-column layout: coordinate table | legend
-  const cols = document.createElement("div");
-  cols.style.cssText = "display:flex; gap:26px; flex:0 0 auto;";
-
-  const tableCol = document.createElement("div");
-  tableCol.style.cssText = "flex:0 0 300px;";
-  const tableTitle = document.createElement("div");
-  tableTitle.textContent = "Координаты угловых точек";
-  tableTitle.style.cssText = "font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px;";
-  tableCol.appendChild(tableTitle);
-  const table = document.createElement("table");
-  table.style.cssText = "width:100%; border-collapse:collapse; font-family:Georgia,serif; font-size:11px;";
-  table.innerHTML = "<thead><tr>"+
-    "<th style='text-align:left;border:1px solid #111111;padding:3px 5px;'>№</th>"+
-    "<th style='text-align:left;border:1px solid #111111;padding:3px 5px;'>X, м</th>"+
-    "<th style='text-align:left;border:1px solid #111111;padding:3px 5px;'>Y, м</th>"+
-    "<th style='text-align:left;border:1px solid #111111;padding:3px 5px;'>Тип</th>"+
-    "</tr></thead>";
-  const tbody = document.createElement("tbody");
-  const rowsForTable = STATE.points.concat(STATE.points.length ? [STATE.points[0]] : []); // close the loop, как в эталоне
-  rowsForTable.forEach(p => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td style='border:1px solid #cccccc;padding:2px 5px;'>${p.n}</td>`+
-      `<td style='border:1px solid #cccccc;padding:2px 5px;'>${p.x.toFixed(2)}</td>`+
-      `<td style='border:1px solid #cccccc;padding:2px 5px;'>${p.y.toFixed(2)}</td>`+
-      `<td style='border:1px solid #cccccc;padding:2px 5px;'>Лесосека</td>`;
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-  tableCol.appendChild(table);
-  cols.appendChild(tableCol);
-
-  const legendCol = document.createElement("div");
-  legendCol.style.cssText = "flex:1;";
-  const legendTitle = document.createElement("div");
-  legendTitle.textContent = "Условные обозначения:";
-  legendTitle.style.cssText = "font-size:13px; font-weight:700; margin-bottom:8px;";
-  legendCol.appendChild(legendTitle);
-  const legendGrid = document.createElement("div");
-  legendGrid.style.cssText = "display:flex; gap:24px; font-size:11.5px;";
-
-  const buildLegendColumn = (items) => {
-    const col = document.createElement("div");
-    col.style.cssText = "display:flex; flex-direction:column; gap:6px;";
-    items.forEach(item => {
-      const row = document.createElement("div");
-      row.style.cssText = "display:flex; align-items:center; gap:6px;";
-      const swatch = document.createElement("span");
-      swatch.innerHTML = item.swatch();
-      swatch.style.cssText = "flex:0 0 auto; line-height:0;";
-      const label = document.createElement("span");
-      label.textContent = item.label;
-      row.appendChild(swatch);
-      row.appendChild(label);
-      col.appendChild(row);
-    });
-    return col;
-  };
-  const legendLeft = (preset && preset.legendCats) ? LEGEND_LEFT.filter(it => preset.legendCats.includes(it.cat)) : LEGEND_LEFT;
-  const legendRight = (preset && preset.legendCats) ? LEGEND_RIGHT.filter(it => preset.legendCats.includes(it.cat)) : LEGEND_RIGHT;
-  legendGrid.appendChild(buildLegendColumn(legendLeft));
-  legendGrid.appendChild(buildLegendColumn(legendRight));
-  // Значки легенды собираются напрямую (не клонируются со сцены), поэтому
-  // отдельно прогоняем их через тот же print-safe алгоритм затемнения -
-  // иначе, например, цвет зоны безопасности в условных обозначениях
-  // остался бы бледным даже после исправления самого чертежа.
-  applyPrintPalette(legendGrid);
-  legendCol.appendChild(legendGrid);
-  cols.appendChild(legendCol);
-
-  wrap.appendChild(cols);
-  document.body.appendChild(wrap);
-
-  // Размер чертежа считаем от РЕАЛЬНОГО выбранного масштаба (1:2500/5000/
-  // /10000), а не растягиванием под свободное место, как было раньше —
-  // иначе подпись масштаба на листе не соответствовала тому, что
-  // фактически нарисовано. При масштабе 1:S и печатном PRINT_DPI: 1 метр
-  // местности -> 1000/S мм на бумаге -> (PRINT_DPI/25.4)*(1000/S) px.
-  const totalMetersX = VB_W / STATE.transform.scale;
-  const totalMetersY = VB_H / STATE.transform.scale;
-  const truePxPerMeter = (PRINT_DPI / 25.4) * 1000 / STATE.printScale;
-  let dw = Math.round(totalMetersX * truePxPerMeter);
-  let dh = Math.round(totalMetersY * truePxPerMeter);
-
-  // Лист всегда А4 (см. "Экспорт" ниже — А3 больше не используется нигде).
-  // Если чертёж при выбранном масштабе физически не влезает в оставшееся
-  // под заголовком/таблицей/легендой место, единственный способ не
-  // соврать в подписи масштаба — явно уменьшить и явно предупредить, а
-  // не молча подменить цифру, как это делалось раньше.
-  const slotRect = drawSlot.getBoundingClientRect();
-  const availW = Math.max(1, slotRect.width);
-  const availH = Math.max(1, slotRect.height);
-  let shrunkForFit = false;
-  if(dw > availW || dh > availH){
-    const fitFactor = Math.min(availW / dw, availH / dh);
-    dw = Math.max(1, Math.round(dw * fitFactor));
-    dh = Math.max(1, Math.round(dh * fitFactor));
-    shrunkForFit = true;
   }
 
-  const svgClone = document.getElementById("stage").cloneNode(true);
-  svgClone.removeAttribute("id");
-  svgClone.removeAttribute("style");
-  svgClone.setAttribute("width", String(dw));
-  svgClone.setAttribute("height", String(dh));
-  svgClone.style.cssText = "display:block; background:#ffffff;";
-  applyPrintPalette(svgClone);
-
-  // Пресет переопределяет видимость слоёв в СОБИРАЕМОМ документе — независимо
-  // от того, что сейчас включено/выключено на экране (см. карточку "Слои").
-  if(preset && preset.layers){
-    const layerIds = {contour:"contourLayer", safety:"safetyLayer", strips:"stripLayer", infra:"infraLayer", labels:"labelsLayer"};
-    Object.keys(layerIds).forEach(k => {
-      const g = svgClone.querySelector("#" + layerIds[k]);
-      if(g) g.style.display = preset.layers[k] ? "" : "none";
+  // инфраструктура и подписи
+  if(o.infra || o.labels){
+    STATE.infrastructure.forEach(item => {
+      if(item.type === "text" ? !o.labels : !o.infra) return;
+      types.add(item.type);
+      if(item.kind === "line"){
+        const a = T(item.a), c = T(item.b);
+        parts.push(`<path d="M ${a.x} ${a.y} L ${c.x} ${c.y}" ${pKvartalStyle()}/>`);
+      } else if(item.kind === "polyline"){
+        parts.push(pPolyline(item, item.points.map(T)));
+      } else if(item.pos){
+        const s = T(item.pos);
+        parts.push(pInfraPoint(item, s.x, s.y));
+        obstacles.push({x:s.x, y:s.y, r:4*MM});
+      }
     });
   }
-  // Растровая подложка-трассировка — черновой ориентир для оцифровки на
-  // экране, не часть официального документа: в печать/экспорт попадает,
-  // только если пользователь явно включил чекбокс "включать подложку в
-  // печать/PDF" — иначе она всегда скрыта в экспортируемой копии, вне
-  // зависимости от того, показана ли она сейчас на экране и от пресета.
-  const rasterClone = svgClone.querySelector("#rasterLayer");
-  if(rasterClone) rasterClone.style.display = (STATE.rasterUnderlay && STATE.rasterUnderlay.includeInPrint) ? "" : "none";
 
-  drawSlot.appendChild(svgClone);
+  // номера пасек — в последнюю очередь, поверх всего, с обходом наложений:
+  // пробуем центр пасеки, затем сдвиги вдоль пасеки в обе стороны
+  if(hasStrips){
+    const R = 3*MM;
+    const dir = {x: Math.cos(sd.theta), y: Math.sin(sd.theta)};
+    const placed = [];
+    const free = (x, y) => obstacles.concat(placed).every(q => Math.hypot(q.x - x, q.y - y) >= q.r + R + 0.4*MM);
+    sd.strips.forEach(st => {
+      if(!st.label) return;
+      const stepM = (2.4*R) / ppm;
+      let chosen = null;
+      for(let k = 0; k <= 12 && !chosen; k++){
+        for(const sign of (k === 0 ? [1] : [1, -1])){
+          const w = {x: st.label.x + dir.x*stepM*k*sign, y: st.label.y + dir.y*stepM*k*sign};
+          if(st.poly && k > 0 && !pointInPolygon(w, st.poly)) continue;
+          const s = T(w);
+          if(free(s.x, s.y)){ chosen = s; break; }
+        }
+      }
+      const s = chosen || T(st.label);
+      if(o.arrows){
+        // стрелка направления — рядом с номером, вдоль пасеки (не под кружком)
+        const u0 = T({x: st.label.x + dir.x, y: st.label.y + dir.y}), u1 = T(st.label);
+        const ul = Math.hypot(u0.x - u1.x, u0.y - u1.y) || 1;
+        const ux = (u0.x - u1.x)/ul, uy = (u0.y - u1.y)/ul;
+        const a = {x: s.x + ux*(R + 0.8*MM), y: s.y + uy*(R + 0.8*MM)};
+        const c = {x: a.x + ux*7*MM, y: a.y + uy*7*MM};
+        const ang = Math.atan2(uy, ux) * 180 / Math.PI;
+        parts.push(`<line x1="${a.x}" y1="${a.y}" x2="${c.x}" y2="${c.y}" stroke="#000" stroke-width="${0.3*MM}"/>` +
+                   `<path d="M 0 0 L ${-2.4*MM} ${-1*MM} L ${-2.4*MM} ${1*MM} Z" fill="#000" transform="translate(${c.x},${c.y}) rotate(${ang})"/>`);
+      }
+      parts.push(pStripNum(s.x, s.y, st.num));
+      placed.push({x:s.x, y:s.y, r:R});
+    });
+  }
 
-  scaleLabel.textContent = shrunkForFit
-    ? `Масштаб 1 : ${STATE.printScale} не влезает на лист А4 вместе с таблицей и легендой — чертёж уменьшен пропорционально. Выберите более мелкий масштаб печати (например 1:10000), чтобы получить точный 1:${STATE.printScale}.`
-    : `Масштаб 1 : ${STATE.printScale}`;
+  // стрелка «С» и линейный масштаб — мебель листа
+  const nx = W - 7*MM, ny = 5*MM;
+  parts.push(`<path d="M ${nx} ${ny} L ${nx-2.2*MM} ${ny+7*MM} L ${nx} ${ny+5.2*MM} L ${nx+2.2*MM} ${ny+7*MM} Z" fill="#000"/>` +
+             pText(nx, ny + 11*MM, "С", 3.4, `font-weight="700"`));
+  const realS = Math.round(MM * 1000 / ppm);
+  const barM = niceScaleBarMeters(realS);
+  const barPx = barM * ppm, bx = 4*MM, by = H - 5*MM;
+  parts.push(`<line x1="${bx}" y1="${by}" x2="${bx+barPx}" y2="${by}" stroke="#000" stroke-width="${0.4*MM}"/>` +
+             `<line x1="${bx}" y1="${by-1.3*MM}" x2="${bx}" y2="${by+1.3*MM}" stroke="#000" stroke-width="${0.4*MM}"/>` +
+             `<line x1="${bx+barPx}" y1="${by-1.3*MM}" x2="${bx+barPx}" y2="${by+1.3*MM}" stroke="#000" stroke-width="${0.4*MM}"/>` +
+             pText(bx + barPx/2, by - 2*MM, `${barM} м`, 2.8) +
+             pText(bx + barPx + 3*MM, by + 1*MM, shrunk ? `≈ 1:${realS}` : `М 1:${S}`, 2.8, `text-anchor="start"`));
 
-  return wrap;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(W)}" height="${Math.round(H)}" viewBox="0 0 ${W} ${H}">` +
+              `<rect width="${W}" height="${H}" fill="#fff"/>${parts.join("")}</svg>`;
+  return {svg, S: shrunk ? realS : S, shrunk, legend: {strips: hasStrips, arrows: o.arrows && hasStrips, types}};
 }
 
+function pageDiv(){
+  const d = document.createElement("div");
+  d.style.cssText = `position:absolute; left:-99999px; top:0; width:${Math.round(A4_WIDTH_MM*MM)}px; ` +
+    `height:${Math.round(A4_HEIGHT_MM*MM)}px; background:#fff; color:#000; font-family:${PRINT_FONT}; ` +
+    `box-sizing:border-box; padding:${PAGE_MM.top*MM}px ${PAGE_MM.right*MM}px ${PAGE_MM.bottom*MM}px ${PAGE_MM.left*MM}px;`;
+  return d;
+}
+
+function legendHtml(info){
+  const row = it => `<div style="display:flex; align-items:center; gap:${2*MM}px; margin:${0.4*MM}px 0;">` +
+    `<span style="flex:0 0 auto; display:flex;">${legendSwatch(it.key)}</span>` +
+    `<span style="font-size:${11*PT}px; line-height:1.15;">${it.label}</span></div>`;
+  const extras = EXTRA_LEGEND.filter(e => e.when(info));
+  const right = TEMPLATE_LEGEND.right.concat(extras);
+  return `<div style="text-align:center; font-weight:700; font-size:${12*PT}px; margin:${2*MM}px 0 ${1.5*MM}px;">Условные обозначения:</div>` +
+    `<div style="display:flex; gap:${6*MM}px;">` +
+    `<div style="flex:1;">${TEMPLATE_LEGEND.left.map(row).join("")}</div>` +
+    `<div style="flex:1;">${right.map(row).join("")}</div></div>`;
+}
+
+// Лист 1 — как в шаблоне.
+function buildSchemaPage(overrides){
+  const page = pageDiv();
+  const drawing = buildPrintDrawing(DRAW_AREA_MM.w, DRAW_AREA_MM.h, overrides);
+  page.innerHTML =
+    `<div style="text-align:center; font-weight:700; font-size:${12*PT}px; margin-bottom:${2*MM}px;">5.10.&nbsp;Схема разработки лесосеки</div>` +
+    `<div style="width:${DRAW_AREA_MM.w*MM}px; height:${DRAW_AREA_MM.h*MM}px;">${drawing.svg}</div>` +
+    legendHtml(drawing.legend);
+  return {page, drawing};
+}
+
+async function captureNode(node){
+  if(typeof html2canvas === "undefined"){
+    throw new Error("Библиотека html2canvas не загрузилась (проверьте сеть/блокировщик).");
+  }
+  document.body.appendChild(node);
+  await new Promise(r => setTimeout(r, 60));
+  try{
+    return await html2canvas(node, {scale:1, backgroundColor:"#ffffff", useCORS:true});
+  } finally {
+    document.body.removeChild(node);
+  }
+}
+
+// Совместимость: лист 1 целиком (PNG-экспорт).
+async function renderPrintCanvas(overrides){
+  const {page} = buildSchemaPage(overrides);
+  return captureNode(page);
+}
+
+// Только поле чертежа — уходит в приложение (Word по шаблону и техкарта
+// вставляют его в пустое место шаблона, заголовок и легенда там свои).
+async function renderDrawingCanvas(){
+  const {svg, S} = buildPrintDrawing(DRAW_AREA_MM.w, DRAW_AREA_MM.h);
+  const box = document.createElement("div");
+  box.style.cssText = `position:absolute; left:-99999px; top:0; width:${DRAW_AREA_MM.w*MM}px; height:${DRAW_AREA_MM.h*MM}px; background:#fff;`;
+  box.innerHTML = svg;
+  const canvas = await captureNode(box);
+  return {canvas, S};
+}
+
+async function buildPdf(overrides){
+  if(typeof window.jspdf === "undefined"){
+    throw new Error("Библиотека jsPDF не загрузилась (проверьте сеть/блокировщик).");
+  }
+  const {page, drawing} = buildSchemaPage(overrides);
+  const c1 = await captureNode(page);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+  pdf.addImage(c1.toDataURL("image/png"), "PNG", 0, 0, A4_WIDTH_MM, A4_HEIGHT_MM);
+  return {pdf, drawing};
+}
+
+// ---- масштаб печати: «Авто» (по умолчанию) или выбранный ----
 const customScaleInput = document.getElementById("customScaleInput");
+
+function setScaleButtons(activeKey){
+  document.querySelectorAll("[data-scale]").forEach(b => b.classList.toggle("active", b.getAttribute("data-scale") === activeKey));
+  customScaleInput.classList.toggle("active", activeKey === "custom");
+}
 
 document.querySelectorAll("[data-scale]").forEach(btn => {
   btn.addEventListener("click", () => {
-    STATE.printScale = parseInt(btn.getAttribute("data-scale"), 10);
-    document.querySelectorAll("[data-scale]").forEach(b => b.classList.toggle("active", b === btn));
-    // пресет выбран явно - сбрасываем визуальное состояние "свой масштаб",
-    // но само число в поле не трогаем, чтобы пользователь мог быстро
-    // вернуться к нему повторным нажатием "Задать"
-    customScaleInput.classList.remove("active");
+    const v = btn.getAttribute("data-scale");
+    if(v === "auto"){
+      STATE.printScaleMode = "auto";
+    } else {
+      STATE.printScaleMode = "fixed";
+      STATE.printScale = parseInt(v, 10);
+    }
+    setScaleButtons(v);
   });
 });
 
-// Пользовательский масштаб печати: любой знаменатель 1:S, а не только
-// три преднастроенных значения. Валидируем на положительное целое в
-// разумных картографических пределах (1:1 - 1:1 000 000), чтобы не
-// уйти в деление на 0 / отрицательные числа / NaN дальше в
-// buildPrintLayout() (truePxPerMeter = ... / STATE.printScale).
 function applyCustomScale(){
   const raw = parseInt(customScaleInput.value, 10);
   const status = document.getElementById("exportStatus");
@@ -2958,9 +3107,9 @@ function applyCustomScale(){
     if(status) status.textContent = "Укажите масштаб 1:S, где S — целое число от 1 до 1 000 000.";
     return;
   }
+  STATE.printScaleMode = "fixed";
   STATE.printScale = raw;
-  document.querySelectorAll("[data-scale]").forEach(b => b.classList.remove("active"));
-  customScaleInput.classList.add("active");
+  setScaleButtons("custom");
   if(status) status.textContent = `Масштаб печати задан вручную: 1:${raw}.`;
 }
 document.getElementById("btnCustomScale").addEventListener("click", applyCustomScale);
@@ -2968,61 +3117,75 @@ customScaleInput.addEventListener("keydown", (e) => {
   if(e.key === "Enter") applyCustomScale();
 });
 
-async function renderPrintCanvas(preset){
-  if(typeof html2canvas === "undefined"){
-    throw new Error("Библиотека html2canvas не загрузилась (проверьте сеть/блокировщик).");
-  }
-  const wrap = buildPrintLayout(preset);
-  await new Promise(r => setTimeout(r, 60)); // let layout settle before capture
-  try{
-    // scale:1 so each output pixel corresponds exactly to PRINT_DPI — needed for the
-    // true cartographic-scale math in buildPrintLayout to hold when placed in the PDF.
-    const canvas = await html2canvas(wrap, {scale:1, backgroundColor:"#ffffff", useCORS:true});
-    return canvas;
-  } finally {
-    document.body.removeChild(wrap);
-  }
+// ---- что печатать (панель «Экспорт») ----
+[["optVertexNums","vertexNums"],["optArrows","arrows"],["optTrails","trails"],["optTrees","trees"]].forEach(([id, key]) => {
+  const cb = document.getElementById(id);
+  if(!cb) return;
+  cb.checked = !!STATE.printOpts[key];
+  cb.addEventListener("change", () => { STATE.printOpts[key] = cb.checked; });
+});
+
+function scaleNote(drawing){
+  return drawing.shrunk
+    ? `чертёж не влез в выбранный масштаб и уменьшен до ≈1:${drawing.S} — выберите «Авто» или более мелкий масштаб`
+    : `масштаб 1:${drawing.S}`;
 }
 
 document.getElementById("btnExportPng").addEventListener("click", async () => {
   const status = document.getElementById("exportStatus");
   status.textContent = "Формируем PNG...";
   try{
-    const canvas = await renderPrintCanvas();
+    const {page, drawing} = buildSchemaPage();
+    const canvas = await captureNode(page);
     const link = document.createElement("a");
-    link.download = `lesoseka_schema_1-${STATE.printScale}.png`;
+    link.download = `skhema_5-10_1-${drawing.S}.png`;
     link.href = canvas.toDataURL("image/png");
     link.click();
-    status.textContent = "Готово.";
+    status.textContent = `Готово (${scaleNote(drawing)}).`;
   } catch(err){
     status.textContent = "Ошибка: " + err.message;
   }
 });
 
-// Лист всегда А4 (портрет) — canvas уже собран buildPrintLayout ровно в
-// размер А4 при PRINT_DPI, поэтому здесь просто кладём картинку на всю
-// страницу без подбора формата/подгонки под неё.
 document.getElementById("btnExportPdf").addEventListener("click", async () => {
   const status = document.getElementById("exportStatus");
   status.textContent = "Формируем PDF...";
   try{
-    if(typeof window.jspdf === "undefined"){
-      throw new Error("Библиотека jsPDF не загрузилась (проверьте сеть/блокировщик).");
-    }
-    const canvas = await renderPrintCanvas();
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
-    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, A4_WIDTH_MM, A4_HEIGHT_MM);
-    pdf.save(`lesoseka_schema_1-${STATE.printScale}.pdf`);
-    status.textContent = `Готово (лист А4, масштаб 1:${STATE.printScale}).`;
+    const {pdf, drawing} = await buildPdf(null);
+    pdf.save(`skhema_5-10_1-${drawing.S}.pdf`);
+    status.textContent = `Готово (лист А4 по шаблону, ${scaleNote(drawing)}).`;
   } catch(err){
     status.textContent = "Ошибка: " + err.message;
   }
 });
 
-// Экспорт-пресеты — один клик сразу собирает PDF с нужным набором слоёв/
-// легенды/полей шапки (см. EXPORT_PRESETS выше), тем же пайплайном
-// html2canvas → jsPDF, что и обычная кнопка "Скачать PDF".
+// Предпросмотр листа — открывается поверх редактора, ровно как уйдёт на принтер.
+document.getElementById("btnPreview").addEventListener("click", async () => {
+  const status = document.getElementById("exportStatus");
+  status.textContent = "Собираем предпросмотр...";
+  try{
+    const {page, drawing} = buildSchemaPage();
+    const canvas = await captureNode(page);
+    const ov = document.createElement("div");
+    ov.style.cssText = "position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.75); overflow:auto; display:flex; flex-direction:column; align-items:center; padding:20px; gap:10px;";
+    ov.innerHTML = `<div style="color:#fff; font:14px sans-serif;">Лист 5.10 — ${scaleNote(drawing)}. Клик — закрыть.</div>`;
+    const img = new Image();
+    img.src = canvas.toDataURL("image/png");
+    img.style.cssText = "width:min(820px, 95vw); background:#fff; box-shadow:0 4px 30px rgba(0,0,0,.5); filter:grayscale(1);";
+    ov.appendChild(img);
+    ov.addEventListener("click", () => ov.remove());
+    document.body.appendChild(ov);
+    status.textContent = "";
+  } catch(err){
+    status.textContent = "Ошибка: " + err.message;
+  }
+});
+
+// Экспорт-пресеты — один клик сразу собирает PDF с нужным набором слоёв.
+const EXPORT_PRESETS = {
+  full:   {label:"Полный", tag:"polnyy", overrides:null},
+  glr:    {label:"Только контур", tag:"kontur", overrides:{safety:false, strips:false, infra:false, labels:false}}
+};
 document.querySelectorAll(".presetbtn[data-preset]").forEach(btn => {
   btn.addEventListener("click", async () => {
     const preset = EXPORT_PRESETS[btn.getAttribute("data-preset")];
@@ -3030,15 +3193,9 @@ document.querySelectorAll(".presetbtn[data-preset]").forEach(btn => {
     if(!preset) return;
     status.textContent = `Формируем PDF («${preset.label}»)...`;
     try{
-      if(typeof window.jspdf === "undefined"){
-        throw new Error("Библиотека jsPDF не загрузилась (проверьте сеть/блокировщик).");
-      }
-      const canvas = await renderPrintCanvas(preset);
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
-      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, A4_WIDTH_MM, A4_HEIGHT_MM);
-      pdf.save(`lesoseka_schema_${preset.filenameTag}_1-${STATE.printScale}.pdf`);
-      status.textContent = `Готово («${preset.label}», лист А4, масштаб 1:${STATE.printScale}).`;
+      const {pdf, drawing} = await buildPdf(preset.overrides);
+      pdf.save(`skhema_5-10_${preset.tag}_1-${drawing.S}.pdf`);
+      status.textContent = `Готово («${preset.label}», ${scaleNote(drawing)}).`;
     } catch(err){
       status.textContent = "Ошибка: " + err.message;
     }
@@ -3072,47 +3229,185 @@ function getAbrisToken(){
   try{ return localStorage.getItem("lesovod_token"); }catch(e){ return null; }
 }
 
-document.getElementById("btnSaveToApp").addEventListener("click", async () => {
+// Весь абрис (не только картинка): контур, знаки, параметры пасек и зоны,
+// настройки печати — чтобы при следующем открытии всё было на месте.
+function serializeProekt(){
+  return {
+    version: 2,
+    abris: {
+      area: [STATE.areaMeta || {}],
+      area_points: STATE.points.map(p => ({point_number: p.n, point_x: String(p.x), point_y: String(p.y), point_type: "Лесосека"}))
+    },
+    infrastructure: STATE.infrastructure,
+    stripParams: STATE.stripParams,
+    safetyParams: STATE.safetyParams,
+    printScaleMode: STATE.printScaleMode,
+    printScale: STATE.printScale,
+    printOpts: STATE.printOpts
+  };
+}
+
+function restoreProekt(proekt){
+  if(Array.isArray(proekt.infrastructure)) STATE.infrastructure = proekt.infrastructure;
+  if(proekt.printOpts) Object.assign(STATE.printOpts, proekt.printOpts);
+  if(proekt.printScaleMode) STATE.printScaleMode = proekt.printScaleMode;
+  if(proekt.printScale) STATE.printScale = proekt.printScale;
+  STATE.stripParams = proekt.stripParams || null;
+  STATE.safetyParams = proekt.safetyParams || null;
+  if(STATE.stripParams){
+    setDirection(STATE.stripParams.theta, "из сохранённого абриса");
+    document.getElementById("stripWidth").value = STATE.stripParams.width;
+  }
+  if(STATE.safetyParams){
+    document.getElementById("safetyRadius").value = STATE.safetyParams.dist;
+    document.getElementById("signSpacing").value = STATE.safetyParams.spacing;
+  }
+  [["optVertexNums","vertexNums"],["optArrows","arrows"],["optTrails","trails"],["optTrees","trees"]].forEach(([id, key]) => {
+    const cb = document.getElementById(id);
+    if(cb) cb.checked = !!STATE.printOpts[key];
+  });
+  setScaleButtons(STATE.printScaleMode === "auto" ? "auto"
+    : (document.querySelector(`[data-scale="${STATE.printScale}"]`) ? String(STATE.printScale) : "custom"));
+  if(STATE.printScaleMode !== "auto" && !document.querySelector(`[data-scale="${STATE.printScale}"]`)) customScaleInput.value = STATE.printScale;
+  renderBBoxAndSvg(STATE.points);
+  renderTable(STATE.points);
+  renderInfra();
+}
+
+async function saveAbrisToApp(){
   const status = document.getElementById("exportStatus");
   if(!ABRIS_ITEM_ID){
-    status.textContent = "Ошибка: страница открыта без указания выдела (item_id) — вернитесь на экран «Делянки» и нажмите «Нарисовать абрис» там.";
-    return;
+    throw new Error("страница открыта без указания выдела (item_id) — вернитесь на экран «Делянки» и нажмите «Нарисовать абрис» там.");
   }
+  if(ABRIS_CONTOUR_SOURCE === "demo"){
+    throw new Error("на чертеже пример, а не ваша лесосека — загрузите JSON «Лесного стража» или контур в карточке делянки.");
+  }
+  const {canvas, S} = await renderDrawingCanvas();
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error("Не удалось собрать PNG")), "image/png");
+  });
+  const formData = new FormData();
+  const safeStem = (ABRIS_LABEL || "abris").replace(/[\\/*?:"<>|]/g, "_");
+  formData.append("file", blob, `Абрис_${safeStem}.png`);
+  formData.append("proekt", JSON.stringify(serializeProekt()));
+
+  const token = getAbrisToken();
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/abris`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  if(!resp.ok){
+    const text = await resp.text().catch(() => "");
+    throw new Error(`Сервер ответил ${resp.status}: ${text.slice(0, 200)}`);
+  }
+  let msg = `Готово — абрис сохранён в делянке (масштаб 1:${S}).`;
+  const konturMsg = await saveContourToApp(headers);
+  if(konturMsg) msg += " " + konturMsg;
+  ABRIS_CONTOUR_SOURCE = "server";
+  if(window.opener){
+    try{ new BroadcastChannel("lesovod-abris").postMessage({itemId: ABRIS_ITEM_ID}); }catch(e){ /* BroadcastChannel недоступен — не критично */ }
+  }
+  status.textContent = msg;
+  return headers;
+}
+
+document.getElementById("btnSaveToApp").addEventListener("click", async () => {
+  const status = document.getElementById("exportStatus");
   status.textContent = "Сохраняем абрис...";
   try{
-    const canvas = await renderPrintCanvas();
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(b => b ? resolve(b) : reject(new Error("Не удалось собрать PNG")), "image/png");
-    });
-    const formData = new FormData();
-    const safeStem = (ABRIS_LABEL || "abris").replace(/[\\/*?:"<>|]/g, "_");
-    formData.append("file", blob, `Абрис_${safeStem}.png`);
-
-    const token = getAbrisToken();
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    if(!token){
-      status.textContent = "Внимание: не найден токен авторизации — сохраняем без него, сервер может ответить 401. Откройте абрис заново со страницы «Делянки», предварительно залогинившись в приложении.";
-    }
-    const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/abris`, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
-    if(!resp.ok){
-      const text = await resp.text().catch(() => "");
-      throw new Error(`Сервер ответил ${resp.status}: ${text.slice(0, 200)}`);
-    }
-    status.textContent = "Готово — абрис сохранён в делянке.";
-    if(window.opener){
-      try{ new BroadcastChannel("lesovod-abris").postMessage({itemId: ABRIS_ITEM_ID}); }catch(e){ /* BroadcastChannel недоступен — не критично */ }
-      status.textContent += " Можно закрыть эту вкладку.";
-    }
+    await saveAbrisToApp();
+    if(window.opener) status.textContent += " Можно закрыть эту вкладку.";
   } catch(err){
     status.textContent = "Ошибка: " + err.message;
   }
 });
 
-loadData(DEFAULT_DATA);
+// Word по шаблону собирает сервер (заголовок и условные обозначения — из
+// самого шаблона), поэтому сначала сохраняем абрис, потом скачиваем.
+document.getElementById("btnExportWord").addEventListener("click", async () => {
+  const status = document.getElementById("exportStatus");
+  status.textContent = "Сохраняем абрис и собираем Word...";
+  try{
+    const headers = await saveAbrisToApp();
+    const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/skhema.docx`, {headers});
+    if(!resp.ok){
+      const text = await resp.text().catch(() => "");
+      throw new Error(`Сервер ответил ${resp.status}: ${text.slice(0, 200)}`);
+    }
+    const blob = await resp.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `Схема_5.10_${(ABRIS_LABEL || "lesoseka").replace(/[\\/*?:"<>|]/g, "_")}.docx`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    status.textContent += " Word скачан.";
+  } catch(err){
+    status.textContent = "Ошибка: " + err.message;
+  }
+});
+
+// Контур лесосеки хранится в базе (delyanka_item.geom_geojson): абрис
+// открывается с ним, а не с примером, и при сохранении контур из абриса
+// (загруженный JSON «Лесного стража» или контур из базы) записывается
+// обратно — по нему лесосека рисуется на карте. Пример (DEFAULT_DATA)
+// в базу не пишем никогда.
+let ABRIS_CONTOUR_SOURCE = "demo";
+
+async function saveContourToApp(headers){
+  if(ABRIS_CONTOUR_SOURCE === "demo" || !ABRIS_ITEM_ID) return "";
+  const pts = STATE.points || [];
+  // точки без привязки к UTM (условные метры от нуля) на карту не годятся
+  if(pts.length < 3 || pts.some(p => !(Math.abs(p.x) > 100000 && Math.abs(p.y) > 1000000))) {
+    return "Контур на карту не записан: точки не в координатах UTM 35N.";
+  }
+  const ring = pts.map(p => [p.x, p.y]);
+  ring.push(ring[0]);
+  const gj = {type:"FeatureCollection", features:[{type:"Feature", properties:{}, geometry:{type:"Polygon", coordinates:[ring]}}]};
+  const fd = new FormData();
+  fd.append("file", new Blob([JSON.stringify(gj)], {type:"application/geo+json"}), "abris_kontur.geojson");
+  try{
+    const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/kontur`, {method:"POST", headers, body: fd});
+    if(!resp.ok){
+      const text = await resp.text().catch(() => "");
+      return `Контур на карту не записан: ${resp.status} ${text.slice(0, 150)}`;
+    }
+    const r = await resp.json();
+    return `Контур лесосеки сохранён (${r.ploshad_kontura} га)` + (r.warning ? ` — ${r.warning}.` : ".");
+  }catch(err){
+    return "Контур на карту не записан: " + err.message;
+  }
+}
+
+(async function initAbris(){
+  if(ABRIS_ITEM_ID){
+    try{
+      const token = getAbrisToken();
+      const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/kontur`,
+        {headers: token ? {Authorization: `Bearer ${token}`} : {}});
+      const data = resp.ok ? await resp.json() : null;
+      const proekt = data && data.proekt;
+      const base = (data && data.abris && (data.abris.area_points || []).length >= 3) ? data.abris
+                 : (proekt && proekt.abris && (proekt.abris.area_points || []).length >= 3) ? proekt.abris : null;
+      if(base){
+        // контур — из базы (он мог обновиться из QGIS), остальное — из сохранённого абриса
+        if(proekt && proekt.abris && proekt.abris.area && proekt.abris.area[0]){
+          base.area = [Object.assign({}, proekt.abris.area[0], (base.area || [])[0] || {})];
+        }
+        loadData(base);
+        ABRIS_CONTOUR_SOURCE = "server";
+        if(proekt) restoreProekt(proekt);
+        const hint = document.getElementById("dataSourceHint");
+        if(hint) hint.textContent = "Показан контур лесосеки из базы. Можно загрузить другой JSON — при сохранении абриса контур на карте тоже обновится.";
+        return;
+      }
+    }catch(e){ /* нет связи — покажем пример */ }
+    const status = document.getElementById("exportStatus");
+    if(status) status.textContent = "У этой лесосеки контур не сохранён — показан пример. Загрузите JSON «Лесного стража» (кнопка выбора файла) или загрузите контур в карточке делянки.";
+  }
+  loadData(DEFAULT_DATA);
+})();
 </script>
 
 <script>
