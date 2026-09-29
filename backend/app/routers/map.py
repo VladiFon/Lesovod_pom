@@ -437,6 +437,59 @@ def get_lesokultury_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str]
     return result
 
 
+class LesokulturyIzQgis(BaseModel):
+    """Участок лесных культур, отмеченный в QGIS (плагин «Лесовод-мост»):
+    контур в WGS84 и то, что ввели в окне плагина."""
+
+    geometry: dict
+    lesnichestvo_num: Optional[str] = None
+    kvartal: str
+    vydel: str = ""
+    vid_kultur: Optional[str] = None
+    god_sozdaniya: Optional[str] = None
+    glavnaya_poroda: Optional[str] = None
+    ploshad: Optional[float] = None
+    primechaniya: Optional[str] = None
+
+
+@router.post("/qgis/lesokultury")
+def create_lesokultury_from_qgis(body: LesokulturyIzQgis, token: str, conn=Depends(get_conn)):
+    """Создаёт участок лесных культур со своим контуром — в ГИСлесхозе такого
+    признака нет, поэтому л/к отмечают в QGIS, а хранятся они в «Лесоводе»."""
+    _check_service_token(token)
+    from shapely.geometry import shape
+
+    import db as legacy_db
+    from app import kontur as kontur_mod
+
+    try:
+        geom = shape(body.geometry)
+        if geom.is_empty or geom.geom_type not in ("Polygon", "MultiPolygon"):
+            raise ValueError
+        geometry = kontur_mod._checked(geom)
+    except kontur_mod.KonturError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception:  # noqa: BLE001 — не GeoJSON-полигон
+        raise HTTPException(400, "Нужен полигон GeoJSON в WGS84")
+    try:
+        vid = vidy.proverit_vid_kultur(body.vid_kultur)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    area = kontur_mod.area_ha(geometry)
+    lesnichestvo = _lesnichestvo_name(body.lesnichestvo_num) if body.lesnichestvo_num else None
+    uchastok_id = legacy_db.create_lesokultury_uchastok(
+        conn, lesnichestvo=lesnichestvo, kvartal=map_features.norm_id(body.kvartal),
+        vydel=(body.vydel or "").strip(), ploshad=body.ploshad or area, vid_kultur=vid,
+        god_sozdaniya=(body.god_sozdaniya or "").strip() or None,
+        glavnaya_poroda=(body.glavnaya_poroda or "").strip() or None,
+        primechaniya=(body.primechaniya or "").strip() or "Отмечено в QGIS",
+    )
+    conn.execute("UPDATE lesokultury_uchastok SET geom_geojson = ? WHERE id = ?",
+                 (json.dumps(geometry, ensure_ascii=False), uchastok_id))
+    conn.commit()
+    return {"id": uchastok_id, "ploshad_kontura": area, "lesnichestvo": lesnichestvo}
+
+
 @router.get("/qgis/tracks.geojson")
 def get_tracks_geojson_for_qgis(token: str, conn=Depends(get_conn)):
     """Контуры, обмеренные обходом с телефона."""
