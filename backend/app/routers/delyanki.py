@@ -27,7 +27,7 @@ import tehkarta_generator
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
-from app.auth import map_reader, require_permission
+from app.auth import get_current_user, map_reader, require_permission
 import webext
 
 router = APIRouter(prefix="/api/delyanki", tags=["delyanki"])
@@ -238,6 +238,68 @@ def upload_abris(item_id: int, file: UploadFile = File(...),
         shutil.copyfileobj(file.file, f)
     delyanka.save_abris_image(conn, item_id, str(dest))
     return {"ok": True, "abris_image_path": str(dest)}
+
+
+# Собственный контур лесосеки (delyanka_item.geom_geojson, WGS84): из QGIS,
+# JSON «Лесного стража» или сохранённый из абриса. На карте лесосека тогда
+# рисуется им, а абрис открывается с ним вместо примера.
+def _item_for_kontur(conn, item_id: int):
+    row = conn.execute("SELECT kvartal, vydel, lesnichestvo, ploshad, geom_geojson FROM delyanka_item WHERE id=?",
+                       (item_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Выдел делянки не найден")
+    return row
+
+
+@router.get("/items/{item_id}/kontur")
+def get_item_kontur(item_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """{"geometry", "ploshad_kontura", "abris"} — abris: точки для абриса (UTM 35N)."""
+    from app import kontur as kontur_mod
+
+    kvartal, vydel, lesnichestvo, ploshad, geom = _item_for_kontur(conn, item_id)
+    if not geom:
+        return {"geometry": None, "ploshad_kontura": None, "abris": None}
+    try:
+        geometry = json.loads(geom)
+    except ValueError:
+        return {"geometry": None, "ploshad_kontura": None, "abris": None}
+    meta = {"item_id": item_id, "num_kv": kvartal, "num_vds": vydel, "lesnich_text": lesnichestvo,
+            "num_lch": legacy_config.LCH_MAP.get(lesnichestvo or "")}
+    return {"geometry": geometry, "ploshad_kontura": kontur_mod.area_ha(geometry),
+            "abris": kontur_mod.to_abris(geometry, meta)}
+
+
+@router.post("/items/{item_id}/kontur")
+async def upload_item_kontur(item_id: int, file: UploadFile = File(...), conn=Depends(get_conn),
+                             user=Depends(require_permission("delyanka.edit"))):
+    """Файл контура лесосеки: GeoJSON, shp в .zip, KML, GPKG или JSON «Лесного стража»."""
+    from app import kontur as kontur_mod
+
+    ploshad = _item_for_kontur(conn, item_id)[3]
+    try:
+        geometry, area = kontur_mod.parse(await file.read(), file.filename or "")
+    except kontur_mod.KonturError as exc:
+        raise HTTPException(400, str(exc))
+    conn.execute("UPDATE delyanka_item SET geom_geojson = ? WHERE id = ?",
+                 (json.dumps(geometry, ensure_ascii=False), item_id))
+    conn.commit()
+    webext.touch_updated_by(conn, "delyanka_item", item_id, user["login"])
+    try:
+        own = float(str(ploshad).replace(",", "."))
+    except (TypeError, ValueError):
+        own = None
+    warning = None
+    if own and abs(own - area) > max(0.1, own * 0.1):
+        warning = f"Площадь контура {area} га, у лесосеки записано {own} га — проверьте"
+    return {"ok": True, "ploshad_kontura": area, "warning": warning}
+
+
+@router.delete("/items/{item_id}/kontur")
+def delete_item_kontur(item_id: int, conn=Depends(get_conn), user=Depends(require_permission("delyanka.edit"))):
+    _item_for_kontur(conn, item_id)
+    conn.execute("UPDATE delyanka_item SET geom_geojson = NULL WHERE id = ?", (item_id,))
+    conn.commit()
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #

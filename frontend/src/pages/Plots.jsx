@@ -11,6 +11,7 @@ import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
 import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.jsx";
+import KonturBlock from "../components/KonturBlock.jsx";
 
 /**
  * Экран "Делянки" (screens/plots/) — Этап 5 плана.
@@ -921,6 +922,15 @@ function PlotDetail({ delyankaId, onListChanged }) {
             </table>
           </div>
         )}
+
+        {items.map((it) => (
+          <KonturBlock
+            // абрис при сохранении пишет и контур — после него перечитываем
+            key={`${it.id}-${it.abris_image_path || ""}`}
+            path={`/delyanki/items/${it.id}/kontur`}
+            title={`Контур лесосеки${items.length > 1 ? ` (кв. ${it.kvartal || "?"}, выд. ${it.vydel || "?"})` : ""} — на карте лесосека будет показана им, абрис откроется с ним`}
+          />
+        ))}
 
         <div className="flex flex-wrap gap-2">
           {DOC_ACTIONS.map((action) => (

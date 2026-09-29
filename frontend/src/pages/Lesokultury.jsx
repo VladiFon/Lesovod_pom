@@ -9,6 +9,7 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
+import KonturBlock from "../components/KonturBlock.jsx";
 
 /**
  * Экран "Лесные культуры" (screens/lesokultury/) — Этап 8 плана.
@@ -431,93 +432,6 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
   );
 }
 
-/** Кольца полигона (Polygon/MultiPolygon) -> SVG path в квадрате size×size. */
-function konturPath(geometry, size) {
-  const polys = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates || [];
-  const pts = polys.flat(2);
-  if (!pts.length) return "";
-  const lat0 = pts.reduce((s, p) => s + p[1], 0) / pts.length;
-  const k = Math.cos((lat0 * Math.PI) / 180);
-  const xs = pts.map((p) => p[0] * k);
-  const ys = pts.map((p) => p[1]);
-  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-  const scale = (size - 8) / Math.max(maxX - minX, maxY - minY || 1e-9);
-  const tx = (p) => 4 + (p[0] * k - minX) * scale;
-  const ty = (p) => size - 4 - (p[1] - minY) * scale;
-  return polys.map((poly) => poly.map((ring) =>
-    ring.map((p, i) => `${i ? "L" : "M"}${tx(p).toFixed(1)},${ty(p).toFixed(1)}`).join("") + "Z").join("")).join("");
-}
-
-/**
- * Схема-чертёж участка — контур из QGIS/GPS (GeoJSON, shp в .zip, KML,
- * GPKG). На карте в телефоне и в QGIS участок рисуется этим контуром, а не
- * всем выделом.
- */
-function KonturBlock({ uchastokId }) {
-  const toast = useToast();
-  const [data, setData] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => {
-    try {
-      setData(await api.get(`/lesokultury/uchastki/${uchastokId}/kontur`));
-    } catch {
-      setData({ geometry: null });
-    }
-  }, [uchastokId]);
-  useEffect(() => { load(); }, [load]);
-
-  const upload = async (file) => {
-    if (!file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    setBusy(true);
-    try {
-      const r = await api.upload(`/lesokultury/uchastki/${uchastokId}/kontur`, fd);
-      toast.show({ tone: r.warning ? "warning" : "success", title: `Контур загружен: ${r.ploshad_kontura} га`, description: r.warning || undefined });
-      await load();
-    } catch (e) {
-      toast.show({ tone: "danger", title: "Не удалось загрузить контур", description: e.message });
-    } finally {
-      setBusy(false);
-    }
-  };
-  const remove = async () => {
-    if (!window.confirm("Убрать контур? На карте участок снова будет показан всем выделом.")) return;
-    await api.delete(`/lesokultury/uchastki/${uchastokId}/kontur`);
-    await load();
-  };
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="text-[11.5px] font-semibold text-muted">
-        Схема-чертёж (контур участка) — на карте участок будет показан им, а не всем выделом
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
-        {data?.geometry ? (
-          <>
-            <svg width="96" height="96" className="bg-surface-alt rounded-md border border-border">
-              <path d={konturPath(data.geometry, 96)} fill="rgba(0,229,255,0.25)" stroke="#00a3b8" strokeWidth="1.5" />
-            </svg>
-            <span className="text-sm">Контур загружен, {data.ploshad_kontura} га</span>
-            <Button variant="ghost" size="sm" onClick={remove}>Убрать контур</Button>
-          </>
-        ) : (
-          <span className="text-sm text-muted">Контура нет — на карте подсвечивается весь выдел.</span>
-        )}
-        <label className="text-[12px] font-semibold text-pine bg-mint-soft hover:bg-mint rounded-lg px-2.5 py-1.5 cursor-pointer">
-          {busy ? "Загружаю…" : data?.geometry ? "Заменить файлом" : "Загрузить файл контура"}
-          <input type="file" accept=".geojson,.json,.kml,.gpkg,.zip" className="hidden" disabled={busy}
-            onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ""; }} />
-        </label>
-      </div>
-      <p className="text-xs text-muted">
-        Из QGIS: выделить полигон участка → «Экспорт → Сохранить выбранные объекты как…» → GeoJSON (или shp, запаковать в .zip).
-        Система координат любая, если записана в файле; без неё метры считаются UTM 35N.
-      </p>
-    </div>
-  );
-}
-
 function UchastokDetail({ uchastokId, onListChanged }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -642,7 +556,10 @@ function UchastokDetail({ uchastokId, onListChanged }) {
           <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
         </div>
 
-        <KonturBlock uchastokId={uchastokId} />
+        <KonturBlock
+          path={`/lesokultury/uchastki/${uchastokId}/kontur`}
+          title="Схема-чертёж (контур участка) — на карте участок будет показан им, а не всем выделом"
+        />
 
         <div>
           <h3 className="font-ui font-extrabold text-pine text-[14px] mb-3">Журнал мероприятий</h3>

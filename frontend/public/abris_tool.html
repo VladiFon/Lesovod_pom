@@ -552,7 +552,7 @@
           <label class="file-btn">Загрузить JSON выгрузку
             <input type="file" id="fileInput" accept=".json">
           </label>
-          <div class="hint">Формат — выгрузка оборудования (area / area_data / area_points). Сейчас показан пример из вашего файла.</div>
+          <div class="hint" id="dataSourceHint">Формат — выгрузка оборудования (area / area_data / area_points). Сейчас показан пример.</div>
 
           <div class="rp-title" style="margin-top:16px;">Данные участка</div>
           <div id="areaFields"></div>
@@ -1322,6 +1322,9 @@ document.getElementById("fileInput").addEventListener("change", (e) => {
     try{
       const data = JSON.parse(ev.target.result);
       loadData(data);
+      if(typeof ABRIS_CONTOUR_SOURCE !== "undefined") ABRIS_CONTOUR_SOURCE = "file";
+      const hint = document.getElementById("dataSourceHint");
+      if(hint) hint.textContent = "Показан загруженный файл. При сохранении абриса контур лесосеки запишется в базу и появится на карте.";
     }catch(err){
       alert("Не удалось разобрать JSON: " + err.message);
     }
@@ -3103,6 +3106,8 @@ document.getElementById("btnSaveToApp").addEventListener("click", async () => {
       throw new Error(`Сервер ответил ${resp.status}: ${text.slice(0, 200)}`);
     }
     status.textContent = "Готово — абрис сохранён в делянке.";
+    const konturMsg = await saveContourToApp(headers);
+    if(konturMsg) status.textContent += " " + konturMsg;
     if(window.opener){
       try{ new BroadcastChannel("lesovod-abris").postMessage({itemId: ABRIS_ITEM_ID}); }catch(e){ /* BroadcastChannel недоступен — не критично */ }
       status.textContent += " Можно закрыть эту вкладку.";
@@ -3112,7 +3117,58 @@ document.getElementById("btnSaveToApp").addEventListener("click", async () => {
   }
 });
 
-loadData(DEFAULT_DATA);
+// Контур лесосеки хранится в базе (delyanka_item.geom_geojson): абрис
+// открывается с ним, а не с примером, и при сохранении контур из абриса
+// (загруженный JSON «Лесного стража» или контур из базы) записывается
+// обратно — по нему лесосека рисуется на карте. Пример (DEFAULT_DATA)
+// в базу не пишем никогда.
+let ABRIS_CONTOUR_SOURCE = "demo";
+
+async function saveContourToApp(headers){
+  if(ABRIS_CONTOUR_SOURCE === "demo" || !ABRIS_ITEM_ID) return "";
+  const pts = STATE.points || [];
+  // точки без привязки к UTM (условные метры от нуля) на карту не годятся
+  if(pts.length < 3 || pts.some(p => !(Math.abs(p.x) > 100000 && Math.abs(p.y) > 1000000))) {
+    return "Контур на карту не записан: точки не в координатах UTM 35N.";
+  }
+  const ring = pts.map(p => [p.x, p.y]);
+  ring.push(ring[0]);
+  const gj = {type:"FeatureCollection", features:[{type:"Feature", properties:{}, geometry:{type:"Polygon", coordinates:[ring]}}]};
+  const fd = new FormData();
+  fd.append("file", new Blob([JSON.stringify(gj)], {type:"application/geo+json"}), "abris_kontur.geojson");
+  try{
+    const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/kontur`, {method:"POST", headers, body: fd});
+    if(!resp.ok){
+      const text = await resp.text().catch(() => "");
+      return `Контур на карту не записан: ${resp.status} ${text.slice(0, 150)}`;
+    }
+    const r = await resp.json();
+    return `Контур лесосеки сохранён (${r.ploshad_kontura} га)` + (r.warning ? ` — ${r.warning}.` : ".");
+  }catch(err){
+    return "Контур на карту не записан: " + err.message;
+  }
+}
+
+(async function initAbris(){
+  if(ABRIS_ITEM_ID){
+    try{
+      const token = getAbrisToken();
+      const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/kontur`,
+        {headers: token ? {Authorization: `Bearer ${token}`} : {}});
+      const data = resp.ok ? await resp.json() : null;
+      if(data && data.abris && (data.abris.area_points || []).length >= 3){
+        loadData(data.abris);
+        ABRIS_CONTOUR_SOURCE = "server";
+        const hint = document.getElementById("dataSourceHint");
+        if(hint) hint.textContent = "Показан контур лесосеки из базы. Можно загрузить другой JSON — при сохранении абриса контур на карте тоже обновится.";
+        return;
+      }
+    }catch(e){ /* нет связи — покажем пример */ }
+    const status = document.getElementById("exportStatus");
+    if(status) status.textContent = "У этой лесосеки контур не сохранён — показан пример. Загрузите JSON «Лесного стража» (кнопка выбора файла) или загрузите контур в карточке делянки.";
+  }
+  loadData(DEFAULT_DATA);
+})();
 </script>
 
 <script>
