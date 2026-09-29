@@ -43,6 +43,10 @@ def _svodnaya_rows(svod: dict) -> list:
     ]
 
 
+# Подсказка к строке на экране (в Word не идёт).
+DOP_TITLE = {4: "Год культур, № карточки"}
+
+
 @router.get("")
 def preview(
     god: int,
@@ -62,7 +66,8 @@ def preview(
         "prilozheniya": [
             {"nomer": n, "title": ti.TITLES[n], "columns": ti.COLUMNS[n], "istochnik": ti.ISTOCHNIKI.get(n, ""),
              "rows": data[n]["rows"], "keys": data[n]["keys"], "pustye": data[n]["pustye"],
-             "popravleno": data[n]["popravleno"], "chasti_info": data[n].get("chasti_info", {}),
+             "popravleno": data[n]["popravleno"], "dop": data[n].get("dop", []),
+             "dop_title": DOP_TITLE.get(n, ""), "chasti_info": data[n].get("chasti_info", {}),
              "warnings": data[n]["warnings"], "uchastki": data[n]["uchastki"],
              "avto": data[n]["avto"], "ruchnye": data[n]["ruchnye"]}
             for n in ti.NOMERA

@@ -281,11 +281,13 @@ def _lesn_match(target: str, own) -> bool:
     return n >= 5 and a[:n] == b[:n]
 
 
-def _row(res: dict, key: str, row: list, vid: Optional[str] = None) -> None:
+def _row(res: dict, key: str, row: list, vid: Optional[str] = None, dop: str = "") -> None:
     """Автоматическая строка с ключом (по нему хранятся дописанные вручную
-    значения, см. popravki) и, для прил. 3/7/15, видом для сводной."""
+    значения, см. popravki) и, для прил. 3/7/15, видом для сводной. dop —
+    подсказка только для экрана (в Word не идёт): год культур, № карточки."""
     res["rows"].append(row)
     res["keys"].append(key)
+    res.setdefault("dop", []).append(dop)
     if vid is not None:
         res.setdefault("vidy", []).append(vid)
 
@@ -462,6 +464,11 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
             if warn:
                 _warn(res, f"u{u['id']}", warn, [4])
             one = len(parts) == 1
+            god_k = _year_of(u.get("god_sozdaniya"))
+            dop = ", ".join(x for x in (
+                f"{god_k} г." if god_k else "",
+                f"карт. №{t['nomer_kartochki']}" if t.get("nomer_kartochki") else "",
+            ) if x)
             for i, p in enumerate(parts):
                 old = p["podvydel"] or p["vydel"]
                 _row(res, f"u{u['id']}:{i}", [
@@ -470,7 +477,7 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
                     fmt(_num(t.get("ploshad")) if one and t.get("ploshad") else p["ploshad"]),
                     sostav, fmt(_num(vozrast) if _num(vozrast) is not None else vozrast), fmt(t.get("vysota")),
                     fmt(diametr), fmt(polnota),
-                ])
+                ], dop=dop)
 
         # --- Прил. 14: списание в отчётном году
         spisanie = [m for m in journal if m["tip"] == TIP_SPISANIE and _year_of(m["data"]) == god]
@@ -718,6 +725,7 @@ def _ruchnye_v_result(conn, god: int, lesnichestvo: str, result: dict) -> None:
         res["keys"].append(f"r{r['id']}")
         res["pustye"].append([])
         res["popravleno"].append(False)
+        res.setdefault("dop", []).append("")
         res["ruchnye"].append({"id": r["id"], "values": r["values"]})
         if n in (3, 15):
             vid = vid_rubki(r["values"][3])
@@ -912,10 +920,11 @@ def build(conn, god: int, lesnichestvo: str = "", s_popravkami: bool = True) -> 
             res["warnings"].append(text)
         # Авто-строки сортируем по кварталу/выделу, ручные идут следом в порядке ввода.
         vidy = res.get("vidy")
-        cols = [res["rows"], res["keys"], res["pustye"], res["popravleno"]] + ([vidy] if vidy is not None else [])
+        res.setdefault("dop", [""] * len(res["rows"]))
+        cols = [res["rows"], res["keys"], res["pustye"], res["popravleno"], res["dop"]]
         order = sorted(range(len(res["rows"])),
                        key=lambda i: (_sort_num(res["rows"][i][0]), _sort_num(res["rows"][i][1])))
-        res["rows"], res["keys"], res["pustye"], res["popravleno"] = ([c[i] for i in order] for c in cols[:4])
+        res["rows"], res["keys"], res["pustye"], res["popravleno"], res["dop"] = ([c[i] for i in order] for c in cols)
         if vidy is not None:
             res["vidy"] = [vidy[i] for i in order]
         res["avto"] = len(res["rows"])

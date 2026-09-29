@@ -86,6 +86,7 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
   const nedopisano = p.pustye.filter((x) => x.length > 0).length;
   const indexed = p.rows.map((r, i) => i).filter((i) => !onlyEmpty || p.pustye[i].length > 0);
   const visible = showAll ? indexed : indexed.slice(0, 15);
+  const showDop = Boolean(p.dop_title) && (p.dop || []).some(Boolean);
 
   const savePopravka = async (klyuch, values) => {
     try {
@@ -170,6 +171,7 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                   {p.columns.map((c, i) => (
                     <th key={i} className="p-1.5 font-semibold align-bottom">{c}</th>
                   ))}
+                  {showDop && <th className="p-1.5 font-semibold align-bottom text-muted">{p.dop_title}</th>}
                   <th className="p-1.5" />
                 </tr>
               </thead>
@@ -185,7 +187,7 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                   if (info && chastiKey === key) {
                     return (
                       <tr key={key} className="border-t border-border">
-                        <td colSpan={p.columns.length + 1} className="p-1.5">
+                        <td colSpan={p.columns.length + 1 + (showDop ? 1 : 0)} className="p-1.5">
                           <ChastiForm info={info} onSave={(chasti) => saveChasti(prefix, chasti)} onCancel={() => setChastiKey(null)} />
                         </td>
                       </tr>
@@ -194,7 +196,7 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                   if (!ruch && editKey === key) {
                     return (
                       <tr key={key} className="border-t border-border">
-                        <td colSpan={p.columns.length + 1} className="p-1.5">
+                        <td colSpan={p.columns.length + 1 + (showDop ? 1 : 0)} className="p-1.5">
                           <RuchnayaForm columns={p.columns} initial={r}
                             onSave={(values) => savePopravka(key, values)} onCancel={() => setEditKey(null)} />
                         </td>
@@ -204,7 +206,7 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                   if (ruch && editId === ruch.id) {
                     return (
                       <tr key={i} className="border-t border-border">
-                        <td colSpan={p.columns.length + 1} className="p-1.5">
+                        <td colSpan={p.columns.length + 1 + (showDop ? 1 : 0)} className="p-1.5">
                           <RuchnayaForm columns={p.columns} initial={ruch.values}
                             onSave={(values) => save(values, ruch.id)} onCancel={() => setEditId(null)} />
                         </td>
@@ -218,6 +220,7 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                           {v || <span className={empty.has(j) ? "text-error" : "text-faint"}>—</span>}
                         </td>
                       ))}
+                      {showDop && <td className="p-1.5 whitespace-nowrap text-muted">{p.dop?.[i] || ""}</td>}
                       <td className="p-1.5 whitespace-nowrap text-right">
                         {!ruch && (
                           <span className="inline-flex gap-1 items-center">
