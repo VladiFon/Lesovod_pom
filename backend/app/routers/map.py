@@ -165,8 +165,18 @@ def get_import_layers(lesnichestvo_num: Optional[str] = None, conn=Depends(get_c
     делянок оверлей на Живой карте (см. LiveMap.jsx)."""
     lesn = _lesnichestvo_name(lesnichestvo_num)
     result = map_import.list_import_layer_geojson(conn, lesnichestvo=lesn)
+    for f in result["features"]:
+        # лесосеки из ГИСлесхоза (плагин «Лесовод-мост») несут вид рубки и вид
+        # пользования в cuttingtyp / usetype — тот же цвет, что у делянок
+        raw = {str(k).lower(): v for k, v in (f["properties"].get("raw") or {}).items()}
+        if raw.get("cuttingtyp") or raw.get("usetype"):
+            info = vidy.vid_rubki_info(None, None, raw.get("cuttingtyp"), raw.get("usetype"))
+            f["properties"].update({k: info[k] for k in _VID_RUBKI_KEYS})
     result["features"].extend(_own_lesoseki(conn, lesn, result["features"]))
     return result
+
+
+_VID_RUBKI_KEYS = ("vid_rubki_kod", "vid_rubki", "vid_rubki_color", "gruppa", "gruppa_label", "gruppa_color")
 
 
 def _own_lesoseki(conn, lesnichestvo: Optional[str], existing: list) -> list:
@@ -191,8 +201,7 @@ def _own_lesoseki(conn, lesnichestvo: Optional[str], existing: list) -> list:
             "item_id": None, "batch_id": None, "layer_name": "лесосеки_делянки",
             "kvartal": kv, "vydel": vd, "nazvanie": row["nazvanie"],
             "delyanka_id": row["delyanka_id"], "status_rabot": row["status_rabot"], "raw": {},
-            **{k: row[k] for k in ("vid_rubki_kod", "vid_rubki", "vid_rubki_color", "gruppa",
-                                   "gruppa_label", "gruppa_color")},
+            **{k: row[k] for k in _VID_RUBKI_KEYS},
         }})
     return features
 

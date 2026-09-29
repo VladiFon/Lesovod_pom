@@ -190,11 +190,11 @@ def proverit_vid_kultur(kod: Optional[str]) -> Optional[str]:
 
 def legendy() -> Dict[str, List[dict]]:
     """Справочники с цветами для сайта, телефона и QGIS."""
-    def bez_slov(v):
-        return {k: v[k] for k in v if k != "slova"}
-
+    # slova — части слов для распознавания по тексту (плагин QGIS красит ими
+    # слой «Лесосеки» ГИСлесхоза по полю cuttingtyp)
     return {
-        "vidy_rubok": [bez_slov(v) for v in VIDY_RUBOK] + [dict(VID_RUBKI_NEIZVESTEN, xmer=[])],
+        "vidy_rubok": [dict(v, slova=[list(s) for s in v["slova"]]) for v in VIDY_RUBOK]
+        + [dict(VID_RUBKI_NEIZVESTEN, xmer=[], slova=[])],
         "gruppy_polzovaniya": GRUPPY_POLZOVANIYA,
         "vidy_kultur": VIDY_KULTUR,
     }
