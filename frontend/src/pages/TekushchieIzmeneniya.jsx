@@ -303,6 +303,57 @@ const DIAG_LISTS = [
   ["akty_po_godam", "Акты освидетельствования по годам"],
 ];
 
+function DubliCard({ dubli, onChanged }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(null);
+  if (!dubli?.length) return null;
+  const obedinit = async (d) => {
+    const lishnie = d.uchastki.filter((u) => u.id !== d.osnovnoy);
+    const text = lishnie.map((u) => `№${u.id} (${u.primechaniya || "без примечаний"})`).join(", ");
+    if (!window.confirm(`Объединить в участок №${d.osnovnoy}? Пустые поля дополнятся, журнал перейдёт к нему, участок ${text} будет удалён.`)) return;
+    setBusy(d.osnovnoy);
+    try {
+      await api.post(`/lesokultury/uchastki/${d.osnovnoy}/obedinit`, { lishnie: d.lishnie });
+      toast.show({ tone: "success", title: "Участки объединены" });
+      onChanged?.();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось объединить", description: e.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Card>
+      <div className="flex flex-col gap-2 text-sm">
+        <div className="font-semibold text-error">Участки культур заведены дважды: {dubli.length}</div>
+        <p className="text-xs text-muted">
+          Одно и то же место (квартал, выделы, год создания) записано несколькими участками. В ведомости идёт только
+          самый заполненный (первый в списке), остальные не попадают. «Объединить» переносит в него недостающие поля
+          и журнал, лишние удаляет.
+        </p>
+        {dubli.map((d) => (
+          <div key={d.osnovnoy} className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
+            <div className="flex-1 min-w-[240px]">
+              <div className="font-semibold">{d.mesto}</div>
+              <ul className="text-xs text-muted">
+                {d.uchastki.map((u) => (
+                  <li key={u.id}>
+                    №{u.id}{u.id === d.osnovnoy ? " (основной)" : ""}: выд. {u.vydel || "—"}, {u.ploshad || "—"} га
+                    {u.primechaniya ? ` — ${u.primechaniya}` : ""}{u.created_at ? `, заведён ${u.created_at}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <Button variant="secondary" size="sm" loading={busy === d.osnovnoy} onClick={() => obedinit(d)}>
+              Объединить
+            </Button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function DiagnostikaCard({ d, open }) {
   return (
     <Card>
@@ -423,6 +474,7 @@ export default function TekushchieIzmeneniya() {
           {data.diagnostika && (
             <DiagnostikaCard d={data.diagnostika} open={data.prilozheniya.every((p) => p.avto === 0)} />
           )}
+          <DubliCard dubli={data.dubli} onChanged={load} />
           <SvodnayaCard rows={data.svodnaya} />
           {data.prilozheniya.map((p) => (
             <PrilozhenieCard key={p.nomer} p={p} god={data.god} lesnichestvo={data.lesnichestvo || ""} onChanged={load} />
