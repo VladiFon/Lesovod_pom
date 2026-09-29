@@ -246,8 +246,8 @@ def _mesto(u: dict) -> str:
 
 def _chasti_warning(u: dict, parts: List[dict]) -> Optional[str]:
     if len(parts) > 1 and any(p["ploshad"] is None for p in parts):
-        return (f"{_mesto(u)}: участок в нескольких выделах — укажите на участке части по выделам "
-                "(подвыдел и площадь в каждом)")
+        return (f"{_mesto(u)}: участок в нескольких выделах — нажмите «По выделам» и укажите "
+                "подвыдел и площадь в каждом")
     return None
 
 
@@ -287,6 +287,26 @@ def _row(res: dict, key: str, row: list, vid: Optional[str] = None) -> None:
         res.setdefault("vidy", []).append(vid)
 
 
+def _chasti_info(res: dict, prefix: str, kv: str, vydel, ploshad, raw, taxation: dict) -> None:
+    """Для кнопки «По выделам»: исходный выдел(ы), общая площадь, заданные
+    части и площади выделов по лесоустройству — только если выделов
+    несколько или части уже заданы."""
+    tokens = vydel_tokens(str(vydel or ""))
+    parsed = []
+    if raw:
+        try:
+            parsed = [p for p in json.loads(raw) if isinstance(p, dict)]
+        except (TypeError, ValueError):
+            parsed = []
+    if len(tokens) <= 1 and not parsed:
+        return
+    res.setdefault("chasti_info", {})[prefix] = {
+        "kvartal": kv, "vydel": str(vydel or ""), "ploshad": fmt(_num(ploshad)),
+        "vydely": tokens, "chasti": parsed,
+        "taks": {t: taxation.get((kv, t), "") for t in tokens},
+    }
+
+
 def _warn(res: dict, key: Optional[str], text: str, cols: Optional[List[int]] = None) -> None:
     """Замечание; key — ключ строки или её начало (u12 — все строки участка
     12), cols — графы, о которых оно. Когда эти графы (по умолчанию —
@@ -306,6 +326,7 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
         if _year_of(u.get("god_sozdaniya")) == god:
             res = result[7]
             res["uchastki"] += 1
+            _chasti_info(res, f"u{u['id']}", kv, u.get("vydel"), u.get("ploshad"), u.get("chasti_json"), taxation)
             pct = next((m["prizhivaemost_pct"] for m in reversed(journal)
                         if m["tip"] in TIPY_PRIZHIVAEMOSTI and m["prizhivaemost_pct"] is not None), None)
             missing = [name for name, val in (
@@ -335,6 +356,7 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
             t = m["dannye"].get("taksatsiya") or {}
             res = result[4]
             res["uchastki"] += 1
+            _chasti_info(res, f"u{u['id']}", kv, u.get("vydel"), u.get("ploshad"), u.get("chasti_json"), taxation)
             # Возраст культур — от года создания, если при переводе не записан.
             vozrast = t.get("vozrast")
             if vozrast in (None, "") and _year_of(u.get("god_sozdaniya")):
@@ -367,6 +389,7 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
             d = m["dannye"]
             res = result[14]
             res["uchastki"] += 1
+            _chasti_info(res, f"u{u['id']}", kv, u.get("vydel"), u.get("ploshad"), u.get("chasti_json"), taxation)
             if not d.get("vid_zemel"):
                 _warn(res, f"u{u['id']}", f"{_mesto(u)}: не указан вид земель после списания", [3])
             warn = _chasti_warning(u, parts)
@@ -450,7 +473,8 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
     try:
         items = conn.execute(
             "SELECT i.id, i.delyanka_id, d.nazvanie, i.lesnichestvo, i.kvartal, i.vydel, i.ploshad, "
-            "i.zapas_na_ga, i.vyrubaemyy_zapas, i.polnota, i.mdo_raw_json, i.status_rabot, i.data_vypolneniya "
+            "i.zapas_na_ga, i.vyrubaemyy_zapas, i.polnota, i.mdo_raw_json, i.status_rabot, i.data_vypolneniya, "
+            "i.chasti_json "
             "FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id ORDER BY i.id"
         ).fetchall()
         acts = conn.execute("SELECT delyanka_id, act_date FROM osvidetelstvovanie_acts").fetchall()
@@ -463,7 +487,7 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
             act_years.setdefault(d_id, set()).add(y)
 
     for (item_id, d_id, nazvanie, lesn, kv, vd, pl, zapas_ga, vyrub, polnota, raw, status,
-         data_vyp) in items:
+         data_vyp, chasti_raw) in items:
         if not _lesn_match(target, lesn):
             continue
         done = _norm(status) == "выполнено"
@@ -498,19 +522,27 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
         if zapas_ga is None:
             _warn(res, f"d{item_id}", f"{mesto}: нет выбираемого запаса (МДО)", [6 if n == 3 else 7])
         nazvanie_vida = _cap(mdo.get("sposob_rubki") or mdo.get("vid_rubki") or vid)
-        tax = taxation.get((kv, vd), "") or fmt(_num(mdo.get("ploshad_obshaya")))
-        if n == 3:
-            row = [kv, vd, tax, nazvanie_vida, vd, fmt(area), fmt(round(zapas_ga)) if zapas_ga else ""]
-        else:
+        posle = None
+        if n == 15:
             p0 = _num(polnota) or _num(mdo.get("polnota"))
             vyborka = _num(str(mdo.get("vyborka_zapasa_pct") or "").replace("%", ""))
             posle = round(p0 * (1 - vyborka / 100), 1) if p0 and vyborka else None
             if posle is None:
                 _warn(res, f"d{item_id}", f"{mesto}: полноту после рубки не из чего посчитать (нет полноты или % выборки)",
                       [6])
-            row = [kv, vd, tax, nazvanie_vida, vd, fmt(area), fmt(posle),
-                   fmt(round(zapas_ga)) if zapas_ga else ""]
-        _row(res, f"d{item_id}", row, vid)
+        parts = chasti({"vydel": vd, "ploshad": area, "chasti_json": chasti_raw})
+        _chasti_info(res, f"d{item_id}", kv, vd, area, chasti_raw, taxation)
+        if len(parts) > 1 and any(p["ploshad"] is None for p in parts):
+            _warn(res, f"d{item_id}", f"{mesto}: лесосека в нескольких выделах — нажмите «По выделам» и "
+                                      "укажите площадь в каждом", [5])
+        for i, p in enumerate(parts):
+            pv = p["vydel"] or vd
+            tax = taxation.get((kv, pv), "") or (fmt(_num(mdo.get("ploshad_obshaya"))) if len(parts) == 1 else "")
+            row = [kv, pv, tax, nazvanie_vida, p["podvydel"] or pv, fmt(p["ploshad"])]
+            if n == 15:
+                row.append(fmt(posle))
+            row.append(fmt(round(zapas_ga)) if zapas_ga else "")
+            _row(res, f"d{item_id}:{i}", row, vid)
 
 
 def _rubki_uhoda(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:

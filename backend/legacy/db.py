@@ -875,6 +875,9 @@ def migrate_schema(conn):
         # часть выдела). source_srid не храним отдельно: reprojection в
         # EPSG:4326 делается один раз при импорте, на входе.
         "geom_geojson": "TEXT",
+        # Лесосека в нескольких выделах — площадь по каждому для ведомостей
+        # текущих изменений: [{vydel, podvydel, ploshad}] (как у лесных культур).
+        "chasti_json": "TEXT",
     }
     for col, coltype in new_item_cols.items():
         if col not in existing_item_cols:

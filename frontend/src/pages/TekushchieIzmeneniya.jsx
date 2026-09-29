@@ -73,12 +73,73 @@ function RuchnayaForm({ columns, initial, onSave, onCancel }) {
   );
 }
 
+const num = (v) => Number(String(v ?? "").replace(",", "."));
+
+/**
+ * Участок культур или лесосека в нескольких таксационных выделах: площадь
+ * (и подвыдел) по каждому выделу. Сохраняется в сам участок / выдел делянки,
+ * в ведомости — строка на каждую часть.
+ */
+function ChastiForm({ info, onSave, onCancel }) {
+  const [parts, setParts] = useState(() =>
+    (info.chasti.length ? info.chasti : info.vydely.map((v) => ({ vydel: v })))
+      .map((c) => ({ vydel: c.vydel ?? "", podvydel: c.podvydel ?? "", ploshad: c.ploshad ?? "" }))
+  );
+  const [saving, setSaving] = useState(false);
+  const set = (i, key, v) => setParts((ps) => ps.map((c, j) => (j === i ? { ...c, [key]: v } : c)));
+  const total = Math.round(parts.reduce((s, c) => s + (num(c.ploshad) || 0), 0) * 100) / 100;
+  const vsego = num(info.ploshad);
+  const submit = async (list) => {
+    setSaving(true);
+    try {
+      await onSave(list.map((c) => ({
+        vydel: String(c.vydel).trim(), podvydel: String(c.podvydel).trim(),
+        ploshad: String(c.ploshad).trim() === "" ? null : num(c.ploshad),
+      })));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-2.5 bg-surface-alt text-xs">
+      <div className="font-semibold text-pine">
+        Кв. {info.kvartal}, выделы {info.vydel}: площадь по каждому выделу{info.ploshad && ` (всего ${info.ploshad} га)`}
+      </div>
+      {parts.map((c, i) => (
+        <div key={i} className="grid gap-2 grid-cols-[repeat(3,minmax(110px,1fr))_auto] items-end">
+          <TextField label="Выдел" value={c.vydel} onChange={(e) => set(i, "vydel", e.target.value)} />
+          <TextField label="Подвыдел (если новый)" placeholder={c.vydel ? `например, ${c.vydel}.1` : ""}
+            value={c.podvydel} onChange={(e) => set(i, "podvydel", e.target.value)} />
+          <TextField label={`Площадь, га${info.taks?.[c.vydel] ? ` (выдел по таксации ${info.taks[c.vydel]})` : ""}`}
+            value={c.ploshad} onChange={(e) => set(i, "ploshad", e.target.value)} />
+          <Button variant="ghost" size="sm" onClick={() => setParts((ps) => ps.filter((_, j) => j !== i))}>Убрать</Button>
+        </div>
+      ))}
+      <div className={total && vsego && Math.abs(total - vsego) > 0.05 ? "text-oak" : "text-muted"}>
+        Сумма: {total} га{vsego ? ` из ${vsego} га` : ""}
+        {total && vsego && Math.abs(total - vsego) > 0.05 ? " — не сходится с общей площадью" : ""}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" size="sm" onClick={() => submit(parts)} loading={saving}>Сохранить</Button>
+        <Button variant="secondary" size="sm" onClick={() => setParts((ps) => [...ps, { vydel: "", podvydel: "", ploshad: "" }])}>
+          Добавить выдел
+        </Button>
+        {info.chasti.length > 0 && (
+          <Button variant="ghost" size="sm" onClick={() => submit([])}>Убрать разбивку</Button>
+        )}
+        <Button variant="ghost" size="sm" onClick={onCancel}>Отмена</Button>
+      </div>
+    </div>
+  );
+}
+
 function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
   const toast = useToast();
   const [showAll, setShowAll] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
   const [editKey, setEditKey] = useState(null);
+  const [chastiKey, setChastiKey] = useState(null);
   const [onlyEmpty, setOnlyEmpty] = useState(false);
   const ruchnyeById = Object.fromEntries(p.ruchnye.map((r, i) => [p.avto + i, r]));
   const nedopisano = p.pustye.filter((x) => x.length > 0).length;
@@ -92,6 +153,15 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
       await onChanged();
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    }
+  };
+  const saveChasti = async (prefix, chasti) => {
+    try {
+      await api.put("/tekushchie-izmeneniya/chasti", { istochnik: prefix[0], id: Number(prefix.slice(1)), chasti });
+      setChastiKey(null);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить части", description: e.message });
     }
   };
   const resetPopravka = async (klyuch) => {
@@ -168,6 +238,18 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                   const key = p.keys[i];
                   const empty = new Set(p.pustye[i]);
                   const ruch = ruchnyeById[i];
+                  const prefix = String(key).split(":")[0];
+                  const info = !ruch && p.chasti_info?.[prefix];
+                  const firstOfGroup = info && (i === 0 || String(p.keys[i - 1]).split(":")[0] !== prefix);
+                  if (info && chastiKey === key) {
+                    return (
+                      <tr key={key} className="border-t border-border">
+                        <td colSpan={p.columns.length + 1} className="p-1.5">
+                          <ChastiForm info={info} onSave={(chasti) => saveChasti(prefix, chasti)} onCancel={() => setChastiKey(null)} />
+                        </td>
+                      </tr>
+                    );
+                  }
                   if (!ruch && editKey === key) {
                     return (
                       <tr key={key} className="border-t border-border">
@@ -199,6 +281,9 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                         {!ruch && (
                           <span className="inline-flex gap-1 items-center">
                             {p.popravleno[i] && <span className="text-muted">дописано</span>}
+                            {firstOfGroup && (
+                              <Button variant="ghost" size="sm" onClick={() => setChastiKey(key)}>По выделам</Button>
+                            )}
                             <Button variant="ghost" size="sm" onClick={() => setEditKey(key)}>Дописать</Button>
                             {p.popravleno[i] && (
                               <Button variant="ghost" size="sm" onClick={() => resetPopravka(key)}>Сбросить</Button>

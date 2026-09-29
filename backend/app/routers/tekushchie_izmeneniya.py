@@ -61,7 +61,7 @@ def preview(
         "prilozheniya": [
             {"nomer": n, "title": ti.TITLES[n], "columns": ti.COLUMNS[n], "istochnik": ti.ISTOCHNIKI.get(n, ""),
              "rows": data[n]["rows"], "keys": data[n]["keys"], "pustye": data[n]["pustye"],
-             "popravleno": data[n]["popravleno"],
+             "popravleno": data[n]["popravleno"], "chasti_info": data[n].get("chasti_info", {}),
              "warnings": data[n]["warnings"], "uchastki": data[n]["uchastki"],
              "avto": data[n]["avto"], "ruchnye": data[n]["ruchnye"]}
             for n in ti.NOMERA
@@ -152,6 +152,39 @@ def delete_popravka(god: int, prilozhenie: int, klyuch: str, conn=Depends(get_co
     ti.ensure_popravki(conn)
     conn.execute("DELETE FROM tek_izm_popravki WHERE god = ? AND prilozhenie = ? AND klyuch = ?",
                  (god, prilozhenie, klyuch))
+    conn.commit()
+    return {"ok": True}
+
+
+class ChastIn(BaseModel):
+    vydel: str = ""
+    podvydel: str = ""
+    ploshad: Optional[float] = None
+
+
+class ChastiIn(BaseModel):
+    istochnik: str  # "u" — участок лесных культур, "d" — выдел делянки
+    id: int
+    chasti: List[ChastIn]
+
+
+@router.put("/chasti")
+def save_chasti(body: ChastiIn, conn=Depends(get_conn), _user=Depends(require_office_writer_or_master)):
+    """Разбивка участка культур / выдела делянки по таксационным выделам —
+    пишется в сам участок/выдел (chasti_json), пустой список убирает разбивку."""
+    table = {"u": "lesokultury_uchastok", "d": "delyanka_item"}.get(body.istochnik)
+    if table is None:
+        raise HTTPException(400, "Неизвестный источник")
+    chasti = [
+        {"vydel": c.vydel.strip(), "podvydel": c.podvydel.strip(), "ploshad": c.ploshad}
+        for c in body.chasti if c.vydel.strip() or c.podvydel.strip()
+    ]
+    if any(c["ploshad"] is not None and c["ploshad"] < 0 for c in chasti):
+        raise HTTPException(400, "Площадь не может быть отрицательной")
+    if conn.execute(f"SELECT 1 FROM {table} WHERE id = ?", (body.id,)).fetchone() is None:
+        raise HTTPException(404, "Не найдено")
+    conn.execute(f"UPDATE {table} SET chasti_json = ? WHERE id = ?",
+                 (json.dumps(chasti, ensure_ascii=False) if chasti else None, body.id))
     conn.commit()
     return {"ok": True}
 
