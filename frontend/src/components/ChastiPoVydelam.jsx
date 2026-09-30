@@ -30,9 +30,16 @@ export function chastiInfo(obj) {
  */
 export default function ChastiForm({ info, onSave, onCancel }) {
   const [parts, setParts] = useState(() =>
-    (info.chasti.length ? info.chasti : info.vydely.map((v) => ({ vydel: v })))
+    (info.chasti.length ? info.chasti
+      : info.vydely.map((v) => ({ vydel: v, ploshad: info.vydely.length === 1 ? info.ploshad : "" })))
       .map((c) => ({ vydel: c.vydel ?? "", podvydel: c.podvydel ?? "", ploshad: c.ploshad ?? "" }))
   );
+  const [novyy, setNovyy] = useState(info.novyy || "");
+  // Один выдел — новый номер целиком (33), несколько — 33.1, 33.2, 33.3.
+  const prisvoit = () => setParts((ps) => ps.map((c, i) => ({
+    ...c, podvydel: ps.length === 1 ? String(novyy).trim() : `${String(novyy).trim()}.${i + 1}`,
+  })));
+  const bezNovogo = () => setParts((ps) => ps.map((c) => ({ ...c, podvydel: "" })));
   const [saving, setSaving] = useState(false);
   const set = (i, key, v) => setParts((ps) => ps.map((c, j) => (j === i ? { ...c, [key]: v } : c)));
   const total = Math.round(parts.reduce((s, c) => s + (num(c.ploshad) || 0), 0) * 100) / 100;
@@ -51,12 +58,29 @@ export default function ChastiForm({ info, onSave, onCancel }) {
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border p-2.5 bg-surface-alt text-xs">
       <div className="font-semibold text-pine">
-        Кв. {info.kvartal}, выделы {info.vydel}: площадь по каждому выделу{info.ploshad && ` (всего ${info.ploshad} га)`}
+        {parts.length > 1
+          ? <>Кв. {info.kvartal}, выделы {info.vydel}: площадь по каждому выделу{info.ploshad && ` (всего ${info.ploshad} га)`}</>
+          : <>Кв. {info.kvartal}, выдел {info.vydel}{info.ploshad && `, ${info.ploshad} га`}</>}
       </div>
+      {info.novyy !== undefined && (
+        <div className="flex flex-wrap gap-2 items-end">
+          <TextField label="Новый выдел (если занимает не весь выдел)" value={novyy}
+            onChange={(e) => setNovyy(e.target.value)} />
+          <Button variant="secondary" size="sm" onClick={prisvoit} disabled={!String(novyy).trim()}>
+            Присвоить {parts.length > 1 && String(novyy).trim() ? `${String(novyy).trim()}.1–${String(novyy).trim()}.${parts.length}` : String(novyy).trim()}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={bezNovogo}>Без нового выдела</Button>
+          <span className="text-muted">
+            {info.posledniy
+              ? `Последний выдел кв. ${info.kvartal} по таксации — ${info.posledniy}; номера, уже данные в этом году другим участкам квартала, пропущены.`
+              : `Таксации кв. ${info.kvartal} в базе нет — впишите номер сами.`}
+          </span>
+        </div>
+      )}
       {parts.map((c, i) => (
         <div key={i} className="grid gap-2 grid-cols-[repeat(3,minmax(110px,1fr))_auto] items-end">
           <TextField label="Выдел" value={c.vydel} onChange={(e) => set(i, "vydel", e.target.value)} />
-          <TextField label="Подвыдел (если новый)" placeholder={c.vydel ? `например, ${c.vydel}.1` : ""}
+          <TextField label="Новый выдел (подвыдел)" placeholder="нет — остаётся прежний"
             value={c.podvydel} onChange={(e) => set(i, "podvydel", e.target.value)} />
           <TextField label={`Площадь, га${info.taks?.[c.vydel] ? ` (выдел по таксации ${info.taks[c.vydel]})` : ""}`}
             value={c.ploshad} onChange={(e) => set(i, "ploshad", e.target.value)} />
