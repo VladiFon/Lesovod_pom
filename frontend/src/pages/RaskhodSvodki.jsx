@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api, API_BASE_URL } from "../api/client.js";
 import Button from "../components/Button.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -109,14 +109,70 @@ function Field({ label, children, className = "" }) {
   );
 }
 
-function Select({ value, onChange, options, allLabel = "Все" }) {
+// Выпадающий список с галочками — можно выбрать несколько значений.
+// value — массив выбранных значений; пустой массив = «Все».
+function MultiSelect({ value, onChange, options, allLabel = "Все" }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  const opts = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const selected = new Set(value);
+  const toggle = (v) => onChange(selected.has(v) ? value.filter((x) => x !== v) : [...value, v]);
+  const shown = q.trim() ? opts.filter((o) => o.label.toLowerCase().includes(q.trim().toLowerCase())) : opts;
+  const caption = !value.length
+    ? allLabel
+    : value.length === 1
+      ? opts.find((o) => o.value === value[0])?.label || value[0]
+      : `Выбрано: ${value.length}`;
+
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={SELECT_CLS}>
-      <option value="">{allLabel}</option>
-      {options.map((o) => (
-        <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>
-      ))}
-    </select>
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={[SELECT_CLS, "text-left truncate pr-7", value.length ? "border-pine font-semibold" : ""].join(" ")}
+        title={value.length > 1 ? value.map((v) => opts.find((o) => o.value === v)?.label || v).join("; ") : undefined}
+      >
+        {caption}
+        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted text-xs">▾</span>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full min-w-[240px] bg-surface border border-border rounded-md shadow-modal p-2">
+          {opts.length > 8 && (
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Найти…"
+              className={SELECT_CLS + " mb-1.5"}
+            />
+          )}
+          <div className="flex items-center justify-between text-xs mb-1 px-1">
+            <button type="button" className="underline text-muted" onClick={() => onChange([...new Set([...value, ...shown.map((o) => o.value)])])}>
+              выбрать {q.trim() ? "найденные" : "все"}
+            </button>
+            <button type="button" className="underline text-muted" onClick={() => onChange([])}>очистить</button>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {shown.map((o) => (
+              <label key={o.value} className="flex items-start gap-2 px-1 py-1 rounded hover:bg-hover cursor-pointer text-sm text-ink">
+                <input type="checkbox" className="mt-0.5" checked={selected.has(o.value)} onChange={() => toggle(o.value)} />
+                <span>{o.label}</span>
+              </label>
+            ))}
+            {!shown.length && <div className="text-xs text-muted px-1 py-2">Ничего не найдено</div>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -142,7 +198,8 @@ async function downloadExcel(payload, filename) {
   URL.revokeObjectURL(url);
 }
 
-const EMPTY_FILTERS = { delyanka: "", sotrudnik: "", poluchatel: "", poroda: "", vid: "", tip: "", q: "" };
+const EMPTY_FILTERS = { delyanka: [], sotrudnik: [], poluchatel: [], poroda: [], vid: [], tip: [], q: "" };
+const hasFilters = (f) => Object.values(f).some((v) => (Array.isArray(v) ? v.length > 0 : Boolean(v)));
 
 export default function SvodkiModal({ open, onClose, initialTab = "raskhod", delyankaId }) {
   const toast = useToast();
@@ -172,7 +229,7 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
   // Делянку, выбранную на основном экране, подставляем в фильтр по умолчанию.
   useEffect(() => {
     if (!open) return;
-    setFilters({ ...EMPTY_FILTERS, delyanka: delyankaId ? String(delyankaId) : "" });
+    setFilters({ ...EMPTY_FILTERS, delyanka: delyankaId ? [String(delyankaId)] : [] });
     setGroupBy("");
   }, [open, tab, delyankaId]);
 
@@ -223,14 +280,13 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
     const q = filters.q.trim().toLowerCase();
     return rows.filter((r) => {
       if (hideUnlinked && !r.delyanka_id) return false;
-      if (filters.delyanka) {
-        if (filters.delyanka === NEPRIVYAZAN ? r.delyanka_id : String(r.delyanka_id) !== filters.delyanka) return false;
-      }
-      if (filters.sotrudnik && r.sotrudnik !== filters.sotrudnik) return false;
-      if (filters.poluchatel && r.poluchatel !== filters.poluchatel) return false;
-      if (filters.poroda && r.poroda !== filters.poroda) return false;
-      if (filters.vid && r.group !== filters.vid) return false;
-      if (filters.tip && r.tip !== filters.tip) return false;
+      const inList = (list, v) => !list.length || list.includes(v);
+      if (!inList(filters.delyanka, r.delyanka_id ? String(r.delyanka_id) : NEPRIVYAZAN)) return false;
+      if (!inList(filters.sotrudnik, r.sotrudnik)) return false;
+      if (!inList(filters.poluchatel, r.poluchatel)) return false;
+      if (!inList(filters.poroda, r.poroda)) return false;
+      if (!inList(filters.vid, r.group)) return false;
+      if (!inList(filters.tip, r.tip)) return false;
       if (q) {
         const hay = [r.nomer, r.produkciya, r.osnovanie, r.poluchatel, r.sotrudnik, r.delyanka_text, r.primechanie]
           .join(" ").toLowerCase();
@@ -284,12 +340,13 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
     try {
       const fparts = [];
       if (dateFrom || dateTo) fparts.push(`период ${dateFrom || "…"} — ${dateTo || "…"}`);
-      if (filters.delyanka) fparts.push(`делянка: ${options.delyanki.find((d) => d.value === filters.delyanka)?.label || ""}`);
-      if (filters.sotrudnik) fparts.push(`сотрудник: ${filters.sotrudnik}`);
-      if (filters.poluchatel) fparts.push(`получатель: ${filters.poluchatel}`);
-      if (filters.poroda) fparts.push(`порода: ${filters.poroda}`);
-      if (filters.vid) fparts.push(GROUPS.find((g) => g.key === filters.vid)?.label || "");
-      if (filters.tip) fparts.push(filters.tip);
+      const list = (arr, label = (v) => v) => arr.map(label).join(", ");
+      if (filters.delyanka.length) fparts.push(`делянка: ${list(filters.delyanka, (v) => options.delyanki.find((d) => d.value === v)?.label || v)}`);
+      if (filters.sotrudnik.length) fparts.push(`сотрудник: ${list(filters.sotrudnik)}`);
+      if (filters.poluchatel.length) fparts.push(`получатель: ${list(filters.poluchatel)}`);
+      if (filters.poroda.length) fparts.push(`порода: ${list(filters.poroda)}`);
+      if (filters.vid.length) fparts.push(list(filters.vid, (v) => GROUPS.find((g) => g.key === v)?.label || v));
+      if (filters.tip.length) fparts.push(list(filters.tip));
       if (filters.q) fparts.push(`поиск: ${filters.q}`);
       if (hideUnlinked && unlinkedCount) fparts.push("без непривязанных складов");
       if (groupBy) fparts.push(groupLabel.toLowerCase());
@@ -354,26 +411,26 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
             <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={SELECT_CLS} />
           </Field>
           <Field label="Делянка" className="col-span-2">
-            <Select value={filters.delyanka} onChange={setF("delyanka")} options={options.delyanki} allLabel="Все делянки" />
+            <MultiSelect value={filters.delyanka} onChange={setF("delyanka")} options={options.delyanki} allLabel="Все делянки" />
           </Field>
           <Field label="Вид">
-            <Select value={filters.vid} onChange={setF("vid")} options={GROUPS.filter((g) => tab === "naryady" || g.key !== "hvorost").map((g) => ({ value: g.key, label: g.label }))} />
+            <MultiSelect value={filters.vid} onChange={setF("vid")} options={GROUPS.filter((g) => tab === "naryady" || g.key !== "hvorost").map((g) => ({ value: g.key, label: g.label }))} />
           </Field>
           <Field label="Порода">
-            <Select value={filters.poroda} onChange={setF("poroda")} options={options.porody} />
+            <MultiSelect value={filters.poroda} onChange={setF("poroda")} options={options.porody} />
           </Field>
           {isEgais && (
             <Field label="Кто оформил">
-              <Select value={filters.sotrudnik} onChange={setF("sotrudnik")} options={options.sotrudniki} />
+              <MultiSelect value={filters.sotrudnik} onChange={setF("sotrudnik")} options={options.sotrudniki} />
             </Field>
           )}
           {tab === "raskhod" && (
             <>
               <Field label="Кому" className="col-span-2">
-                <Select value={filters.poluchatel} onChange={setF("poluchatel")} options={options.poluchateli} />
+                <MultiSelect value={filters.poluchatel} onChange={setF("poluchatel")} options={options.poluchateli} />
               </Field>
               <Field label="Тип расхода">
-                <Select value={filters.tip} onChange={setF("tip")} options={options.tipy} />
+                <MultiSelect value={filters.tip} onChange={setF("tip")} options={options.tipy} />
               </Field>
             </>
           )}
@@ -411,7 +468,7 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
               Скрыть непривязанные склады ({unlinkedCount} стр.)
             </label>
           )}
-          {Object.values(filters).some(Boolean) && (
+          {hasFilters(filters) && (
             <button className="text-xs text-muted underline ml-1" onClick={() => setFilters(EMPTY_FILTERS)}>
               сбросить фильтры
             </button>

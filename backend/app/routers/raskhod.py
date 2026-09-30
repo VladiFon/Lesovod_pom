@@ -213,11 +213,13 @@ def _run_import_egais(task_id: str, xlsx_path: str):
         # выгрузок-"дельт" по всем кварталам, в отличие от снимка, который
         # рассчитан на выгрузку "с начала" за один раз.
         operations = legacy_raskhod.extract_egais_operations(xlsx_path)
-        added = legacy_raskhod.save_egais_operations(conn, operations)
+        save_stats = {}
+        added = legacy_raskhod.save_egais_operations(conn, operations, stats=save_stats)
         webext.set_task_done(conn, task_id, result={
             "imported": True,
             "journal_rows_total": len(operations),
             "journal_rows_added": added,
+            "journal_rows_replaced": save_stats.get("replaced_rows", 0),
         })
     except Exception as e:  # noqa: BLE001
         webext.set_task_error(conn, task_id, str(e))

@@ -1716,14 +1716,24 @@ def _operations_from_raw_rows(rows):
     dict-операции (тот же формат, что хранится построчно в
     egais_operation, см. _EGAIS_OPERATION_COLUMNS)."""
     operations = []
+    # Одинаковые строки в одной выгрузке - это РАЗНЫЕ брёвна одного
+    # документа с одинаковой номенклатурой (сверено 30.09.2026 с итогом
+    # самого ЕГАИС: в выгрузке за сентябрь 27 таких пар, 43,39 м³, и ЕГАИС
+    # их считает). Поэтому второй и следующий экземпляр получают суффикс
+    # "#N" к ключу: в пределах файла не схлопываются, а при повторном
+    # импорте той же выгрузки получают те же ключи и не задваиваются.
+    seen_keys = {}
     for row in rows:
         doc_type = row.get(_EGAIS_COL_DOC_TYPE)
         sklad_name = row.get(_EGAIS_COL_SKLAD_NAME)
         if not _egais_not_empty(doc_type) and not _egais_not_empty(sklad_name):
             continue
         data_dok = _egais_str(row.get(_EGAIS_COL_DATA_DOK))
+        base_key = compute_egais_operation_key(row)
+        seen_keys[base_key] = seen_keys.get(base_key, 0) + 1
+        natural_key = base_key if seen_keys[base_key] == 1 else f"{base_key}#{seen_keys[base_key]}"
         operations.append({
-            "natural_key": compute_egais_operation_key(row),
+            "natural_key": natural_key,
             "data_dokumenta": data_dok,
             "data_dokumenta_sort": _egais_date_sort_key(data_dok),
             "tip_dokumenta": _egais_str(doc_type),
@@ -1749,7 +1759,7 @@ def _operations_from_raw_rows(rows):
     return operations
 
 
-def save_egais_operations(conn, operations):
+def save_egais_operations(conn, operations, stats=None):
     """Сохраняет строки журнала ЕГАИС (см. extract_egais_operations) -
     INSERT OR IGNORE по UNIQUE(natural_key), поэтому повторный импорт того
     же файла или пересекающихся по датам выгрузок НИЧЕГО не задваивает - в
@@ -1762,6 +1772,9 @@ def save_egais_operations(conn, operations):
     if not operations:
         return 0
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    removed = _drop_outdated_document_rows(conn, operations)
+    if stats is not None:
+        stats["replaced_rows"] = removed
     cur = conn.executemany(
         "INSERT OR IGNORE INTO egais_operation "
         "(natural_key, data_dokumenta, data_dokumenta_sort, tip_dokumenta, nomer_dokumenta, "
@@ -1803,6 +1816,36 @@ def save_egais_operations(conn, operations):
         (*keys, now),
     ).fetchone()[0]
     return added
+
+
+def _drop_outdated_document_rows(conn, operations):
+    """Документ ЕГАИС в новой выгрузке - всегда его актуальный вид. Если
+    документ после прошлого импорта изменили в ЕГАИС (переименовали склад,
+    поправили кол-во/объём), в журнале оставалась и старая версия строк -
+    ключ-то другой, - и объём считался дважды (30.09.2026: склад
+    «д.Дубровка ( кв176 выд 5 №4)» переименован в «ПЛС кв.176, выд.5 л.4 …»,
+    +81 м³ расхода за сентябрь). Поэтому перед записью у каждого документа,
+    который есть в новой выгрузке, удаляются строки журнала, которых в ней
+    больше нет. Документы, которых в выгрузке нет, не трогаются (выгрузка
+    может быть за другой период или по другим складам). Возвращает число
+    удалённых строк."""
+    docs = {op.get("nomer_dokumenta") for op in operations if op.get("nomer_dokumenta")}
+    if not docs:
+        return 0
+    conn.execute("CREATE TEMP TABLE IF NOT EXISTS _egais_new_keys (k TEXT PRIMARY KEY)")
+    conn.execute("CREATE TEMP TABLE IF NOT EXISTS _egais_new_docs (d TEXT PRIMARY KEY)")
+    conn.execute("DELETE FROM _egais_new_keys")
+    conn.execute("DELETE FROM _egais_new_docs")
+    conn.executemany("INSERT OR IGNORE INTO _egais_new_keys VALUES (?)", [(op["natural_key"],) for op in operations])
+    conn.executemany("INSERT OR IGNORE INTO _egais_new_docs VALUES (?)", [(d,) for d in docs])
+    cur = conn.execute(
+        "DELETE FROM egais_operation WHERE nomer_dokumenta IN (SELECT d FROM _egais_new_docs) "
+        "AND natural_key NOT IN (SELECT k FROM _egais_new_keys)"
+    )
+    removed = cur.rowcount or 0
+    conn.execute("DELETE FROM _egais_new_keys")
+    conn.execute("DELETE FROM _egais_new_docs")
+    return removed
 
 
 _EGAIS_OPERATION_COLUMNS = (
