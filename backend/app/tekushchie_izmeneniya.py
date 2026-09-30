@@ -293,9 +293,9 @@ def _row(res: dict, key: str, row: list, vid: Optional[str] = None, dop: str = "
 
 
 def _chasti_info(res: dict, prefix: str, kv: str, vydel, ploshad, raw, taxation: dict) -> None:
-    """Для кнопки «По выделам»: исходный выдел(ы), общая площадь, заданные
-    части и площади выделов по лесоустройству — только если выделов
-    несколько или части уже заданы."""
+    """Для кнопки «По выделам» / «Новый выдел»: исходный выдел(ы), общая
+    площадь, заданные части и площади выделов по лесоустройству. Номер,
+    который можно дать новому выделу, дописывает _novye_vydely()."""
     tokens = vydel_tokens(str(vydel or ""))
     parsed = []
     if raw:
@@ -303,8 +303,6 @@ def _chasti_info(res: dict, prefix: str, kv: str, vydel, ploshad, raw, taxation:
             parsed = [p for p in json.loads(raw) if isinstance(p, dict)]
         except (TypeError, ValueError):
             parsed = []
-    if len(tokens) <= 1 and not parsed:
-        return
     res.setdefault("chasti_info", {})[prefix] = {
         "kvartal": kv, "vydel": str(vydel or ""), "ploshad": fmt(_num(ploshad)),
         "vydely": tokens, "chasti": parsed,
@@ -477,11 +475,13 @@ def _kultury(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) ->
                 f"карт. №{t['nomer_kartochki']}" if t.get("nomer_kartochki") else "",
             ) if x)
             for i, p in enumerate(parts):
-                old = p["podvydel"] or p["vydel"]
+                # Новый выдел: заданный вручную («По выделам» / «Новый
+                # выдел»), иначе из карточки (в скобках), иначе прежний.
+                novyy = p["podvydel"] or (t.get("podvydel") if one and t.get("podvydel") else "") or p["vydel"]
                 _row(res, f"u{u['id']}:{i}", [
-                    kv, old, fmt(p["ploshad"]),
-                    (t.get("podvydel") if one and t.get("podvydel") else old),
-                    fmt(_num(t.get("ploshad")) if one and t.get("ploshad") else p["ploshad"]),
+                    kv, p["vydel"], fmt(p["ploshad"]), novyy,
+                    fmt(_num(t.get("ploshad")) if one and t.get("ploshad") and not u.get("chasti_json")
+                        else p["ploshad"]),
                     sostav, fmt(_num(vozrast) if _num(vozrast) is not None else vozrast), fmt(t.get("vysota")),
                     fmt(diametr), fmt(polnota),
                 ], dop=dop)
@@ -879,6 +879,47 @@ def save_popravka(conn, god: int, prilozhenie: int, klyuch: str, values: List[st
     conn.commit()
 
 
+# Столбец «новый выдел (подвыдел)» в приложениях, где он есть.
+NOVYY_VYDEL_COL = {3: 4, 4: 3, 7: 3, 15: 4}
+
+
+def _nomer(text) -> Optional[int]:
+    """Целая часть номера выдела: «33» -> 33, «33.1» -> 33, «12а» -> 12."""
+    m = re.match(r"\s*(\d+)", str(text or ""))
+    return int(m.group(1)) if m else None
+
+
+def _novye_vydely(result: dict, taxation: dict) -> None:
+    """Каждому участку / лесосеке — номер, который можно дать новому выделу:
+    последний выдел квартала по таксации + 1, пропуская номера, уже
+    присвоенные в этом году другим участкам того же квартала. Сам номер
+    ставит человек (кнопка «Новый выдел» / «По выделам»)."""
+    maks: Dict[str, int] = {}
+    for (kv, vd) in taxation:
+        n = _nomer(vd)
+        if n is not None:
+            maks[kv] = max(maks.get(kv, 0), n)
+    zanyato: Dict[str, Dict[str, set]] = {}
+    for n, col in NOVYY_VYDEL_COL.items():
+        res = result[n]
+        for key, row in zip(res["keys"], res["rows"]):
+            if not key or col >= len(row):
+                continue
+            kv = str(row[0] or "").strip()
+            nomer = _nomer(row[col])
+            if nomer is not None and str(row[col]).strip() != str(row[1] or "").strip():
+                zanyato.setdefault(kv, {}).setdefault(str(key).split(":")[0], set()).add(nomer)
+    for n in NOMERA:
+        for prefix, info in result[n].get("chasti_info", {}).items():
+            kv = str(info.get("kvartal") or "").strip()
+            chuzhie = [x for p, nums in zanyato.get(kv, {}).items() if p != prefix for x in nums]
+            svoi = sorted(zanyato.get(kv, {}).get(prefix, set()))
+            # Без таксации квартала номер не угадать — пусть впишут сами.
+            info["novyy"] = (str(svoi[0]) if svoi
+                             else str(max([maks[kv]] + chuzhie) + 1) if kv in maks else "")
+            info["posledniy"] = str(maks.get(kv, "")) if kv in maks else ""
+
+
 def _key_matches(warn_key: str, row_key: str) -> bool:
     return row_key == warn_key or row_key.startswith(warn_key + ":")
 
@@ -894,6 +935,7 @@ def build(conn, god: int, lesnichestvo: str = "", s_popravkami: bool = True) -> 
     _kultury(conn, god, lesnichestvo, result, taxation)
     _rubki_delyanki(conn, god, lesnichestvo, result, taxation)
     _rubki_uhoda(conn, god, lesnichestvo, result, taxation)
+    _novye_vydely(result, taxation)
     popr = popravki(conn, god) if s_popravkami else {}
     for n in NOMERA:
         res = result[n]

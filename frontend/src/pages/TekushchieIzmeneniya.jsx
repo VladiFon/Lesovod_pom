@@ -226,7 +226,9 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                           <span className="inline-flex gap-1 items-center">
                             {p.popravleno[i] && <span className="text-muted">дописано</span>}
                             {firstOfGroup && (
-                              <Button variant="ghost" size="sm" onClick={() => setChastiKey(key)}>По выделам</Button>
+                              <Button variant="ghost" size="sm" onClick={() => setChastiKey(key)}>
+                                {info.vydely?.length > 1 || info.chasti?.length > 1 ? "По выделам" : "Новый выдел"}
+                              </Button>
                             )}
                             <Button variant="ghost" size="sm" onClick={() => setEditKey(key)}>Дописать</Button>
                             {p.popravleno[i] && (
