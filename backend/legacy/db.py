@@ -1782,6 +1782,49 @@ def get_active_delyanki_for_bot(conn, kvartal):
     return rows
 
 
+def get_active_delyanki_grouped_for_bot(conn, kvartal):
+    """Делянки квартала для экрана "Остатки" мобильного приложения - по
+    одной строке на ДЕЛЯНКУ (а не на пару выдел+лесосека, как
+    get_active_delyanki_for_bot): {delyanka_id, nazvanie, vydel (выделы
+    делянки через запятую), lesoseka_nomer}. По delyanka_id приложение
+    спрашивает остаток по всей делянке - тот же набор выделов, что и на
+    вебе. Как и на экране "Расход" веба - только делянки со статусом
+    'активна' (не черновики и не архив); делянки, где все выделы квартала
+    уже "выполнено", не показываются."""
+    rows = conn.execute(
+        """SELECT di.delyanka_id, d.nazvanie, di.vydel, di.lesoseka_nomer, di.status_rabot
+           FROM delyanka_item di JOIN delyanka d ON d.id = di.delyanka_id
+           WHERE di.kvartal = ? AND d.status = 'активна'
+           ORDER BY di.delyanka_id, di.id""",
+        (str(kvartal),),
+    ).fetchall()
+    by_id = {}
+    for delyanka_id, nazvanie, vydel, lesoseka_nomer, status_rabot in rows:
+        entry = by_id.setdefault(delyanka_id, {
+            "delyanka_id": delyanka_id, "nazvanie": nazvanie, "vydely": [],
+            "lesoseka_nomer": None, "active": False,
+        })
+        vydel_text = str(vydel or "").strip()
+        if vydel_text and vydel_text not in entry["vydely"]:
+            entry["vydely"].append(vydel_text)
+        if lesoseka_nomer and not entry["lesoseka_nomer"]:
+            entry["lesoseka_nomer"] = str(lesoseka_nomer)
+        if status_rabot != "выполнено":
+            entry["active"] = True
+    result = []
+    for entry in by_id.values():
+        if not entry["active"]:
+            continue
+        result.append({
+            "delyanka_id": entry["delyanka_id"],
+            "nazvanie": entry["nazvanie"],
+            "vydel": ", ".join(entry["vydely"]),
+            "lesoseka_nomer": entry["lesoseka_nomer"],
+        })
+    result.sort(key=lambda r: (r["vydel"], r["lesoseka_nomer"] or ""))
+    return result
+
+
 # --------------------------------------------------------------------------- #
 #   ПОЛОМКИ ТЕХНИКИ (breakdown_reports) И СЛУЖЕБНЫЕ ЗАМЕТКИ (sluzhebnye_zametki)
 #   — используются кнопкой "⚠️ Поломка" (тракторист/харвестерщик) и разделом

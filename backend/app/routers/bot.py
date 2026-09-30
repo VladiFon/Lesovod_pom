@@ -525,28 +525,22 @@ def list_active_delyanki(
     conn=Depends(get_conn),
     user=Depends(require_permission("bot.access")),
 ):
-    """Список делянок (уникальные пары выдел + номер лесосеки) в квартале
-    для inline-кнопок выбора при запросе остатка — раньше
-    process_balance_step в telegram_bot.py вызывала
-    get_active_delyanki_for_bot(conn, kvartal) напрямую по общему
-    sqlite-соединению бота. Тот же нюанс row_factory, что и в
-    check_duplicate_report/convert_breakdown_to_note выше:
-    get_active_delyanki_for_bot читает поля по имени в вызывающем коде
-    бота (row["vydel"]/row["lesoseka_nomer"]), выставляем sqlite3.Row
-    локально."""
-    conn.row_factory = sqlite3.Row
-    rows = legacy_db.get_active_delyanki_for_bot(conn, kvartal)
-    return [
-        {"vydel": row["vydel"], "lesoseka_nomer": row["lesoseka_nomer"]}
-        for row in rows
-    ]
+    """Список делянок квартала для кнопок выбора при запросе остатка -
+    по одной строке на ДЕЛЯНКУ (с 0.5.3 приложения): delyanka_id,
+    nazvanie, vydel (выделы делянки через запятую), lesoseka_nomer.
+    Раньше - уникальные пары выдел+лесосека (get_active_delyanki_for_bot),
+    из-за чего остаток на телефоне считался не по той же делянке, что на
+    вебе. Старые версии приложения читают только vydel/lesoseka_nomer и
+    работают как раньше."""
+    return legacy_db.get_active_delyanki_grouped_for_bot(conn, kvartal)
 
 
 @router.get("/remaining")
 def get_remaining(
-    kvartal: str,
-    vydel: str,
+    kvartal: str = "",
+    vydel: str = "",
     lesoseka: Optional[str] = None,
+    delyanka_id: Optional[int] = None,
     conn=Depends(get_conn),
     user=Depends(require_permission("bot.access")),
 ):
@@ -573,7 +567,9 @@ def get_remaining(
     (см. докстринг get_remaining_volumes_grouped_for_bot в raskhod_v2.py),
     мобильное приложение строит из этого свой собственный экран, а не
     переиспользует текстовый формат _format_remaining_reply из бота."""
-    result = raskhod_v2.get_remaining_volumes_grouped_for_bot(conn, kvartal, vydel, lesoseka)
+    result = raskhod_v2.get_remaining_volumes_grouped_for_bot(
+        conn, kvartal, vydel, lesoseka, delyanka_id=delyanka_id
+    )
     return result
 
 

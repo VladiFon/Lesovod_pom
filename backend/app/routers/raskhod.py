@@ -239,6 +239,16 @@ def import_egais(background_tasks: BackgroundTasks, file: UploadFile = File(...)
     return {"task_id": task_id}
 
 
+@router.get("/delyanki/{delyanka_id}/osvoenie")
+def get_delyanka_osvoenie(delyanka_id: int, conn=Depends(get_conn)):
+    """Освоение лимита по ВСЕЙ делянке (все выделы, все породы,
+    деловая+дрова): % по наряду и по ЕГАИС, сколько ещё можно заготовить
+    до 100% и 110%, уровень предупреждения - тот же расчёт, что и экран
+    "Остатки" мобильного приложения (GET /api/bot/remaining?delyanka_id=),
+    чтобы веб и телефон показывали одно и то же."""
+    return legacy_raskhod.get_remaining_volumes_grouped_for_bot(conn, "", "", delyanka_id=delyanka_id)
+
+
 @router.get("/delyanki/{delyanka_id}/egais/balance-check")
 def get_delyanka_egais_balance_check(delyanka_id: int, conn=Depends(get_conn)):
     """То же, что /items/{item_id}/egais/balance-check, но сразу по ВСЕМ
