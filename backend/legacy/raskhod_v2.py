@@ -1080,6 +1080,9 @@ _EGAIS_COL_KOLVO = _normalize_egais_header("Кол-во")
 # Лесничество, в котором находится квартал (у разных лесничеств номера
 # кварталов повторяются) - см. resolve_egais_sklady.
 _EGAIS_COL_LESNICHESTVO = _normalize_egais_header("Структурное подразделение")
+# Кому ушла древесина по расходу (покупатель / нижний склад) - для сводки
+# расхода (app/svodka_raskhod.py).
+_EGAIS_COL_POLUCHATEL = _normalize_egais_header("Грузополучатель")
 
 # Служебные/технические колонки выгрузки — не участвуют в ключе
 # дедупликации журнала (см. compute_egais_operation_key) - это метаданные
@@ -1741,6 +1744,7 @@ def _operations_from_raw_rows(rows):
             "nomer_osnovaniya": _egais_str(row.get(_EGAIS_COL_OSNOVANIE_NUM)),
             "sotrudnik": _egais_str(row.get(_EGAIS_COL_SOTRUDNIK)),
             "lesnichestvo": _egais_str(row.get(_EGAIS_COL_LESNICHESTVO)),
+            "gruzopoluchatel": _egais_str(row.get(_EGAIS_COL_POLUCHATEL)),
         })
     return operations
 
@@ -1763,13 +1767,15 @@ def save_egais_operations(conn, operations):
         "(natural_key, data_dokumenta, data_dokumenta_sort, tip_dokumenta, nomer_dokumenta, "
         "nomer_svyazannogo_dokumenta, kvartal, vydel, sklad, sklad_kontragent, "
         "poroda, sort, tehnicheskaya_godnost, nomenklatura, gruppa_diametrov, "
-        "kolvo, obyom, osnovanie, nomer_osnovaniya, sotrudnik, imported_at, lesnichestvo) "
+        "kolvo, obyom, osnovanie, nomer_osnovaniya, sotrudnik, imported_at, lesnichestvo, "
+        "gruzopoluchatel) "
         "VALUES (:natural_key, :data_dokumenta, :data_dokumenta_sort, :tip_dokumenta, "
         ":nomer_dokumenta, :nomer_svyazannogo_dokumenta, :kvartal, :vydel, :sklad, "
         ":sklad_kontragent, :poroda, :sort, :tehnicheskaya_godnost, :nomenklatura, "
         ":gruppa_diametrov, :kolvo, :obyom, :osnovanie, :nomer_osnovaniya, :sotrudnik, "
-        ":imported_at, :lesnichestvo)",
-        [dict(op, imported_at=now, lesnichestvo=op.get("lesnichestvo") or "") for op in operations],
+        ":imported_at, :lesnichestvo, :gruzopoluchatel)",
+        [dict(op, imported_at=now, lesnichestvo=op.get("lesnichestvo") or "",
+              gruzopoluchatel=op.get("gruzopoluchatel") or "") for op in operations],
     )
     # Строки, импортированные до появления колонки lesnichestvo, получают
     # её при повторном импорте той же выгрузки (INSERT OR IGNORE выше их
@@ -1778,6 +1784,12 @@ def save_egais_operations(conn, operations):
         "UPDATE egais_operation SET lesnichestvo=? "
         "WHERE natural_key=? AND (lesnichestvo IS NULL OR lesnichestvo='')",
         [(op.get("lesnichestvo"), op["natural_key"]) for op in operations if op.get("lesnichestvo")],
+    )
+    # То же для "Грузополучателя" (добавлен 2026-09-30 для сводки расхода).
+    conn.executemany(
+        "UPDATE egais_operation SET gruzopoluchatel=? "
+        "WHERE natural_key=? AND (gruzopoluchatel IS NULL OR gruzopoluchatel='')",
+        [(op.get("gruzopoluchatel"), op["natural_key"]) for op in operations if op.get("gruzopoluchatel")],
     )
     conn.commit()
     # rowcount по executemany с INSERT OR IGNORE в sqlite3 считает и
@@ -1798,7 +1810,7 @@ _EGAIS_OPERATION_COLUMNS = (
     "nomer_svyazannogo_dokumenta", "kvartal", "vydel", "sklad", "sklad_kontragent",
     "poroda", "sort", "tehnicheskaya_godnost", "nomenklatura", "gruppa_diametrov",
     "kolvo", "obyom", "osnovanie", "nomer_osnovaniya", "sotrudnik", "imported_at",
-    "lesnichestvo",
+    "lesnichestvo", "gruzopoluchatel",
 )
 
 

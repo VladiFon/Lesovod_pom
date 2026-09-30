@@ -9,6 +9,7 @@ import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
+import SvodkiModal from "./RaskhodSvodki.jsx";
 
 /**
  * Экран "Расход / ЕГАИС" (screens/raskhod/) — Этап 9 плана.
@@ -1608,6 +1609,7 @@ export default function Raskhod() {
   const [itemsLoading, setItemsLoading] = useState(false);
   const [delyankaSearch, setDelyankaSearch] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [svodkiOpen, setSvodkiOpen] = useState(false);
   const [egaisReviewOpen, setEgaisReviewOpen] = useState(false);
   const [egaisReviewCount, setEgaisReviewCount] = useState(0);
   const [delyankaEgaisCheck, setDelyankaEgaisCheck] = useState(null);
@@ -1743,6 +1745,9 @@ export default function Raskhod() {
             <Button variant="secondary" onClick={() => setSummaryOpen(true)}>
               📊 Сводка по породам
             </Button>
+            <Button variant="secondary" onClick={() => setSvodkiOpen(true)}>
+              📑 Сводки прихода/расхода
+            </Button>
             {delyankaId && (
               <Button variant="secondary" onClick={handleDeleteDelyankaEgais}>
                 🗑️ Удалить ЕГАИС по делянке
@@ -1793,6 +1798,11 @@ export default function Raskhod() {
           loadEgaisReviewSummary();
           setEgaisVersion((v) => v + 1);
         }}
+      />
+      <SvodkiModal
+        open={svodkiOpen}
+        onClose={() => setSvodkiOpen(false)}
+        delyankaId={delyankaId || null}
       />
       <SummaryModal
         open={summaryOpen}
