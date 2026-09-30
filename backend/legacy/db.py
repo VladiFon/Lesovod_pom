@@ -730,7 +730,8 @@ CREATE TABLE IF NOT EXISTS egais_operation (
     nomer_osnovaniya TEXT,
     sotrudnik TEXT,
     imported_at TEXT NOT NULL,
-    lesnichestvo TEXT  -- "Структурное подразделение" выгрузки
+    lesnichestvo TEXT,  -- "Структурное подразделение" выгрузки
+    gruzopoluchatel TEXT  -- "Грузополучатель" (кому ушёл расход)
 );
 CREATE INDEX IF NOT EXISTS idx_egais_operation_kv ON egais_operation(kvartal, vydel);
 CREATE INDEX IF NOT EXISTS idx_egais_operation_data ON egais_operation(data_dokumenta_sort);
@@ -1386,6 +1387,8 @@ def migrate_schema(conn):
     }
     if existing_egais_op_cols and "lesnichestvo" not in existing_egais_op_cols:
         conn.execute("ALTER TABLE egais_operation ADD COLUMN lesnichestvo TEXT")
+    if existing_egais_op_cols and "gruzopoluchatel" not in existing_egais_op_cols:
+        conn.execute("ALTER TABLE egais_operation ADD COLUMN gruzopoluchatel TEXT")
 
     pending_fls = conn.execute(
         "SELECT id, kvartal, vydel, poroda, sortiment, obyom, sklad "

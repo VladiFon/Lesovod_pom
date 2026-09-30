@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401
@@ -23,7 +23,8 @@ import raskhod_v2 as legacy_raskhod
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
-from app.auth import require_permission
+from app.auth import get_current_user, require_permission
+from app import svodka_raskhod
 import webext
 
 router = APIRouter(prefix="/api/raskhod", tags=["raskhod"])
@@ -566,3 +567,43 @@ def reset_egais_sklad(body: SkladLinkIn, user=Depends(require_permission("raskho
     conn.execute("DELETE FROM egais_sklad_link WHERE sklad=?", (body.sklad,))
     conn.commit()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+#   Сводки: расход/приход по ЕГАИС и приход по нарядам (30.09.2026) —
+#   см. app/svodka_raskhod.py. Итоги по деловой, дровам и общий итог
+#   считает клиент по полю "group" каждой строки.
+# --------------------------------------------------------------------------- #
+@router.get("/svodka/egais")
+def svodka_egais(napravlenie: str = "raskhod", date_from: Optional[str] = None,
+                 date_to: Optional[str] = None, bez_povtornogo_prihoda: bool = True,
+                 user=Depends(get_current_user), conn=Depends(get_conn)):
+    if napravlenie not in ("raskhod", "prihod"):
+        raise HTTPException(400, "napravlenie: raskhod или prihod")
+    return svodka_raskhod.egais_svodka(
+        conn, napravlenie=napravlenie, date_from=date_from or None, date_to=date_to or None,
+        bez_povtornogo_prihoda=bez_povtornogo_prihoda,
+    )
+
+
+@router.get("/svodka/naryady")
+def svodka_naryady(date_from: Optional[str] = None, date_to: Optional[str] = None,
+                   user=Depends(get_current_user), conn=Depends(get_conn)):
+    return svodka_raskhod.naryady_svodka(conn, date_from=date_from or None, date_to=date_to or None)
+
+
+class SvodkaExcelIn(BaseModel):
+    title: str
+    subtitle: str = ""
+    columns: List[Dict[str, Any]]
+    sections: List[Dict[str, Any]]
+
+
+@router.post("/svodka/excel")
+def svodka_excel(body: SvodkaExcelIn, user=Depends(get_current_user)):
+    data = svodka_raskhod.svodka_to_xlsx(body.title, body.subtitle, body.columns, body.sections)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=svodka.xlsx"},
+    )
