@@ -36,20 +36,24 @@ export default function Modal({ open, onClose, title, footer, size = "md", child
         aria-modal="true"
         aria-labelledby={title ? "modal-title" : undefined}
         className={[
+          // Окно не выше экрана: шапка и кнопки на месте, прокручивается
+          // только содержимое (иначе длинная сводка уходила за край экрана
+          // без возможности прокрутки).
           "relative w-full bg-surface rounded-lg shadow-modal border border-border",
+          "flex flex-col max-h-[calc(100vh-2rem)]",
           "animate-[modal-in_150ms_ease-out]",
           widths[size],
         ].join(" ")}
       >
         {title && (
-          <div className="px-6 pt-5 pb-3 border-b border-border">
+          <div className="px-6 pt-5 pb-3 border-b border-border shrink-0">
             <h2 id="modal-title" className="font-ui font-bold text-lg text-ink">
               {title}
             </h2>
           </div>
         )}
-        <div className="px-6 py-5">{children}</div>
-        {footer && <div className="px-6 pb-5 pt-1 flex items-center justify-end gap-2">{footer}</div>}
+        <div className="px-6 py-5 flex-1 min-h-0 overflow-y-auto">{children}</div>
+        {footer && <div className="px-6 pb-5 pt-3 flex items-center justify-end gap-2 shrink-0 border-t border-border">{footer}</div>}
       </div>
       <style>{`
         @keyframes modal-in {
