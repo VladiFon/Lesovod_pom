@@ -389,7 +389,7 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
         </>
       }
     >
-      <div className="flex flex-col gap-3 max-h-[78vh] overflow-y-auto">
+      <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           {TABS.map((t) => (
             <button
