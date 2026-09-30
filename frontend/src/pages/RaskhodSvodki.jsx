@@ -155,6 +155,14 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [groupBy, setGroupBy] = useState("");
   const [exporting, setExporting] = useState(false);
+  // «Скрыть непривязанные склады» — запоминается в браузере.
+  const [hideUnlinked, setHideUnlinked] = useState(() => {
+    try { return localStorage.getItem("svodki_hide_unlinked") === "1"; } catch { return false; }
+  });
+  const toggleHideUnlinked = (v) => {
+    setHideUnlinked(v);
+    try { localStorage.setItem("svodki_hide_unlinked", v ? "1" : "0"); } catch { /* нет хранилища */ }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -201,7 +209,7 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
     const delyanki = [...del.entries()]
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "ru", { numeric: true }));
-    if (hasNone) delyanki.push({ value: NEPRIVYAZAN, label: "— склад не привязан к делянке" });
+    if (hasNone && !hideUnlinked) delyanki.push({ value: NEPRIVYAZAN, label: "— склад не привязан к делянке" });
     return {
       delyanki,
       sotrudniki: uniqSorted(rows.map((r) => r.sotrudnik)),
@@ -209,11 +217,12 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
       porody: uniqSorted(rows.map((r) => r.poroda)),
       tipy: uniqSorted(rows.map((r) => r.tip)),
     };
-  }, [rows]);
+  }, [rows, hideUnlinked]);
 
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     return rows.filter((r) => {
+      if (hideUnlinked && !r.delyanka_id) return false;
       if (filters.delyanka) {
         if (filters.delyanka === NEPRIVYAZAN ? r.delyanka_id : String(r.delyanka_id) !== filters.delyanka) return false;
       }
@@ -229,7 +238,9 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
       }
       return true;
     });
-  }, [rows, filters]);
+  }, [rows, filters, hideUnlinked]);
+
+  const unlinkedCount = useMemo(() => rows.filter((r) => !r.delyanka_id).length, [rows]);
 
   const groupOpt = GROUP_BY[tab].find((g) => g.key === groupBy);
   const groupLabel = groupOpt?.label || "";
@@ -280,6 +291,7 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
       if (filters.vid) fparts.push(GROUPS.find((g) => g.key === filters.vid)?.label || "");
       if (filters.tip) fparts.push(filters.tip);
       if (filters.q) fparts.push(`поиск: ${filters.q}`);
+      if (hideUnlinked && unlinkedCount) fparts.push("без непривязанных складов");
       if (groupBy) fparts.push(groupLabel.toLowerCase());
       const round3 = (v) => Math.round((v || 0) * 1000) / 1000;
       await downloadExcel({
@@ -393,6 +405,12 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
           <span className="px-3 py-1.5 rounded-md border border-pine bg-pine text-white">
             Итого: <b style={MONO}>{fmt3(grandTotal)}</b> м³
           </span>
+          {unlinkedCount > 0 && (
+            <label className="flex items-center gap-1.5 text-xs text-muted ml-1 cursor-pointer select-none">
+              <input type="checkbox" checked={hideUnlinked} onChange={(e) => toggleHideUnlinked(e.target.checked)} />
+              Скрыть непривязанные склады ({unlinkedCount} стр.)
+            </label>
+          )}
           {Object.values(filters).some(Boolean) && (
             <button className="text-xs text-muted underline ml-1" onClick={() => setFilters(EMPTY_FILTERS)}>
               сбросить фильтры
