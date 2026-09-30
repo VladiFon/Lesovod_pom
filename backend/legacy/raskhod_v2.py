@@ -627,7 +627,7 @@ def get_remaining_volumes_for_bot(conn, kvartal, vydel, lesoseka=None):
     }
 
 
-def get_remaining_volumes_grouped_for_bot(conn, kvartal, vydel, lesoseka=None):
+def get_remaining_volumes_grouped_for_bot(conn, kvartal, vydel, lesoseka=None, delyanka_id=None):
     """Версия get_remaining_volumes_for_bot() выше, но со сверкой ЕГАИС —
     используется ТОЛЬКО ботом (handle_balance_callback в telegram_bot.py,
     см. _format_remaining_reply), которому нужны:
@@ -660,33 +660,57 @@ def get_remaining_volumes_grouped_for_bot(conn, kvartal, vydel, lesoseka=None):
     get_remaining_volumes_for_bot() выше НЕ тронута (её отдельно
     использует веб через GET /api/raskhod/remaining) — специально заведена
     новая функция, а не изменён существующий контракт.
+
+    delyanka_id (мобильное приложение с 0.5.3): остаток по ВСЕЙ делянке -
+    ровно те выделы, что веб показывает для этой делянки
+    (get_delyanka_items), без подбора по кварталу/номеру выдела. Подбор по
+    номеру выдела склеивал чужие лесосеки того же выдела (кв.35 выд.7
+    л.1 + л.3, выд.7 и выд.7,8) и терял остальные выделы составной
+    делянки - отсюда несовпадение остатков телефона и веба. Без
+    delyanka_id - прежний подбор (старые версии приложения, бот).
+
+    Кроме прежних полей в ответе (добавлено, старое не менялось):
+      - в каждой группе порода/деловая|дрова - остатки ОТДЕЛЬНО по наряду и
+        по ЕГАИС и их коридор ±10% от ЛИМИТА (limit*0.9 - факт,
+        limit*1.1 - факт), как в таблице баланса на вебе;
+      - "itogo" - освоение по всей делянке (все породы, деловая+дрова):
+        % от лимита по наряду/ЕГАИС, сколько ещё можно заготовить до
+        100% и до 110%, уровень предупреждения (см. _osvoenie_level);
+      - "unresolved_sklady" - склады ЕГАИС, которые не привязаны
+        однозначно и поэтому НЕ входят в факт ЕГАИС этой делянки.
     """
-    query = "SELECT * FROM delyanka_item WHERE kvartal = ?"
-    params = [kvartal]
-    if lesoseka:
-        query += " AND lesoseka_nomer = ?"
-        params.append(lesoseka)
-    query += " ORDER BY id"
-
-    cur = conn.execute(query, params)
-    cols = [d[0] for d in cur.description]
-    rows = cur.fetchall()
-
     empty = {"found": False, "item_ids": [], "grouped": {}, "last_update": None, "egais_imported_at": None}
-    if not rows:
-        return empty
 
-    wanted_numbers = _extract_vydel_numbers(vydel)
-    if not wanted_numbers:
-        return empty
+    if delyanka_id is not None:
+        items = sorted(get_delyanka_items(conn, delyanka_id), key=lambda it: it["id"])
+        if not items:
+            return empty
+    else:
+        query = "SELECT * FROM delyanka_item WHERE kvartal = ?"
+        params = [kvartal]
+        if lesoseka:
+            query += " AND lesoseka_nomer = ?"
+            params.append(lesoseka)
+        query += " ORDER BY id"
 
-    all_items = [dict(zip(cols, r)) for r in rows]
-    items = [
-        item for item in all_items
-        if wanted_numbers & _extract_vydel_numbers(item.get("vydel"))
-    ]
-    if not items:
-        return empty
+        cur = conn.execute(query, params)
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+
+        if not rows:
+            return empty
+
+        wanted_numbers = _extract_vydel_numbers(vydel)
+        if not wanted_numbers:
+            return empty
+
+        all_items = [dict(zip(cols, r)) for r in rows]
+        items = [
+            item for item in all_items
+            if wanted_numbers & _extract_vydel_numbers(item.get("vydel"))
+        ]
+        if not items:
+            return empty
 
     item_ids = [item["id"] for item in items]
 
@@ -722,6 +746,7 @@ def get_remaining_volumes_grouped_for_bot(conn, kvartal, vydel, lesoseka=None):
             fakt_effektivny = max(fakt_naryad, fakt_egais) if fakt_egais is not None else fakt_naryad
             group_vals["fakt_egais"] = fakt_egais
             group_vals["ostatok_safe"] = limit - fakt_effektivny
+            group_vals.update(_ostatki_s_dopuskom(limit, fakt_naryad, fakt_egais))
 
     placeholders = ",".join("?" for _ in item_ids)
     row = conn.execute(
@@ -738,12 +763,115 @@ def get_remaining_volumes_grouped_for_bot(conn, kvartal, vydel, lesoseka=None):
         ).fetchone()
         last_update_raw = drow[0] if drow else None
 
+    itogo_limit = sum(g["limit"] for p in grouped.values() for g in p.values())
+    itogo_naryad = sum(g["fakt_naryad"] for p in grouped.values() for g in p.values())
+    itogo_egais = (
+        sum(g["fakt_egais"] or 0 for p in grouped.values() for g in p.values())
+        if has_egais_snapshot else None
+    )
+
+    resolution = resolve_egais_sklady(conn) if has_egais_snapshot else {}
+    unresolved = []
+    for item in items:
+        for entry in egais_unresolved_sklady_for_item(resolution, item):
+            if entry["sklad"] not in {u["sklad"] for u in unresolved}:
+                unresolved.append(entry)
+
+    delyanka_ids = sorted({item["delyanka_id"] for item in items})
+    delyanka_row = None
+    if len(delyanka_ids) == 1:
+        delyanka_row = conn.execute(
+            "SELECT id, nazvanie FROM delyanka WHERE id = ?", (delyanka_ids[0],)
+        ).fetchone()
+
     return {
         "found": True,
         "item_ids": item_ids,
         "grouped": grouped,
         "last_update": _parse_db_datetime(last_update_raw),
         "egais_imported_at": _parse_db_datetime(egais_imported_at_raw) if has_egais_snapshot else None,
+        "itogo": _osvoenie_itogo(itogo_limit, itogo_naryad, itogo_egais),
+        "unresolved_sklady": unresolved,
+        "delyanka_ids": delyanka_ids,
+        "delyanka_nazvanie": (delyanka_row[1] if delyanka_row else None),
+        "vydely": [item.get("vydel") for item in items],
+    }
+
+
+# Пороги предупреждения об освоении лимита делянки (% от лимита, по
+# БОЛЬШЕМУ из фактов наряд/ЕГАИС): от 90% - "подходит к лимиту", от 100% -
+# "лимит выбран, дальше только в пределах допуска +10%", выше 110% -
+# переруб сверх допуска.
+OSVOENIE_POROG_VNIMANIE = 90.0
+OSVOENIE_POROG_PREDUPREZHDENIE = 100.0
+OSVOENIE_POROG_PERERUB = 110.0
+
+
+def _ostatki_s_dopuskom(limit, fakt_naryad, fakt_egais):
+    """Остатки по наряду и по ЕГАИС отдельно + их коридор ±10%. Допуск
+    считается от ЛИМИТА (limit*0.9 - факт, limit*1.1 - факт), как в
+    таблице баланса на вебе, а не от остатка: остаток*0.9/остаток*1.1
+    при перерубе (отрицательный остаток) давали "−10%" больше "+10%"."""
+    out = {
+        "ostatok_naryad": limit - fakt_naryad,
+        "ostatok_naryad_90": limit * 0.9 - fakt_naryad,
+        "ostatok_naryad_110": limit * 1.1 - fakt_naryad,
+        "ostatok_egais": None,
+        "ostatok_egais_90": None,
+        "ostatok_egais_110": None,
+    }
+    if fakt_egais is not None:
+        out.update(
+            ostatok_egais=limit - fakt_egais,
+            ostatok_egais_90=limit * 0.9 - fakt_egais,
+            ostatok_egais_110=limit * 1.1 - fakt_egais,
+        )
+    fakt = max(fakt_naryad, fakt_egais) if fakt_egais is not None else fakt_naryad
+    out["mozhno_do_110"] = limit * 1.1 - fakt
+    return out
+
+
+def _osvoenie_level(pct):
+    if pct is None:
+        return "net_limita"
+    if pct > OSVOENIE_POROG_PERERUB + 1e-9:
+        return "pererub"
+    if pct >= OSVOENIE_POROG_PREDUPREZHDENIE:
+        return "preduprezhdenie"
+    if pct >= OSVOENIE_POROG_VNIMANIE:
+        return "vnimanie"
+    return "norma"
+
+
+def _osvoenie_itogo(limit, fakt_naryad, fakt_egais):
+    """Освоение по всей делянке: % выбранного лимита по наряду и по ЕГАИС,
+    сколько ещё можно заготовить до 100% и до 110% (от БОЛЬШЕГО из фактов
+    - чтобы не перерубить ни "по бумагам", ни по ЕГАИС) и уровень
+    предупреждения."""
+    fakt = max(fakt_naryad, fakt_egais) if fakt_egais is not None else fakt_naryad
+
+    def pct(value):
+        if value is None or limit <= 0:
+            return None
+        return round(value / limit * 100, 1)
+
+    return {
+        "limit": limit,
+        "limit_90": limit * 0.9,
+        "limit_110": limit * 1.1,
+        "fakt_naryad": fakt_naryad,
+        "fakt_egais": fakt_egais,
+        "fakt": fakt,
+        "pct_naryad": pct(fakt_naryad),
+        "pct_egais": pct(fakt_egais),
+        "pct": pct(fakt),
+        "mozhno_do_90": limit * 0.9 - fakt,
+        "mozhno_do_100": limit - fakt,
+        "mozhno_do_110": limit * 1.1 - fakt,
+        "level": _osvoenie_level(pct(fakt)),
+        "porog_vnimanie": OSVOENIE_POROG_VNIMANIE,
+        "porog_preduprezhdenie": OSVOENIE_POROG_PREDUPREZHDENIE,
+        "porog_pererub": OSVOENIE_POROG_PERERUB,
     }
 
 

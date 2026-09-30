@@ -1305,6 +1305,106 @@ function EgaisUnresolvedSkladyBanner({ sklady, onOpenReview }) {
 // выдел (иначе проблему на "непопулярном" выделе легко не заметить, если
 // в него не заходить). Детали — тот же EgaisBalanceBanner ниже, на уровне
 // конкретного выдела.
+/** Освоение лимита по ВСЕЙ делянке (GET /raskhod/delyanki/{id}/osvoenie —
+ * тот же расчёт, что экран «Остатки» мобильного приложения): % выбранного
+ * лимита по наряду и ЕГАИС, сколько ещё можно заготовить до 100% и 110%,
+ * предупреждение от 90%/100%/110% и прикидка «если заготовить ещё N м³». */
+const OSVOENIE_TONES = {
+  norma: { border: "#e5e2db", fg: "#1a4331", bg: "#eaf7ec", text: "в пределах лимита" },
+  vnimanie: { border: "#e0b77a", fg: "#a8681f", bg: "#fdf1e4", text: "подходит к лимиту" },
+  preduprezhdenie: { border: "#d9822b", fg: "#9a4d06", bg: "#fde7d2", text: "лимит выбран — дальше только в допуске +10%" },
+  pererub: { border: "#ba1a1a", fg: "#ba1a1a", bg: "#fbeaea", text: "превышен допуск +10%" },
+  net_limita: { border: "#e5e2db", fg: "#6b6b6b", bg: "#f2f1ee", text: "лимит не задан" },
+};
+
+function osvoenieLevel(pct) {
+  if (pct == null) return "net_limita";
+  if (pct > 110 + 1e-9) return "pererub";
+  if (pct >= 100) return "preduprezhdenie";
+  if (pct >= 90) return "vnimanie";
+  return "norma";
+}
+
+function OsvoenieBar({ label, value, limit, color }) {
+  const scaleMax = limit * 1.2;
+  const w = limit > 0 ? Math.min(100, (value / scaleMax) * 100) : 0;
+  const mark = (k) => `${(k / 1.2) * 100}%`;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex justify-between text-[11px] text-muted-2" style={MONO_STYLE}>
+        <span>{label} {fmt1(value)} / {fmt1(limit)} м³</span>
+        <span>{limit > 0 ? `${Math.round((value / limit) * 100)}%` : "—"}</span>
+      </div>
+      <div className="relative h-2.5 rounded-full bg-hover overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${w}%`, background: color }} />
+        {[0.9, 1.0, 1.1].map((k) => (
+          <div key={k} className="absolute top-0 bottom-0 w-px" style={{ left: mark(k), background: k === 1.1 ? "#ba1a1a" : "#414944" }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DelyankaOsvoenie({ delyankaId, egaisVersion }) {
+  const [data, setData] = useState(null);
+  const [plan, setPlan] = useState("");
+  useEffect(() => {
+    setData(null);
+    if (!delyankaId) return;
+    api.get(`/raskhod/delyanki/${delyankaId}/osvoenie`).then(setData).catch(() => setData(null));
+  }, [delyankaId, egaisVersion]);
+
+  const it = data?.itogo;
+  if (!data?.found || !it) return null;
+  const tone = OSVOENIE_TONES[it.level] || OSVOENIE_TONES.norma;
+  const planValue = parseFloat(String(plan).replace(",", "."));
+  const planPct = it.limit > 0 && !Number.isNaN(planValue) ? ((it.fakt + planValue) / it.limit) * 100 : null;
+  const planTone = planPct != null ? OSVOENIE_TONES[osvoenieLevel(planPct)] : null;
+  const remainColor = (v) => (v < 0 ? "#ba1a1a" : "#1a4331");
+
+  return (
+    <div className="rounded-[14px] bg-surface px-4 py-3.5 flex flex-col gap-3" style={{ border: `1px solid ${tone.border}` }}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-[15px] font-extrabold text-pine">Освоение делянки (все выделы и породы)</span>
+        <span className="text-[11px] uppercase rounded-full px-2 py-[3px]" style={{ ...MONO_STYLE, background: tone.bg, color: tone.fg }}>
+          {it.pct != null ? `${it.pct}% · ` : ""}{tone.text}
+        </span>
+      </div>
+      <OsvoenieBar label="наряд" value={it.fakt_naryad} limit={it.limit} color="#1a4331" />
+      {it.fakt_egais != null && <OsvoenieBar label="ЕГАИС" value={it.fakt_egais} limit={it.limit} color="#8fb79f" />}
+      <div className="grid gap-x-4 gap-y-1 text-[12.5px]" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+        <span className="text-muted">Лимит: <b className="text-ink" style={MONO_STYLE}>{fmt1(it.limit)}</b> м³ (−10%: {fmt1(it.limit_90)} · +10%: {fmt1(it.limit_110)})</span>
+        <span className="text-muted">Можно ещё до 100%: <b style={{ ...MONO_STYLE, color: remainColor(it.mozhno_do_100) }}>{fmt1(it.mozhno_do_100)}</b> м³</span>
+        <span className="text-muted">Можно ещё до 110%: <b style={{ ...MONO_STYLE, color: remainColor(it.mozhno_do_110) }}>{fmt1(it.mozhno_do_110)}</b> м³</span>
+      </div>
+      {it.level !== "norma" && it.level !== "net_limita" && (
+        <div className="rounded-md px-3 py-2 text-sm font-semibold" style={{ background: tone.bg, color: tone.fg }}>
+          {it.level === "pererub"
+            ? `Заготовлено ${it.pct}% лимита — допуск +10% превышен на ${fmt1(-it.mozhno_do_110)} м³.`
+            : `Заготовлено ${it.pct}% лимита. Чтобы не выйти за 110%, можно заготовить не больше ${fmt1(Math.max(0, it.mozhno_do_110))} м³.`}
+        </div>
+      )}
+      <div className="flex items-center gap-2 flex-wrap text-sm">
+        <span className="text-muted">Прикинуть: если заготовить ещё</span>
+        <input
+          type="number" step="0.1" min="0" value={plan} onChange={(e) => setPlan(e.target.value)}
+          className="w-28 bg-surface border border-border focus:border-pine rounded-md px-2 py-1 text-sm text-ink outline-none"
+        />
+        <span className="text-muted">м³</span>
+        {planPct != null && (
+          <span className="font-semibold" style={{ color: planTone.fg }}>
+            → будет {planPct.toFixed(1)}% лимита ({planTone.text})
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] text-faint">
+        Процент считается по большему из фактов (наряд или ЕГАИС), чтобы не перерубить ни по бумагам, ни по ЕГАИС.
+        {data.unresolved_sklady?.length > 0 && ` Не учтены в ЕГАИС (склад не привязан): ${data.unresolved_sklady.map((u) => u.sklad).join("; ")}.`}
+      </div>
+    </div>
+  );
+}
+
 function DelyankaEgaisSummary({ check, onOpenReview }) {
   if (!check?.items?.length) return null;
   const withDeficit = check.items.filter((it) => it.has_history && it.deficit > 0.01);
@@ -1765,6 +1865,8 @@ export default function Raskhod() {
       </Card>
 
       <DelyankaEgaisSummary check={delyankaEgaisCheck} onOpenReview={() => setEgaisReviewOpen(true)} />
+
+      <DelyankaOsvoenie delyankaId={delyankaId} egaisVersion={egaisVersion} />
 
       {selectedItem ? (
         <ItemWorkspace
