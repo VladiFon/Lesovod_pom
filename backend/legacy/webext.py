@@ -399,6 +399,11 @@ def ensure_webext_schema(conn: sqlite3.Connection) -> None:
             "ALTER TABLE worker_notes ADD COLUMN recipient_sotrudnik_id INTEGER "
             "REFERENCES sotrudniki(id)"
         )
+    # Ответ лесничего/мастера на заметку (анализ удобства 01.10.2026: лента
+    # была односторонней) — виден автору в «Моих заметках» приложения.
+    for col, ddl in (("otvet", "TEXT"), ("otvet_at", "TEXT"), ("otvet_by", "TEXT")):
+        if col not in existing_wn_cols:
+            conn.execute(f"ALTER TABLE worker_notes ADD COLUMN {col} {ddl}")
 
     # documents создаётся выше в этой же функции (или уже существует из
     # более старой версии backend'а) — добавляем updated_at/updated_by тем
@@ -889,6 +894,20 @@ def set_sotrudnik_active(conn, sotrudnik_id, is_active: bool):
         conn.commit()
 
 
+def reset_sotrudnik_pin(conn, sotrudnik_id, pin):
+    """Новый PIN рабочему (забыл PIN — лесничий сбрасывает на сайте).
+    Старые сессии рабочего закрываются, чтобы вошёл уже с новым."""
+    cur = conn.execute("UPDATE sotrudniki SET pin_hash = ? WHERE id = ?", (hash_pin(pin), sotrudnik_id))
+    if cur.rowcount == 0:
+        return False
+    try:
+        conn.execute("DELETE FROM worker_sessions WHERE sotrudnik_id = ?", (sotrudnik_id,))
+    except sqlite3.Error:
+        pass
+    conn.commit()
+    return True
+
+
 def authenticate_sotrudnik(conn, login, pin):
     row = conn.execute(
         "SELECT id, login, pin_hash, fio, dolzhnost, uchastok, is_active "
@@ -1156,6 +1175,7 @@ def list_worker_notes(conn, viewer_sotrudnik_id=None):
         SELECT worker_notes.id, worker_notes.text, worker_notes.is_read,
                worker_notes.created_at, worker_notes.sotrudnik_id,
                worker_notes.recipient_sotrudnik_id,
+               worker_notes.otvet, worker_notes.otvet_at, worker_notes.otvet_by,
                sotrudniki.fio AS sotrudnik_fio, sotrudniki.dolzhnost AS sotrudnik_dolzhnost
         FROM worker_notes
         JOIN sotrudniki ON sotrudniki.id = worker_notes.sotrudnik_id
@@ -1165,6 +1185,24 @@ def list_worker_notes(conn, viewer_sotrudnik_id=None):
         (viewer_sotrudnik_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def otvetit_na_zametku(conn, note_id, text, kto):
+    """Ответ на заметку рабочего + уведомление автору (колокольчик в
+    приложении). Возвращает False, если заметки нет."""
+    row = conn.execute("SELECT sotrudnik_id, text FROM worker_notes WHERE id = ?", (note_id,)).fetchone()
+    if row is None:
+        return False
+    conn.execute(
+        "UPDATE worker_notes SET otvet = ?, otvet_at = datetime('now', 'localtime'), otvet_by = ?, is_read = 1 "
+        "WHERE id = ?",
+        (text, kto, note_id),
+    )
+    conn.commit()
+    nachalo = (row[1] or "")[:40]
+    notify(conn, "otvet_na_zametku", f"Ответ на заметку «{nachalo}»: {text}", related_id=note_id,
+           recipient_sotrudnik_id=row[0])
+    return True
 
 
 def list_worker_notes_mine(conn, sotrudnik_id):
@@ -1181,6 +1219,7 @@ def list_worker_notes_mine(conn, sotrudnik_id):
         """
         SELECT worker_notes.id, worker_notes.text, worker_notes.is_read,
                worker_notes.created_at, worker_notes.recipient_sotrudnik_id,
+               worker_notes.otvet, worker_notes.otvet_at, worker_notes.otvet_by,
                recipient.fio AS recipient_fio
         FROM worker_notes
         LEFT JOIN sotrudniki AS recipient ON recipient.id = worker_notes.recipient_sotrudnik_id
@@ -1545,6 +1584,9 @@ def get_tabel_day(conn, data):
         r["brigada_id"] = b["id"] if b else None
         r["brigada_nazvanie"] = b["nazvanie"] if b else None
         r["is_brigadir"] = bool(b and b["brigadir_sotrudnik_id"] == r["sotrudnik_id"])
+        # Где работает бригада в этот день — сайт подставит место в табель,
+        # заполняемый по отметкам с телефона (если выдел один).
+        r["brigada_mesta"] = (b or {}).get("mesta") or []
     return result
 
 

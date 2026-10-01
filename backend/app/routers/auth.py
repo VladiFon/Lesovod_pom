@@ -209,6 +209,23 @@ def set_worker_active(worker_id: int, body: SetActiveIn,
     return {"ok": True}
 
 
+class ResetPinIn(BaseModel):
+    pin: str
+
+
+@router.patch("/workers/{worker_id}/pin")
+def reset_worker_pin(worker_id: int, body: ResetPinIn,
+                      user=Depends(require_permission("users.manage")), conn=Depends(get_conn)):
+    """«Забыл PIN» — администратор задаёт рабочему новый PIN (на телефоне
+    об этом подсказка на экране входа)."""
+    pin = body.pin.strip()
+    if len(pin) < 4:
+        raise HTTPException(400, "PIN слишком короткий (минимум 4 символа)")
+    if not webext.reset_sotrudnik_pin(conn, worker_id, pin):
+        raise HTTPException(404, "Сотрудник не найден")
+    return {"ok": True}
+
+
 @router.post("/worker-login")
 def worker_login(body: WorkerLoginIn, conn=Depends(get_conn)):
     """Вход рабочего в мобильном приложении — логин + PIN вместо

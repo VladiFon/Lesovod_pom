@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import delyanka/db/config
 import config as legacy_config
+import db as legacy_db
 import delyanka
 import tehkarta_generator
 
@@ -507,7 +508,17 @@ class PresetIn(BaseModel):
 
 @router.get("/presets/komissiya")
 def list_komissiya_presets(conn=Depends(get_conn)):
-    return delyanka.list_komissiya_presets(conn)
+    """Составы комиссий делянки + комиссии из пресетов акта
+    освидетельствования (Инспекция) — один общий справочник."""
+    own = delyanka.list_komissiya_presets(conn)
+    names = {p["nazvanie"] for p in own}
+    for p in legacy_db.list_osvidetelstvovanie_presets(conn):
+        if p["nazvanie"] in names or not (p.get("predsedatel_fio") or p.get("chleny")):
+            continue
+        own.append({"id": None, "nazvanie": p["nazvanie"], "predsedatel_dolzhnost": p.get("predsedatel_dolzhnost") or "",
+                    "predsedatel_fio": p.get("predsedatel_fio") or "", "chleny": p.get("chleny") or [],
+                    "iz_inspekcii": True})
+    return sorted(own, key=lambda p: p["nazvanie"])
 
 
 @router.post("/presets/komissiya")

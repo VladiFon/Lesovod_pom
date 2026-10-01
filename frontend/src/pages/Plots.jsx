@@ -617,7 +617,19 @@ function PlotDetail({ delyankaId, onListChanged }) {
       const res = await api.get(`/delyanki/${delyankaId}`);
       setDelyanka(res.delyanka);
       setItems(res.items || []);
-      setForm(fieldsFromDelyanka(res.delyanka));
+      const f = fieldsFromDelyanka(res.delyanka);
+      // Лесничий из «Настроек» сам подставляется туда, где обычно пишется
+      // он: «Составил» техкарты и «Решение» листка (если ещё пусто).
+      try {
+        const l = await api.get("/settings/lesnichiy");
+        if (l?.fio) {
+          if (!f.sostavil_fio) Object.assign(f, { sostavil_fio: l.fio, sostavil_dolzhnost: f.sostavil_dolzhnost || l.dolzhnost || "" });
+          if (!f.listok_reshenie_fio) Object.assign(f, { listok_reshenie_fio: l.fio, listok_reshenie_dolzhnost: f.listok_reshenie_dolzhnost || l.dolzhnost || "" });
+        }
+      } catch {
+        // необязательно
+      }
+      setForm(f);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось загрузить делянку", description: e.message });
     } finally {
@@ -733,7 +745,12 @@ function PlotDetail({ delyankaId, onListChanged }) {
       predsedatel_fio: form.predsedatel_fio || "",
       chleny: parseChleny(form.chleny_text),
     });
-  const deleteKomissiyaPreset = (id) => deletePresetOrShowError(`/delyanki/presets/komissiya/${id}`);
+  // Комиссия из пресета Инспекции (общий справочник) удаляется там же,
+  // где сохранена, — здесь у неё нет id.
+  const deleteKomissiyaPreset = (id) =>
+    id == null
+      ? toast.show({ tone: "warning", title: "Этот состав сохранён в Инспекции", description: "Удалить его можно в акте освидетельствования." })
+      : deletePresetOrShowError(`/delyanki/presets/komissiya/${id}`);
 
   const saveListokPreset = (nazvanie) =>
     savePresetOrShowError("/delyanki/presets/listok", nazvanie, {

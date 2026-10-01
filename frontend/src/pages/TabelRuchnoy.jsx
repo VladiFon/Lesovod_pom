@@ -58,7 +58,35 @@ function delyankaItemLabel(i) {
     .join(" · ");
 }
 
+// Табель из отметок телефона (анализ удобства 01.10.2026): если за день
+// ещё ничего не внесено, а рабочий отметился в приложении, статус уже
+// подставлен (и место бригады, если выдел один) — лесничий только
+// проверяет и сохраняет, правит лишь исключения.
+const MOBILE_TO_TABEL = { "работаю": "работал", "не работаю": "не работал", "больничный": "больничный" };
+
 function serverRowToLocal(r) {
+  if (!r.zapis_id && MOBILE_TO_TABEL[r.mobile_status]) {
+    const status = MOBILE_TO_TABEL[r.mobile_status];
+    const mesto = status === "работал" && (r.brigada_mesta || []).length === 1 ? r.brigada_mesta[0] : null;
+    return {
+      ...serverRowToLocalRaw(r),
+      status,
+      izTelefona: true,
+      ...(mesto
+        ? {
+            targetType: "delyanka",
+            delyanka_item_id: mesto.item_id,
+            delyankaLabel: delyankaItemLabel(mesto),
+            delyankaKvartal: mesto.kvartal || "",
+            delyankaVydel: mesto.vydel || "",
+          }
+        : {}),
+    };
+  }
+  return serverRowToLocalRaw(r);
+}
+
+function serverRowToLocalRaw(r) {
   const targetType = r.lesokultury_uchastok_id ? "lesokultury" : r.delyanka_item_id ? "delyanka" : null;
   return {
     sotrudnik_id: r.sotrudnik_id,
@@ -388,6 +416,11 @@ export default function TabelRuchnoy() {
                         {row.mobile_status && (
                           <div className="text-[10.5px] text-pine mt-0.5" title="Уже отметился в мобильном приложении">
                             📱 {MOBILE_STATUS_LABEL[row.mobile_status] || row.mobile_status}
+                          </div>
+                        )}
+                        {row.izTelefona && (
+                          <div className="text-[10.5px] text-oak mt-0.5" title="Статус подставлен из отметки в приложении — проверьте и нажмите «Сохранить»">
+                            подставлено, не сохранено
                           </div>
                         )}
                       </td>

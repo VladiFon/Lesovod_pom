@@ -1156,10 +1156,18 @@ export default function Lesokultury() {
   // по «3» находил и кв.3, и выд.13, и 2013 год — анализ удобства 01.10.2026).
   const [kvFilter, setKvFilter] = useState("");
   const [vydFilter, setVydFilter] = useState("");
+  // «Что нужно в этом году»: инвентаризация 1-го и 3-го года (по ТКП) —
+  // по году создания участка.
+  const [nuzhnoFilter, setNuzhnoFilter] = useState(false);
+  const tekGod = new Date().getFullYear();
   const shown = useMemo(() => {
     const kv = kvFilter.trim();
     const vyd = vydFilter.trim();
     return uchastki.filter((u) => {
+      if (nuzhnoFilter) {
+        const vozrast = tekGod - parseInt(u.god_sozdaniya, 10);
+        if (!(vozrast === 1 || vozrast === 3)) return false;
+      }
       if (kv && String(u.kvartal ?? "").trim() !== kv) return false;
       if (vyd) {
         const parts = String(u.vydel ?? "").split(/[,;\s]+/).map((x) => x.trim());
@@ -1167,7 +1175,7 @@ export default function Lesokultury() {
       }
       return true;
     });
-  }, [uchastki, kvFilter, vydFilter]);
+  }, [uchastki, kvFilter, vydFilter, nuzhnoFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     api.get("/lesokultury/gody").then((rows) => setGody(rows || [])).catch(() => {});
@@ -1207,6 +1215,15 @@ export default function Lesokultury() {
           <Button variant="primary" onClick={() => setCreateOpen(true)}>Новый участок</Button>
           <Button variant="secondary" onClick={() => setImportOpen(true)}>Загрузить книгу л/к</Button>
           <Button variant="secondary" onClick={() => setKartochkiOpen(true)}>Загрузить карточки перевода</Button>
+          <label className="flex items-center gap-2 text-sm text-ink cursor-pointer" title={`Участки ${tekGod - 1} и ${tekGod - 3} года создания`}>
+            <input
+              type="checkbox"
+              checked={nuzhnoFilter}
+              onChange={(e) => setNuzhnoFilter(e.target.checked)}
+              className="h-4 w-4 rounded border-2 border-pine accent-pine cursor-pointer"
+            />
+            Нужна инвентаризация в {tekGod} (1-й и 3-й год)
+          </label>
           <div className="flex gap-2">
             <TextField placeholder="Квартал" value={kvFilter} onChange={(e) => setKvFilter(e.target.value)} />
             <TextField placeholder="Выдел" value={vydFilter} onChange={(e) => setVydFilter(e.target.value)} />
@@ -1244,7 +1261,7 @@ export default function Lesokultury() {
             </div>
           ) : shown.length === 0 ? (
             <div className="p-3">
-              <EmptyState icon="🌱" title="Участков пока нет" description="Создайте первый участок лесных культур кнопкой выше." />
+              <EmptyState icon="🌱" title="Участков пока нет" description="Быстрее всего — «Загрузить книгу л/к» (Excel книги учёта лесных культур): участки заведутся сами. Или «Новый участок» вручную." />
             </div>
           ) : (
             <ul className="flex flex-col gap-1">

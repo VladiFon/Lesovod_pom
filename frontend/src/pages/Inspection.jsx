@@ -145,14 +145,30 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
       setForm(emptyActForm());
       setSelectedPreset("");
       setDraftPresetName(null);
+      // Всё, что уже известно (билет, площадь, вид рубки, комиссия
+      // делянки, лесничий, поля из прошлого акта), — сразу в форму.
+      api
+        .get(`/inspection/${delyankaId}/act-defaults`)
+        .then((d) => {
+          const { chleny, ...rest } = d || {};
+          setForm((f) => ({ ...f, ...rest, ...(chleny?.length ? { chleny_text: formatNamedList(chleny) } : {}) }));
+        })
+        .catch(() => {});
     }
-  }, [open]);
+  }, [open, delyankaId]);
 
   const applyPreset = (nazvanie) => {
     const p = presets.find((p) => p.nazvanie === nazvanie);
     if (!p) return;
+    // Пустые поля пресета не затирают уже подставленное (общий справочник:
+    // комиссия из карточки делянки хранит только председателя и членов).
     setForm((f) => ({
       ...f,
+      ...Object.fromEntries(Object.entries(presetToForm(p)).filter(([, v]) => v)),
+    }));
+  };
+
+  const presetToForm = (p) => ({
       predsedatel_dolzhnost: p.predsedatel_dolzhnost || "",
       predsedatel_fio: p.predsedatel_fio || "",
       chleny_text: formatNamedList(p.chleny),
@@ -171,8 +187,7 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
       sposob_ochistki: p.sposob_ochistki || "",
       rukovoditel_dolzhnost: p.rukovoditel_dolzhnost || "",
       rukovoditel_fio: p.rukovoditel_fio || "",
-    }));
-  };
+  });
 
   // Сохранение/удаление пресетов (Блок 5, PLAN_DORABOTKI, п. "создание/
   // удаление пресетов") — эндпоинты POST/DELETE /inspection/presets в
