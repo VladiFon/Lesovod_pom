@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
@@ -1152,6 +1152,22 @@ export default function Lesokultury() {
   const [gody, setGody] = useState([]);
   const [god, setGod] = useState("");
   const [search, setSearch] = useState("");
+  // Отдельные поля «Квартал» и «Выдел» — точное совпадение (общий поиск
+  // по «3» находил и кв.3, и выд.13, и 2013 год — анализ удобства 01.10.2026).
+  const [kvFilter, setKvFilter] = useState("");
+  const [vydFilter, setVydFilter] = useState("");
+  const shown = useMemo(() => {
+    const kv = kvFilter.trim();
+    const vyd = vydFilter.trim();
+    return uchastki.filter((u) => {
+      if (kv && String(u.kvartal ?? "").trim() !== kv) return false;
+      if (vyd) {
+        const parts = String(u.vydel ?? "").split(/[,;\s]+/).map((x) => x.trim());
+        if (!parts.includes(vyd) && String(u.podvydel ?? "").trim() !== vyd) return false;
+      }
+      return true;
+    });
+  }, [uchastki, kvFilter, vydFilter]);
 
   useEffect(() => {
     api.get("/lesokultury/gody").then((rows) => setGody(rows || [])).catch(() => {});
@@ -1191,8 +1207,12 @@ export default function Lesokultury() {
           <Button variant="primary" onClick={() => setCreateOpen(true)}>Новый участок</Button>
           <Button variant="secondary" onClick={() => setImportOpen(true)}>Загрузить книгу л/к</Button>
           <Button variant="secondary" onClick={() => setKartochkiOpen(true)}>Загрузить карточки перевода</Button>
+          <div className="flex gap-2">
+            <TextField placeholder="Квартал" value={kvFilter} onChange={(e) => setKvFilter(e.target.value)} />
+            <TextField placeholder="Выдел" value={vydFilter} onChange={(e) => setVydFilter(e.target.value)} />
+          </div>
           <TextField
-            placeholder="Поиск: квартал, выдел, лесничество, порода, делянка"
+            placeholder="Поиск: лесничество, порода, делянка…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -1222,13 +1242,13 @@ export default function Lesokultury() {
             <div className="p-5 flex justify-center">
               <div className="h-5 w-5 rounded-full border-2 border-pine border-t-transparent animate-spin" />
             </div>
-          ) : uchastki.length === 0 ? (
+          ) : shown.length === 0 ? (
             <div className="p-3">
               <EmptyState icon="🌱" title="Участков пока нет" description="Создайте первый участок лесных культур кнопкой выше." />
             </div>
           ) : (
             <ul className="flex flex-col gap-1">
-              {uchastki.map((u) => (
+              {shown.map((u) => (
                 <li key={u.id}>
                   <button
                     onClick={() => setSelectedId(u.id)}

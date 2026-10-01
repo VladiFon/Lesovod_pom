@@ -57,7 +57,17 @@ def list_documents(
         conn, delyanka_id=delyanka_id, doc_type=doc_type, status=status,
         created_by=created_by, date_from=date_from, date_to=date_to,
     )
-    return [_with_file_size(d) for d in docs]
+    # Название делянки и ФИО автора вместо голых №/логина (анализ удобства
+    # 01.10.2026: «Делянка 7, автор admin» ничего не говорит лесничему).
+    nazvaniya = dict(conn.execute("SELECT id, nazvanie FROM delyanka").fetchall())
+    fio = {login: f for login, f in conn.execute("SELECT login, fio FROM users").fetchall() if f}
+    out = []
+    for d in docs:
+        d = _with_file_size(d)
+        d["delyanka_nazvanie"] = nazvaniya.get(d.get("delyanka_id"))
+        d["created_by_fio"] = fio.get(d.get("created_by"))
+        out.append(d)
+    return out
 
 
 @router.get("/authors")

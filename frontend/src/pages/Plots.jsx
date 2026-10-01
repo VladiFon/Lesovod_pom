@@ -14,6 +14,7 @@ import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.
 import KonturBlock from "../components/KonturBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
 import { useCan } from "../auth.jsx";
+import OsvoenieBadge from "../components/OsvoenieBadge.jsx";
 import { openScreen, useScreenParam } from "../nav.js";
 
 /**
@@ -554,6 +555,42 @@ function VidRubkiSelect({ item, vidy, onChange }) {
   );
 }
 
+// Чек-лист готовности делянки (анализ удобства 01.10.2026): карточка
+// длинная, и непонятно, что уже заполнено, а что нет.
+function gotovnost(delyanka, items, documents) {
+  const est = (t) => documents.some((d) => d.doc_type === t);
+  const vse = (f) => items.length > 0 && items.every(f);
+  return [
+    ["Лесорубочный билет", !!(delyanka.nomer_lesorubochnogo_bileta && delyanka.data_lesorubochnogo_bileta)],
+    ["Комиссия", !!delyanka.predsedatel_fio],
+    ["Контур", vse((it) => !!it.geom_geojson)],
+    ["Абрис", vse((it) => !!(it.abris_image_path || it.abris_coords_json))],
+    ["Акт обследования", est("akt")],
+    ["Техкарта", est("tehkarta")],
+    ["Акт готовности", est("akt_gotovnosti")],
+    ["Сроки заготовки/вывозки", !!(delyanka.srok_okonchaniya_zagotovki && delyanka.srok_okonchaniya_vyvozki)],
+  ];
+}
+
+function GotovnostChecklist({ delyanka, items, documents }) {
+  const punkty = gotovnost(delyanka, items, documents);
+  const gotovo = punkty.filter(([, ok]) => ok).length;
+  return (
+    <div className="rounded-[10px] bg-surface-alt px-3 py-2.5">
+      <div className="text-[11.5px] text-muted-2 mb-1.5">
+        Готовность делянки: {gotovo} из {punkty.length}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {punkty.map(([label, ok]) => (
+          <span key={label} className={["text-[12.5px]", ok ? "text-pine" : "text-muted"].join(" ")}>
+            {ok ? "✓" : "○"} {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PlotDetail({ delyankaId, onListChanged }) {
   const toast = useToast();
   const can = useCan();
@@ -568,6 +605,11 @@ function PlotDetail({ delyankaId, onListChanged }) {
   const [docsLoading, setDocsLoading] = useState(false);
   const [presets, setPresets] = useState({ komissiya: [], listok: [], tehkarta: [] });
   const [activateModalOpen, setActivateModalOpen] = useState(false);
+  const [osvoenie, setOsvoenie] = useState(null);
+
+  useEffect(() => {
+    api.get(`/raskhod/delyanki/${delyankaId}/osvoenie`).then((r) => setOsvoenie(r?.itogo || null)).catch(() => setOsvoenie(null));
+  }, [delyankaId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -850,6 +892,7 @@ function PlotDetail({ delyankaId, onListChanged }) {
                 {delyanka.nazvanie || `Делянка №${delyanka.id}`}
               </h2>
               <StatusBadge status={delyanka.status} />
+              {osvoenie?.pct != null && <OsvoenieBadge pct={osvoenie.pct} level={osvoenie.level} suffix=" освоено" />}
             </div>
             <p className="font-mono text-[10.5px] text-muted-2 mt-[3px]">
               {items.length} {pluralizeVydel(items.length)} · создана {formatDate(delyanka.created_at)}
@@ -896,6 +939,8 @@ function PlotDetail({ delyankaId, onListChanged }) {
             )}
           </div>
         </div>
+
+        <GotovnostChecklist delyanka={delyanka} items={items} documents={documents} />
 
         <Modal open={!!chastiItem} onClose={() => setChastiItem(null)} title="Площадь по выделам" size="lg">
           {chastiItem && (

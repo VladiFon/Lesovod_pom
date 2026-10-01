@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useCan } from "../auth.jsx";
+import { openScreen } from "../nav.js";
 import { api } from "../api/client.js";
 import { pollTask } from "../hooks/useTaskPolling.js";
 import Card from "../components/Card.jsx";
@@ -133,6 +134,73 @@ function UploadModalInline({ onDone }) {
   );
 }
 
+/**
+ * «Что было на выделе»: делянки, лесные культуры с мероприятиями и
+ * выполненные работы с телефона — та же история, что в приложении
+ * (анализ удобства 01.10.2026: на сайте её не было).
+ */
+function VydelHistory({ history }) {
+  if (!history) return null;
+  const { delyanki = [], lesokultury = [], meropriyatiya = [], works = [] } = history;
+  if (!delyanki.length && !lesokultury.length && !works.length) {
+    return (
+      <div className="bg-surface border border-border rounded-lg px-4 py-3.5 text-sm text-muted">
+        История выдела: делянок, лесных культур и отметок о работах пока нет.
+      </div>
+    );
+  }
+  return (
+    <div className="bg-surface border border-border rounded-lg px-4 py-3.5 flex flex-col gap-3">
+      <div className="text-[14px] font-extrabold text-pine">Что было на выделе</div>
+      {delyanki.length > 0 && (
+        <div>
+          <div className="text-[11.5px] text-muted-2 mb-1">Делянки</div>
+          <div className="flex flex-wrap gap-1.5">
+            {delyanki.map((d) => (
+              <button
+                key={d.delyanka_id}
+                type="button"
+                onClick={() => openScreen("plots", { d: d.delyanka_id })}
+                className="rounded-md border border-border bg-surface-alt px-2.5 py-1 text-sm text-ink hover:bg-hover"
+              >
+                {d.nazvanie || `Делянка №${d.delyanka_id}`} · {d.status_rabot}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {lesokultury.length > 0 && (
+        <div>
+          <div className="text-[11.5px] text-muted-2 mb-1">Лесные культуры</div>
+          {lesokultury.map((u) => (
+            <div key={u.id} className="text-sm text-ink">
+              {u.god_sozdaniya ? `${u.god_sozdaniya} г. · ` : ""}
+              {u.sostav_formula || u.glavnaya_poroda || "участок"}
+              {u.ploshad ? ` · ${u.ploshad} га` : ""}
+              {meropriyatiya.filter((m) => m.uchastok_id === u.id).length > 0 && (
+                <span className="text-muted">
+                  {" "}— {meropriyatiya.filter((m) => m.uchastok_id === u.id).slice(0, 4).map((m) => `${m.tip}${m.data ? ` ${m.data}` : ""}`).join(", ")}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {works.length > 0 && (
+        <div>
+          <div className="text-[11.5px] text-muted-2 mb-1">Работы (отметки с телефона)</div>
+          {works.slice(0, 10).map((w, i) => (
+            <div key={w.id ?? i} className="text-sm text-ink">
+              {w.data_vypolneniya || "—"} · {w.tip_raboty || "работа"}
+              {w.ispolnitel_fio ? ` · ${w.ispolnitel_fio}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Taxation() {
   const toast = useToast();
   const [lesnichestva, setLesnichestva] = useState([]);
@@ -142,6 +210,7 @@ export default function Taxation() {
   const [searching, setSearching] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [card, setCard] = useState(null);
+  const [history, setHistory] = useState(null);
 
   const loadLesnichestva = () => {
     api
@@ -166,6 +235,11 @@ export default function Taxation() {
         lesnichestvo: lesnichestvo || undefined,
       });
       setCard(result);
+      setHistory(null);
+      api
+        .get("/taxation/vydel-history", { kvartal: kvartal.trim(), vydel: vydel.trim(), lesnichestvo: lesnichestvo || undefined })
+        .then(setHistory)
+        .catch(() => setHistory(null));
     } catch (e) {
       setCard(null);
       if (e.status === 404) {
@@ -351,6 +425,7 @@ export default function Taxation() {
               </div>
             )}
           </div>
+          <VydelHistory history={history} />
         </div>
       )}
     </div>

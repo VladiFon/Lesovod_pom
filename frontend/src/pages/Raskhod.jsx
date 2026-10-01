@@ -124,6 +124,15 @@ const EGAIS_REVIEW_TABS = [
   { key: "fls", label: "Приход на ФЛС", summaryKey: "fls_prihod_new", icon: "🌲" },
 ];
 
+// Подсказки «что тут делать» над каждой очередью разбора (анализ
+// удобства 01.10.2026: без них непонятно, какую кнопку жать).
+const EGAIS_REVIEW_HINTS = {
+  korrektirovki:
+    "В ЕГАИС кто-то вручную поправил остаток на складе. Если вы знаете об этой поправке и она уже отражена в нарядах — «Учтено». Если это чужая ошибка, которая к вашим делянкам не относится, — «Игнорировать».",
+  fls:
+    "Лес пришёл на склад ФЛС (промежуточный). Если это продолжение уже учтённой заготовки (перевезли с лесосеки на ФЛС) — «Часть цепочки», чтобы не посчитать дважды. Если на ФЛС заготовили отдельно — «Отдельная заготовка».",
+};
+
 const SKLAD_HOW = {
   ambiguous: { tone: "warning", label: "подходит несколько выделов" },
   conflict: { tone: "warning", label: "номер лесосеки не совпал" },
@@ -164,7 +173,10 @@ function KorrektirovkaRow({ row, busy, onResolve }) {
 }
 
 function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
-  const [pick, setPick] = useState(row.item_id ? String(row.item_id) : "");
+  // Если подходящий по кварталу/выделу выдел один — сразу предлагаем его,
+  // остаётся только нажать «Привязать».
+  const guess = !row.item_id && row.candidates.length === 1 ? row.candidates[0] : null;
+  const [pick, setPick] = useState(row.item_id ? String(row.item_id) : guess ? String(guess.item_id) : "");
   const how = SKLAD_HOW[row.how] || { tone: "neutral", label: row.how };
   const candidateIds = new Set(row.candidates.map((c) => c.item_id));
   const kvartaly = new Set((row.kvartal || "").split(", ").filter(Boolean));
@@ -182,6 +194,9 @@ function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
             {row.item_label ? ` · → ${row.item_label}` : ""}
           </span>
         </div>
+        {guess && (
+          <div className="text-xs text-pine mt-1">Скорее всего это «{guess.label}» — проверьте и нажмите «Привязать».</div>
+        )}
       </div>
       <div className="flex items-center gap-2 shrink-0 flex-wrap">
         <select
@@ -262,6 +277,23 @@ function EgaisReviewModal({ open, onClose }) {
   const [busyId, setBusyId] = useState(null);
   const [skladyAll, setSkladyAll] = useState(false);
   const [skladItems, setSkladItems] = useState([]);
+  // «Только моё лесничество» — из Настроек (данные лесничего). Чужие
+  // склады (соседнего лесничества) обычно разбирать не нужно.
+  const [moeLesnichestvo, setMoeLesnichestvo] = useState("");
+  const [tolkoMoe, setTolkoMoe] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+    api
+      .get("/settings/lesnichiy")
+      // На старых базах там бывает код лесничества (число), а не название —
+      // тогда фильтр не показываем, сравнивать не с чем.
+      .then((l) => {
+        const v = String(l?.lesnichestvo || "").trim();
+        setMoeLesnichestvo(/^\d+$/.test(v) ? "" : v);
+      })
+      .catch(() => {});
+  }, [open]);
 
   const loadSummary = useCallback(() => {
     api.get("/raskhod/egais/review/summary").then(setSummary).catch(() => {});
@@ -366,12 +398,21 @@ function EgaisReviewModal({ open, onClose }) {
             отнести однозначно: пока склад не привязан, его объём не учитывается ни в одной делянке. Привязка
             делается один раз и сразу пересчитывает все загруженные выгрузки.
           </div>
-          <label className="flex items-center gap-2 text-sm text-ink cursor-pointer select-none shrink-0">
-            <input type="checkbox" checked={skladyAll} onChange={(e) => setSkladyAll(e.target.checked)} />
-            Показать все склады
-          </label>
+          <div className="flex flex-col gap-1.5 shrink-0">
+            <label className="flex items-center gap-2 text-sm text-ink cursor-pointer select-none">
+              <input type="checkbox" checked={skladyAll} onChange={(e) => setSkladyAll(e.target.checked)} />
+              Показать все склады
+            </label>
+            {moeLesnichestvo && (
+              <label className="flex items-center gap-2 text-sm text-ink cursor-pointer select-none">
+                <input type="checkbox" checked={tolkoMoe} onChange={(e) => setTolkoMoe(e.target.checked)} />
+                Только {moeLesnichestvo} лесничество
+              </label>
+            )}
+          </div>
         </div>
       )}
+      {EGAIS_REVIEW_HINTS[tab] && <div className="text-xs text-muted max-w-[640px] mb-3">{EGAIS_REVIEW_HINTS[tab]}</div>}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -386,7 +427,10 @@ function EgaisReviewModal({ open, onClose }) {
               <KorrektirovkaRow key={row.id} row={row} busy={busyId === row.id} onResolve={resolveKorrektirovka} />
             ))}
           {tab === "sklady" &&
-            rows.map((row) => (
+            rows
+              .filter((row) => !tolkoMoe || !moeLesnichestvo || !row.lesnichestvo ||
+                row.lesnichestvo.toLowerCase().includes(moeLesnichestvo.toLowerCase()))
+              .map((row) => (
               <SkladRow
                 key={row.sklad}
                 row={row}
@@ -411,7 +455,36 @@ function emptyPozitsiya() {
   return { poroda: "", sortiment: "KR", obyom: "" };
 }
 
-function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadDelyanki, limitKubaturaTotal }) {
+function naryadObyom(n) {
+  return (n?.pozitsii || []).reduce((sum, p) => sum + (Number(p.obyom) || 0), 0);
+}
+
+// Проверка «на опечатку» перед сохранением наряда (анализ удобства
+// 01.10.2026): лишний ноль в объёме сразу портит освоение делянки.
+function naryadPreduprezhdeniya({ pozitsii, naryady, editing, limit }) {
+  const novyy = pozitsii.reduce((sum, p) => sum + (Number(p.obyom) || 0), 0);
+  const drugie = (naryady || []).filter((n) => !editing || n.id !== editing.id);
+  const out = [];
+  if (limit > 0) {
+    const fakt = drugie.reduce((sum, n) => sum + naryadObyom(n), 0) + novyy;
+    const pct = Math.round((fakt / limit) * 100);
+    if (pct > 110) out.push(`После этого наряда по выделу будет ${pct}% лимита (${fmtM3(fakt)} из ${fmtM3(limit)} м³) — это больше 110%.`);
+  }
+  const obyomy = drugie.map(naryadObyom).filter((v) => v > 0).sort((a, b) => a - b);
+  if (obyomy.length >= 3) {
+    const tipichnyy = obyomy[Math.floor(obyomy.length / 2)];
+    if (novyy >= tipichnyy * 3) {
+      out.push(`Объём наряда ${fmtM3(novyy)} м³ — в ${Math.round(novyy / tipichnyy)} раз(а) больше обычного (около ${fmtM3(tipichnyy)} м³). Нет ли лишнего нуля?`);
+    }
+  }
+  return out;
+}
+
+function fmtM3(v) {
+  return (Math.round(v * 10) / 10).toLocaleString("ru-RU");
+}
+
+function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadDelyanki, limitKubaturaTotal, naryady }) {
   const toast = useToast();
   const [data, setData] = useState("");
   const [nomer, setNomer] = useState("");
@@ -474,6 +547,8 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
       toast.show({ tone: "warning", title: "Укажите дату наряда" });
       return;
     }
+    const preduprezhdeniya = naryadPreduprezhdeniya({ pozitsii, naryady, editing, limit: limitKubaturaTotal || 0 });
+    if (preduprezhdeniya.length && !window.confirm(`Проверьте наряд:\n\n• ${preduprezhdeniya.join("\n• ")}\n\nСохранить всё равно?`)) return;
     setSubmitting(true);
     try {
       const body = {
@@ -804,7 +879,16 @@ function PorodaCard({ title, cell, sorts, hvorost, selected, onClick, total }) {
         <div className="flex flex-col gap-[5px]">
           <div className="flex items-center justify-between text-[11px] text-muted-2" style={MONO_STYLE}>
             <span>ЕГАИС {fmt1(cell.fakt_egais)} м³</span>
-            <span>расхождение {delta >= 0 ? "+" : "−"}{fmt1(Math.abs(delta))}</span>
+            <span
+              className="cursor-help underline decoration-dotted"
+              title={
+                delta >= 0
+                  ? "По ЕГАИС вывезено/учтено больше, чем записано в нарядах. Обычно не внесены наряды — добавьте их. Если наряды все, проверьте привязку склада в «Разбор ЕГАИС»."
+                  : "В нарядах записано больше, чем прошло по ЕГАИС. Возможно, лес ещё не оформлен в ЕГАИС, не загружена свежая выгрузка или в наряде опечатка."
+              }
+            >
+              расхождение {delta >= 0 ? "+" : "−"}{fmt1(Math.abs(delta))} ⓘ
+            </span>
           </div>
           <ProgressBar value={cell.fakt_egais} limit={cell.limit} color="#8fb79f" />
         </div>
@@ -1646,6 +1730,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
         onSaved={load}
         ploshadDelyanki={ploshadInfo?.ploshad_delyanki}
         limitKubaturaTotal={ploshadInfo?.limit_kubatura_total}
+        naryady={naryady}
       />
     </div>
   );
