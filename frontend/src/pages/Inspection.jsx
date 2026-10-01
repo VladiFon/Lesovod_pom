@@ -744,7 +744,7 @@ export default function Inspection() {
                   ? `просрочен на ${-u.days} дн.`
                   : u?.level === "soon"
                     ? `через ${u.days} дн.`
-                    : r.srok_osvidetelstvovaniya;
+                    : `освид. до ${r.srok_osvidetelstvovaniya}`;
               const tone = u?.level === "overdue" ? "danger" : u?.level === "soon" ? "warning" : "neutral";
               const done = r.checklist?.filter((c) => c.is_done).length ?? 0;
               return (
@@ -765,7 +765,9 @@ export default function Inspection() {
                     заготовка {r.srok_okonchaniya_zagotovki || "—"} · вывозка {r.srok_okonchaniya_vyvozki || "—"}
                   </span>
                   <span className="font-mono text-[10.5px] text-muted-2">
-                    {r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% освоено` : "— % освоено"} · чек-лист{" "}
+                    <span className={r.osvoenie_level === "pererub" ? "text-error font-semibold" : r.osvoenie_level === "vnimanie" || r.osvoenie_level === "preduprezhdenie" ? "text-oak font-semibold" : ""}>
+                      {r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% освоено` : "— % освоено"}
+                    </span>{" "}· чек-лист{" "}
                     {r.checklist?.length ? `${done}/${r.checklist.length}` : "—"} · актов {r.acts?.length ?? 0}
                   </span>
                 </button>

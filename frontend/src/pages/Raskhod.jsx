@@ -740,12 +740,15 @@ function EgaisColumnsToggle({ checked, onChange }) {
  * по сортиментам. Данные те же, что и в таблице (rowsData). */
 const CARD_TONES = {
   green: ["#eaf7ec", "#1a4331", "в лимите"],
-  oak: ["#fdf1e4", "#a8681f", "почти предел"],
+  oak: ["#fdf1e4", "#a8681f", "подходит к лимиту"],
+  full: ["#fdf1e4", "#a8681f", "лимит выбран"],
   error: ["#fbeaea", "#ba1a1a", "переруб"],
 };
+// Те же пороги, что у «Освоения делянки»: 90 / 100 / 110 % от лимита по
+// большему из нарядов и ЕГАИС.
 function usageTone(limit, fakt) {
   const pct = limit > 0 ? (fakt / limit) * 100 : 0;
-  return pct > 100 ? "error" : pct >= 80 ? "oak" : "green";
+  return pct > 110 ? "error" : pct >= 100 ? "full" : pct >= 90 ? "oak" : "green";
 }
 const fmt1 = (v) => (v ?? 0).toLocaleString("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const MONO_STYLE = { fontFamily: "'JetBrains Mono', monospace" };

@@ -875,6 +875,38 @@ def _osvoenie_itogo(limit, fakt_naryad, fakt_egais):
     }
 
 
+def compute_osvoenie_batch(conn, delyanka_ids):
+    """Освоение (тот же расчёт, что карточка «Освоение делянки» на вебе и
+    «Остатки» в приложении — itogo из get_remaining_volumes_grouped_for_bot)
+    сразу для многих делянок: одна выборка выделов, один compute_balance_batch
+    и одна загрузка снапшота ЕГАИС вместо N полных расчётов. Нужна, чтобы
+    Инспекция, Распределение бригад, дашборд и оповещения показывали ОДИН
+    процент, а не «только по нарядам». Возвращает {delyanka_id: itogo}; для
+    делянки без выделов/лимита pct=None, level="net_limita"."""
+    delyanka_ids = list(delyanka_ids)
+    if not delyanka_ids:
+        return {}
+    items_by_d = get_delyanka_items_batch(conn, delyanka_ids)
+    all_items = [it for d in delyanka_ids for it in items_by_d.get(d, [])]
+    balances = compute_balance_batch(conn, all_items) if all_items else {}
+    loaded_egais, _ = load_egais_snapshot(conn)
+    has_egais = bool(loaded_egais)
+    out = {}
+    for d in delyanka_ids:
+        limit = naryad = egais = 0.0
+        for it in items_by_d.get(d, []):
+            for _poroda, sortimenty in (balances.get(it["id"]) or {}).items():
+                for code in ("KR", "SR", "ML", "DROVA"):
+                    vals = sortimenty.get(code)
+                    if not vals:
+                        continue
+                    limit += vals.get("limit") or 0
+                    naryad += vals.get("fakt") or 0
+                    egais += vals.get("fakt_egais") or 0
+        out[d] = _osvoenie_itogo(limit, naryad, egais if has_egais else None)
+    return out
+
+
 def _fmt_m3(value):
     """Единое форматирование объёма (м3) для UI баланса (Этап 7 плана
     доработок): округляет до 3 знаков и убирает хвостовые нули/лишнюю
