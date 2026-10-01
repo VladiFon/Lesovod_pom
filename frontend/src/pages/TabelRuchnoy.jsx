@@ -293,7 +293,13 @@ export default function TabelRuchnoy() {
     setBrigadaModal((m) => {
       const b = m.brigady.find((x) => x.id === Number(id));
       const choices = {};
-      (b?.sostav || []).forEach((s) => { choices[s.sotrudnik_id] = "с бригадой"; });
+      // Если человек сам отметился в телефоне «больничный» / «не работаю»,
+      // по умолчанию берём его отметку, а не «с бригадой».
+      (b?.sostav || []).forEach((s) => {
+        const r = (rows || []).find((x) => x.sotrudnik_id === s.sotrudnik_id);
+        const mob = MOBILE_TO_TABEL[r?.mobile_status];
+        choices[s.sotrudnik_id] = mob && mob !== "работал" ? mob : "с бригадой";
+      });
       return { ...m, brigadaId: b ? b.id : null, choices, itemId: b?.mesta?.[0]?.item_id || "" };
     });
   };
