@@ -1,0 +1,632 @@
+<title>Лесовод: руководство сотрудника</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: справочник — оглавление слева (на телефоне сверху), разделы с шагами и скриншотами справа */
+:root{
+  --paper:#f7f6f1; --card:#ffffff; --ink:#1d2a22; --muted:#5d6b62; --line:#dfe3dc;
+  --pine:#1f4a35; --pine-soft:#e3efe7; --amber:#c47a12; --amber-soft:#fbf0dc; --red:#a83232; --red-soft:#f8e3e1;
+  --f-display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#121813; --card:#19211b; --ink:#e4ebe5; --muted:#9db0a3; --line:#2c3a30;
+  --pine:#7fc79c; --pine-soft:#1e3326; --amber:#e3a54a; --amber-soft:#33281a; --red:#e48a8a; --red-soft:#3a2020; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#121813; --card:#19211b; --ink:#e4ebe5; --muted:#9db0a3; --line:#2c3a30;
+  --pine:#7fc79c; --pine-soft:#1e3326; --amber:#e3a54a; --amber-soft:#33281a; --red:#e48a8a; --red-soft:#3a2020; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font:16px/1.6 var(--f-body);margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:24px 64px;display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr);gap:16px}}
+header.hero{grid-column:1/-1;padding-block:24px 8px;border-bottom:1px solid var(--line)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--pine)}
+h1{font:700 clamp(28px,4.4vw,44px)/1.1 var(--f-display);margin:.35em 0 .3em;text-wrap:balance}
+.lead{max-width:68ch;color:var(--muted);font-size:17px;margin:0 0 12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 8px}
+.chip{font:500 13px/1 var(--f-body);padding:7px 11px;border-radius:999px;background:var(--pine-soft);color:var(--pine)}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);align-self:start;max-height:calc(100vh - 32px);overflow:auto;font-size:14px}
+nav.toc h2{font:600 12px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+nav.toc a{display:block;padding:5px 10px;border-radius:8px;color:var(--ink);text-decoration:none}
+nav.toc a:hover,nav.toc a:focus-visible{background:var(--pine-soft);color:var(--pine);outline:none}
+@media (max-width:900px){nav.toc{position:static;max-height:none;border:1px solid var(--line);border-radius:12px;padding:4px 12px 12px;background:var(--card)}
+  nav.toc .cols{columns:2;column-gap:12px}}
+main{min-width:0}
+section{padding-block:28px 8px;border-bottom:1px solid var(--line)}
+section:last-child{border-bottom:0}
+h2.sec{font:700 24px/1.2 var(--f-display);margin:0 0 6px;text-wrap:balance;scroll-margin-top:16px}
+h2.sec small{display:block;font:600 12px/1.4 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pine);margin-bottom:6px}
+h3{font:600 19px/1.3 var(--f-body);margin:26px 0 6px;scroll-margin-top:16px}
+p,li{max-width:70ch}
+.who{display:inline-block;font:600 12px/1 var(--f-mono);padding:5px 8px;border-radius:6px;background:var(--pine-soft);color:var(--pine);margin-bottom:8px}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:10px 0}
+ol.steps>li{counter-increment:s;position:relative;padding-left:40px;margin:8px 0}
+ol.steps>li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;height:26px;border-radius:50%;background:var(--pine);color:var(--paper);font:600 13px/26px var(--f-mono);text-align:center}
+b.ui{font-weight:600;background:var(--pine-soft);color:var(--pine);padding:1px 6px;border-radius:5px;white-space:nowrap}
+figure{margin:14px 0 20px}
+figure img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:10px;cursor:zoom-in;background:var(--card)}
+figcaption{font-size:14px;color:var(--muted);margin-top:6px;max-width:80ch}
+.phones{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px;margin:14px 0 20px}
+.phones figure{margin:0}
+.phones img{border-radius:18px}
+.note,.warn,.tip{border-radius:10px;padding:12px 14px;margin:14px 0;max-width:76ch;font-size:15px}
+.note{background:var(--pine-soft)}
+.tip{background:var(--card);border:1px dashed var(--line)}
+.warn{background:var(--amber-soft)}
+.note b,.warn b,.tip b{display:block;margin-bottom:2px}
+table.t{border-collapse:collapse;width:100%;font-size:14.5px;background:var(--card);border-radius:10px;overflow:hidden}
+.tw{overflow-x:auto;margin:12px 0}
+table.t th,table.t td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+table.t th{font:600 12px/1.3 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.lvl{display:inline-block;font:600 12px/1 var(--f-mono);padding:4px 7px;border-radius:5px;white-space:nowrap}
+.l-ok{background:var(--pine-soft);color:var(--pine)}.l-am{background:var(--amber-soft);color:var(--amber)}.l-red{background:var(--red-soft);color:var(--red)}
+dl.gl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 16px;margin:12px 0}
+dl.gl dt{font:600 14px/1.5 var(--f-mono);color:var(--pine)}dl.gl dd{margin:0}
+@media (max-width:520px){dl.gl{grid-template-columns:minmax(0,1fr)}dl.gl dd{margin-bottom:8px}}
+#lb{position:fixed;inset:0;background:rgba(10,16,12,.86);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10;cursor:zoom-out}
+#lb[hidden]{display:none}
+#lb img{max-width:100%;max-height:100%;border-radius:8px}
+a{color:var(--pine)}
+:focus-visible{outline:2px solid var(--pine);outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){nav.toc a{transition:background .15s}}
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">Лесовод · Болбасовское лесничество</div>
+  <h1>Руководство для нового сотрудника</h1>
+  <p class="lead">Как работать с сайтом «Лесовод» в конторе и с приложением на телефоне в лесу. Всё показано на учебных данных: делянки, люди и цифры на снимках придуманы.</p>
+  <div class="chips"><span class="chip">Сайт: лесничий, пом. лесничего, инженеры</span><span class="chip">Телефон: мастера и рабочие</span><span class="chip">Нажмите на снимок, чтобы увеличить</span><span class="chip">Версия: сайт от 01.10.2026, приложение 0.6.0</span></div>
+</header>
+
+<nav class="toc" aria-label="Оглавление">
+  <div class="cols">
+  <h2>Начало</h2>
+  <a href="#kto">Кто чем пользуется</a>
+  <a href="#den">Обычный день</a>
+  <h2>Сайт</h2>
+  <a href="#vhod">Вход и рабочий стол</a>
+  <a href="#delyanki">Делянки</a>
+  <a href="#raskhod">Расход и освоение</a>
+  <a href="#egais">ЕГАИС</a>
+  <a href="#inspekciya">Инспекция и акты</a>
+  <a href="#brigady">Бригады</a>
+  <a href="#taksaciya">Таксация</a>
+  <a href="#lk">Лесокультуры</a>
+  <a href="#tekizm">Текущие изменения</a>
+  <a href="#uhod">Рубки ухода</a>
+  <a href="#lyudi">Люди и табель</a>
+  <a href="#uvedomleniya">Уведомления</a>
+  <a href="#prochee">Календарь, архив, настройки</a>
+  <a href="#korzina">Корзина и копии базы</a>
+  <a href="#qgis">QGIS «Лесовод-мост»</a>
+  <h2>Телефон</h2>
+  <a href="#app-ustanovka">Установка и вход</a>
+  <a href="#app-smena">Смена и отметка</a>
+  <a href="#app-ostatki">Остатки по делянке</a>
+  <a href="#app-karta">Карта и метки</a>
+  <a href="#app-otchet">Отчёт, заметки, пробы</a>
+  <a href="#app-master">Меню мастера</a>
+  <a href="#app-profil">Профиль и тема</a>
+  <a href="#app-offline">Без связи</a>
+  <h2>Справка</h2>
+  <a href="#slova">Словарь</a>
+  <a href="#problemy">Если что-то не так</a>
+  </div>
+</nav>
+
+<main>
+
+<section id="kto">
+  <h2 class="sec"><small>Начало</small>Кто чем пользуется</h2>
+  <p>«Лесовод» состоит из двух частей, которые работают с одной базой. Что внесли на сайте, сразу видно в телефоне, и наоборот.</p>
+  <div class="tw"><table class="t">
+    <tr><th>Должность</th><th>Где работает</th><th>Главное</th></tr>
+    <tr><td>Лесничий, помощник лесничего, инженер</td><td>Сайт (и телефон по желанию)</td><td>Делянки, ЕГАИС, освоение, акты, лесокультуры, ведомости текущих изменений, план работ, табель</td></tr>
+    <tr><td>Мастер леса</td><td>Телефон, иногда сайт</td><td>Отметка, остатки по делянке, кубатурник, карта, заметки рабочих, табель, инвентаризация и перевод культур</td></tr>
+    <tr><td>Вальщик, лесоруб</td><td>Телефон</td><td>Отметка на смене, задачи, отчёт о работе, пробы рубок ухода, заметки</td></tr>
+    <tr><td>Тракторист, харвестерщик</td><td>Телефон</td><td>Отметка, задачи, отчёт, трелёвка (тракторист), сообщение о поломке техники</td></tr>
+    <tr><td>Лесовод</td><td>Телефон</td><td>Отметка, задачи, отчёт, заметки</td></tr>
+  </table></div>
+  <div class="note"><b>Учётную запись выдаёт контора.</b> Для сайта нужен логин и пароль, для телефона нужен логин и PIN-код. Их создаёт администратор в разделе «Сотрудники» (см. <a href="#lyudi">Люди и табель</a>).</div>
+  <div class="note"><b>Каждый видит своё.</b> Сайт показывает только те разделы и кнопки, на которые у вас есть права. Например, удалять выгрузки ЕГАИС, заменять таксацию и чистить корзину может только администратор. Если нужной кнопки нет, спросите лесничего.</div>
+</section>
+
+<section id="den">
+  <h2 class="sec"><small>Начало</small>Как выглядит обычный день</h2>
+  <ol class="steps">
+    <li><b>Утро, телефон.</b> Рабочий открывает приложение и нажимает <b class="ui">Отметиться</b>: работаю, не работаю или больничный. На экране «Смена» видны задачи на сегодня.</li>
+    <li><b>Утро, контора.</b> Лесничий смотрит колокольчик уведомлений (подходит к лимиту, скоро срок), дашборд и «Присутствие», ставит задачи в «План работ» или прямо из заметки рабочего.</li>
+    <li><b>День, лес.</b> Мастер проверяет в телефоне остаток по делянке, считает объём кубатурником, ставит метки на карте. Рабочие пишут заметки («повалено ветром…»).</li>
+    <li><b>Вечер.</b> Рабочие отправляют «Отчёт о работе» (поля подставятся из задачи), мастер закрывает задачи кнопкой <b class="ui">Готово</b>.</li>
+    <li><b>Раз в неделю или месяц, контора.</b> Загрузить выгрузку ЕГАИС, внести наряды, проверить освоение делянок, заполнить табель (отметки с телефона подставятся сами), сдать ведомости.</li>
+  </ol>
+</section>
+
+<section id="vhod">
+  <h2 class="sec"><small>Сайт</small>Вход и рабочий стол</h2>
+  <ol class="steps">
+    <li>Откройте в браузере адрес сайта лесхоза (его даст администратор).</li>
+    <li>Введите логин и пароль и нажмите <b class="ui">Войти</b>.</li>
+  </ol>
+  <figure><img src="img/w01-vhod.jpg" alt="Окно входа на сайт" loading="lazy"><figcaption>Окно входа. Пароль администратора по умолчанию нужно сменить сразу после установки.</figcaption></figure>
+  <p>После входа открывается <b>Дашборд</b>. Слева меню разделов, сверху вкладки: каждый раздел открывается в своей вкладке, между ними можно переключаться, не теряя введённое.</p>
+  <figure><img src="img/w02-dashboard.jpg" alt="Дашборд" loading="lazy"><figcaption>Дашборд: делянки в работе, заготовлено по нарядам, погода и класс пожарной опасности, список активных делянок.</figcaption></figure>
+  <div class="note"><b>Освоение везде одно.</b> Процент на дашборде, в «Инспекции», в «Бригадах», в карточке делянки и в телефоне считается одинаково: берётся большее из нарядов и ЕГАИС. Подробнее в <a href="#raskhod">Расход и освоение</a>.</div>
+  <h3>Две панели</h3>
+  <p>Кнопка <b class="ui">Две панели</b> вверху справа делит экран пополам: например, слева расход по делянке, справа дашборд или таксация. Кнопка <b class="ui">Рядом</b> в заголовке раздела открывает его во второй панели.</p>
+  <figure><img src="img/w03-dve-paneli.jpg" alt="Режим двух панелей" loading="lazy"><figcaption>Слева «Расход / ЕГАИС», справа дашборд.</figcaption></figure>
+  <div class="tip"><b>Ссылки и F5.</b> Адрес в браузере запоминает открытый раздел и делянку, поэтому после F5 вы вернётесь туда же, а ссылку можно переслать коллеге. Несохранённые поля в формах при обновлении всё же теряются, сначала сохраните.</div>
+  <h3>Словарь «?»</h3>
+  <p>Кнопка <b class="ui">?</b> вверху справа открывает словарь сокращений: МДО, ЛРБ, ПЛС, ССР, РР и другие. Удобно, если в документе встретилось незнакомое слово.</p>
+  <figure><img src="img/w04-slovar.jpg" alt="Словарь сокращений по кнопке «?»." loading="lazy"><figcaption>Словарь сокращений по кнопке «?».</figcaption></figure>
+</section>
+
+<section id="delyanki">
+  <h2 class="sec"><small>Сайт</small>Делянки</h2>
+  <p>Делянка в «Лесоводе» — это лесосека по лесорубочному билету. В неё может входить один или несколько выделов. Из делянки берутся лимиты для расхода, документы, акты и строки ведомостей.</p>
+  <figure><img src="img/w10-delyanki-spisok.jpg" alt="Список делянок" loading="lazy"><figcaption>Список делянок. Статус справа: «черновик» (проект, без билета), «активна», в архиве (видны по галочке «Показывать архивные»).</figcaption></figure>
+  <h3>Новая делянка из МДО</h3>
+  <ol class="steps">
+    <li>Нажмите <b class="ui">Импорт МДО (.rtf)</b>.</li>
+    <li>Выберите один или несколько файлов ведомости МДО. Если это одна лесосека из нескольких выделов, поставьте галочку «Объединить все файлы в одну делянку».</li>
+    <li>Нажмите <b class="ui">Импортировать</b>. Лимиты по породам и сортиментам заполнятся из МДО сами.</li>
+  </ol>
+  <figure><img src="img/w14-import-mdo.jpg" alt="Импорт МДО" loading="lazy"><figcaption>Окно импорта. Каждый файл по умолчанию становится отдельной делянкой.</figcaption></figure>
+  <h3>Карточка делянки</h3>
+  <p>Нажмите делянку в списке. В карточке:</p>
+  <ul>
+    <li><b>готовность делянки</b>: что уже есть (билет, комиссия, контур, абрис, акт обследования, техкарта, акт готовности, сроки) и чего не хватает;</li>
+    <li>значок освоения рядом с названием и кнопки <b class="ui">📊 Расход</b> и <b class="ui">🔍 Инспекция</b>, которые сразу открывают эту делянку в другом разделе;</li>
+    <li>таблица выделов: квартал, выдел, площадь, состав, <b>статус работ</b> (ожидает, в работе, выполнено) и <b>вид рубки</b>;</li>
+    <li><b>контур лесосеки</b>: загрузите GeoJSON или shp из QGIS, тогда на карте будет видна именно лесосека, а не весь выдел;</li>
+    <li>кнопки документов: <b class="ui">Акт обследования</b>, <b class="ui">Технологическая карта</b>, <b class="ui">Листки сигнализации</b>, <b class="ui">Акт готовности лесосеки</b>;</li>
+    <li>вкладки «Акт», «Листок», «Техкарта» с полями, которые попадут в документ.</li>
+  </ul>
+  <figure><img src="img/w11-delyanka-kartochka.jpg" alt="Карточка делянки" loading="lazy"><figcaption>Карточка делянки кв.43 выд.3: «82% освоено», готовность 4 из 8, переходы в Расход и Инспекцию.</figcaption></figure>
+  <h3>Комиссия и готовый документ</h3>
+  <ol class="steps">
+    <li>Заполните причины рубки, мероприятия, сроки и состав комиссии (по одному человеку на строку: «Должность; ФИО»).</li>
+    <li>Чтобы не набирать комиссию каждый раз, нажмите <b class="ui">+ Сохранить как пресет</b>.</li>
+    <li>Лесничий из «Настроек» подставляется в поля «Составил» сам. Нажмите <b class="ui">Сохранить данные</b>, затем кнопку нужного документа. Готовый файл Word появится внизу в «Документах делянки», его можно скачать.</li>
+  </ol>
+  <div class="phones" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+    <figure><img src="img/w12-delyanka-komissiya.jpg" alt="Комиссия" loading="lazy"><figcaption>Пресет комиссии и документы делянки.</figcaption></figure>
+    <figure><img src="img/w13-tehkarta-gotova.jpg" alt="Техкарта сформирована" loading="lazy"><figcaption>Техкарта сформирована.</figcaption></figure>
+  </div>
+  <div class="warn"><b>Законченную делянку отправляйте В архив, а не удаляйте.</b> Из архива она остаётся в отчётах. Удалённая делянка 30 дней лежит в <a href="#korzina">Корзине</a>, потом стирается насовсем.</div>
+  <h3>Все документы</h3>
+  <p>Раздел <b>Документы</b> собирает все сформированные файлы по всем делянкам с фильтрами по типу, статусу, автору и датам.</p>
+  <figure><img src="img/w15-dokumenty.jpg" alt="Документы" loading="lazy"><figcaption>Документы: у каждого файла видно, к какой делянке он относится и кто его сформировал.</figcaption></figure>
+</section>
+
+<section id="raskhod">
+  <h2 class="sec"><small>Сайт</small>Расход и освоение делянки</h2>
+  <p>Главный экран для контроля заготовки. Здесь видно, сколько заготовлено по каждой делянке и сколько ещё можно взять, чтобы не выйти за лимит.</p>
+  <ol class="steps">
+    <li>Откройте <b>Расход / ЕГАИС</b>.</li>
+    <li>Выберите делянку в списке «Делянка» или найдите по названию.</li>
+    <li>Смотрите карточку <b>«Освоение делянки»</b>: две полосы, по нарядам и по ЕГАИС.</li>
+  </ol>
+  <figure><img src="img/w20-raskhod-osvoenie.jpg" alt="Освоение делянки" loading="lazy"><figcaption>Освоение 82%: по нарядам 178 м³, по ЕГАИС 941 м³ из лимита 1 148 м³. Справа сколько ещё можно до 100% и до 110%.</figcaption></figure>
+  <div class="note"><b>Как считается процент.</b> Берётся большее из двух: заготовка по нарядам или по ЕГАИС. Так делянку не перерубить ни по бумагам, ни по ЕГАИС. Допуск ±10% считается от лимита. Этот же процент показывают дашборд, Инспекция, Бригады и телефон.</div>
+  <div class="tw"><table class="t">
+    <tr><th>Освоение</th><th>Что показывает программа</th><th>Что делать</th></tr>
+    <tr><td><span class="lvl l-ok">до 90%</span></td><td>«В пределах лимита»</td><td>Работать дальше</td></tr>
+    <tr><td><span class="lvl l-am">90–100%</span></td><td>Жёлтая метка «подходит к лимиту»</td><td>Предупредить мастера, планировать переход бригады</td></tr>
+    <tr><td><span class="lvl l-am">100–110%</span></td><td>Оранжевое предупреждение «можно заготовить не больше N м³»</td><td>Заканчивать, не выходить за допуск</td></tr>
+    <tr><td><span class="lvl l-red">больше 110%</span></td><td>Красная карточка «превышен допуск»</td><td>Остановить заготовку, разобраться с документами</td></tr>
+  </table></div>
+  <div class="phones" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+    <figure><img src="img/w24-raskhod-prikinut.jpg" alt="Прикинуть" loading="lazy"><figcaption>94%. В поле «Прикинуть» ввели 60 м³: будет 102,9%.</figcaption></figure>
+    <figure><img src="img/w23-raskhod-pererub.jpg" alt="Переруб" loading="lazy"><figcaption>113%: допуск превышен на 5,9 м³.</figcaption></figure>
+  </div>
+  <h3>Баланс по породам</h3>
+  <p>Ниже карточки освоения выберите выдел (кнопки «Кв. 43 / Выд. 3»). Откроется баланс: лимит, факт и остаток по каждой породе и сортименту (крупная, средняя, мелкая, дрова). Переключатель <b class="ui">Карточки</b> / <b class="ui">Таблица</b> меняет вид, <b class="ui">Книга расхода .xlsx</b> выгружает в Excel.</p>
+  <figure><img src="img/w21-raskhod-balans.jpg" alt="Баланс карточками" loading="lazy"><figcaption>Баланс по породам. Красным отмечен отрицательный остаток (переруб сортимента).</figcaption></figure>
+  <figure><img src="img/w22-raskhod-tablica.jpg" alt="Баланс таблицей" loading="lazy"><figcaption>Таблица с колонками ЕГАИС: остатки по наряду и по ЕГАИС, коридор ±10%. Наведите мышь на «Расхождение», чтобы увидеть подсказку.</figcaption></figure>
+  <h3>Наряд-задание</h3>
+  <ol class="steps">
+    <li>Внизу экрана, на вкладке «Наряды-задания», нажмите <b class="ui">+ Новый наряд</b>.</li>
+    <li>Укажите дату, номер, площадь.</li>
+    <li>Добавьте позиции: порода, сортимент, объём. Кнопка <b class="ui">+ Позиция</b> добавляет строку.</li>
+    <li>Нажмите <b class="ui">Сохранить</b>. Факт и остатки пересчитаются сразу.</li>
+  </ol>
+  <div class="tip"><b>Программа проверит наряд.</b> Если после наряда выдел уйдёт за 110% лимита или объём в разы больше обычного (лишний ноль), перед сохранением появится вопрос: «Проверьте наряд… Нет ли лишнего нуля? Сохранить всё равно?». Нажмите «Отмена» и поправьте, если ошиблись.</div>
+  <figure><img src="img/w25-novyy-naryad.jpg" alt="Новый наряд" loading="lazy"><figcaption>Окно нового наряда.</figcaption></figure>
+</section>
+
+<section id="egais">
+  <h2 class="sec"><small>Сайт</small>ЕГАИС: загрузка и привязка складов</h2>
+  <h3>Загрузить выгрузку</h3>
+  <ol class="steps">
+    <li>В ЕГАИС выгрузите «Реестр движения по складам» в Excel (.xlsx) за нужный период.</li>
+    <li>В «Расход / ЕГАИС» нажмите <b class="ui">Импорт ЕГАИС</b>, выберите файл, нажмите <b class="ui">Импортировать</b>.</li>
+  </ol>
+  <figure><img src="img/w26-import-egais.jpg" alt="Импорт ЕГАИС" loading="lazy"><figcaption>Окно импорта выгрузки.</figcaption></figure>
+  <div class="note"><b>Перед загрузкой программа сама делает копию базы</b> (см. <a href="#korzina">Копии базы</a>). <b>Повторная загрузка безопасна.</b> Документы не задваиваются: загруженный заново документ заменяет старый. Если документ исправили в ЕГАИС задним числом, загрузите период ещё раз. Загрузка всего года целиком тоже безопасна.</div>
+  <h3>Привязать склады к делянкам</h3>
+  <p>ЕГАИС считает по складам (ПЛС, ФЛС), а «Лесовод» по делянкам. Большинство складов программа сопоставляет сама по кварталу, выделу и номеру лесосеки. Остальные нужно привязать один раз вручную:</p>
+  <ol class="steps">
+    <li>Нажмите <b class="ui">Разбор ЕГАИС</b> (цифра на кнопке показывает, сколько вопросов осталось).</li>
+    <li>На вкладке «Склады ЕГАИС» у каждого склада выберите выдел делянки и нажмите <b class="ui">Привязать</b>. Если подходит одна делянка, программа уже выбрала её и пишет «Скорее всего это…», остаётся проверить и нажать «Привязать».</li>
+    <li>Если склад не ваш (другое лесничество, нижний склад), нажмите <b class="ui">Не наш склад</b>.</li>
+  </ol>
+  <figure><img src="img/w27-razbor-egais.jpg" alt="Разбор ЕГАИС" loading="lazy"><figcaption>Вверху каждой вкладки объяснение, что с ней делать. Галочка «Только Болбасовское лесничество» прячет чужие склады.</figcaption></figure>
+  <div class="warn"><b>Непривязанный склад занижает освоение.</b> Если на делянке видно предупреждение «Не учтены в ЕГАИС (склад не привязан)», сначала привяжите склад, потом смотрите процент.</div>
+  <h3>Сводки прихода и расхода</h3>
+  <p>Кнопка <b class="ui">Сводки прихода/расхода</b> открывает три вкладки: расход ЕГАИС, приход ЕГАИС и приход по нарядам. Фильтры по периоду, делянке, породе, получателю. Итог делится на деловую и дрова. Кнопка <b class="ui">Excel</b> выгружает сводку.</p>
+  <figure><img src="img/w28-svodki.jpg" alt="Сводки" loading="lazy"><figcaption>Сводка расхода ЕГАИС по документам.</figcaption></figure>
+</section>
+
+<section id="inspekciya">
+  <h2 class="sec"><small>Сайт</small>Инспекция и акт освидетельствования</h2>
+  <p>Слева делянки, сверху просроченные. У каждой видны сроки заготовки и вывозки, освоение и количество актов.</p>
+  <ol class="steps">
+    <li>Выберите делянку, проверьте и при необходимости исправьте сроки, нажмите <b class="ui">Сохранить сроки</b>.</li>
+    <li>Отмечайте пункты чек-листа подготовки по мере проверки. Свой пункт добавляется полем внизу.</li>
+    <li>Нажмите <b class="ui">Акт освидетельствования</b>, заполните сведения и комиссию, нажмите <b class="ui">Сформировать акт</b>. Акт попадёт в «Историю актов».</li>
+  </ol>
+  <figure><img src="img/w30-inspekciya.jpg" alt="Инспекция" loading="lazy"><figcaption>Чек-лист подготовки к освидетельствованию.</figcaption></figure>
+  <figure><img src="img/w31-akt-osvid.jpg" alt="Акт освидетельствования" loading="lazy"><figcaption>Форма акта: № и дата билета, лесничий и прошлые сведения подставлены сами. Список комиссий общий с карточкой делянки.</figcaption></figure>
+  <p>Освоение в списке то же, что в «Расход / ЕГАИС». За 14 и за 3 дня до срока заготовки, вывозки и освидетельствования придёт <a href="#uvedomleniya">уведомление</a>.</p>
+</section>
+
+<section id="brigady">
+  <h2 class="sec"><small>Сайт</small>Распределение бригад</h2>
+  <p>Вверху делянки, близкие к завершению, с бригадой, которая там сейчас работает, и следующей делянкой. Внизу список бригад.</p>
+  <ul>
+    <li><b class="ui">+ Новая бригада</b>: название, бригадир, состав.</li>
+    <li><b class="ui">Переместить</b>: назначить следующую делянку и дату переезда.</li>
+    <li><b class="ui">Завершить работу здесь</b>: бригада освободилась.</li>
+  </ul>
+  <figure><img src="img/w33-brigady.jpg" alt="Бригады" loading="lazy"><figcaption>«Не запланировано» оранжевым: бригаде Гончарова ещё не назначена следующая делянка.</figcaption></figure>
+</section>
+
+<section id="taksaciya">
+  <h2 class="sec"><small>Сайт</small>Таксация</h2>
+  <p>Карточка любого выдела по материалам лесоустройства. Выберите лесничество, введите квартал и выдел, нажмите <b class="ui">Найти участок</b>.</p>
+  <figure><img src="img/w40-taksaciya.jpg" alt="Таксация" loading="lazy"><figcaption>Выдел 43/3: площадь, бонитет, полнота, запас, формула состава и элементы леса.</figcaption></figure>
+  <h3>Что было на выделе</h3>
+  <p>Под карточкой выдела блок «Что было на выделе»: делянки, лесокультуры и рубки ухода на этом выделе за прошлые годы.</p>
+  <figure><img src="img/w40b-istoriya-vydela.jpg" alt="История выдела 43/3." loading="lazy"><figcaption>История выдела 43/3.</figcaption></figure>
+  <div class="warn"><b>Загрузку описания (.docx) делает только администратор.</b> Галочка «Заменить справочник» стирает всю прежнюю таксацию и заменяет её новой. Чтобы только дополнить, снимите галочку. Перед загрузкой программа сама делает копию базы.</div>
+</section>
+
+<section id="lk">
+  <h2 class="sec"><small>Сайт</small>Лесокультуры</h2>
+  <p>Все участки лесных культур с журналом мероприятий. Слева список с поиском, фильтрами по году, кварталу и выделу, справа карточка участка. Фильтр «Нужна инвентаризация в 2026» оставляет культуры 1-го и 3-го года, которые пора обследовать.</p>
+  <figure><img src="img/w41-lesokultury-spisok.jpg" alt="Список лесокультур" loading="lazy"><figcaption>Список участков и кнопки загрузки.</figcaption></figure>
+  <h3>Загрузить книгу лесных культур</h3>
+  <ol class="steps">
+    <li>Нажмите <b class="ui">Загрузить книгу л/к</b>, выберите файл .xls или .xlsx, годы и лесничество.</li>
+    <li>Нажмите <b class="ui">Проверить книгу</b>. Сначала программа только показывает, что найдено, в базу ничего не пишется.</li>
+    <li>Просмотрите результат и подтвердите загрузку. Уже существующие участки не задваиваются, у них дописываются только пустые поля.</li>
+  </ol>
+  <figure><img src="img/w44-kniga-lk.jpg" alt="Книга л/к" loading="lazy"><figcaption>Загрузка книги производства лесных культур.</figcaption></figure>
+  <h3>Полевые карточки перевода</h3>
+  <p>Кнопка <b class="ui">Загрузить карточки перевода</b> принимает файл Word с карточками перевода в покрытые лесом земли. Из карточки берутся состав, новый выдел, возраст, высота и густота. Диаметр ставится 2 см, полнота по таблице молодняков. Сначала карточки только проверяются.</p>
+  <figure><img src="img/w45-kartochki-perevoda.jpg" alt="Карточки перевода" loading="lazy"><figcaption>Загрузка полевых карточек.</figcaption></figure>
+  <h3>Карточка участка и журнал</h3>
+  <p>В карточке участка: лесничество, квартал, выдел, площадь, вид культур, год, метод создания, порода и формула состава, схема посадки, посадочный материал. Ниже кнопка <b class="ui">Загрузить файл контура</b> и журнал мероприятий: техническая приёмка, инвентаризация 1-го и 3-го года, уходы, с приживаемостью.</p>
+  <div class="phones" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+    <figure><img src="img/w42-lesokultury-uchastok.jpg" alt="Участок" loading="lazy"><figcaption>Карточка участка. Вверху «В покрытые лесом», «Списать», «Удалить».</figcaption></figure>
+    <figure><img src="img/w43-lesokultury-zhurnal.jpg" alt="Журнал" loading="lazy"><figcaption>Журнал мероприятий участка.</figcaption></figure>
+  </div>
+</section>
+
+<section id="tekizm">
+  <h2 class="sec"><small>Сайт</small>Текущие изменения (приложения 1–15)</h2>
+  <p>Ведомости для Белгослеса по приказу №130. Программа сама собирает строки из делянок, лесокультур и рубок ухода. Недостающее подсвечено красным.</p>
+  <ol class="steps">
+    <li>Укажите отчётный год и лесничество, площади на начало и конец года (для прил. 1).</li>
+    <li>Нажмите <b class="ui">Показать</b>. Просмотрите каждое приложение.</li>
+    <li>В строках с красными ячейками нажмите <b class="ui">Дописать</b> и заполните недостающее.</li>
+    <li>Если участок культур попал в новый выдел, нажмите <b class="ui">Новый выдел</b> (программа предложит номер) или <b class="ui">По выделам</b>, если участок лежит в нескольких выделах.</li>
+    <li>Приложения, данных для которых в программе нет (5, 6, 8–13), заполните кнопкой <b class="ui">Добавить строку</b>.</li>
+    <li>Нажмите <b class="ui">Скачать Word</b>. Можно подставить свой шаблон Word.</li>
+  </ol>
+  <figure><img src="img/w50-tek-izm.jpg" alt="Текущие изменения" loading="lazy"><figcaption>Шапка и сводное прил. 2, которое считается из остальных.</figcaption></figure>
+  <figure><img src="img/w51-tek-izm-1.jpg" alt="Прил. 4" loading="lazy"><figcaption>Прил. 4: «Не хватает данных: 204». Красные ячейки нужно дописать.</figcaption></figure>
+  <figure><img src="img/w52-tek-izm-2.jpg" alt="Прил. 7" loading="lazy"><figcaption>Прил. 7: культуры, созданные в отчётном году.</figcaption></figure>
+  <div class="tip"><b>Ведомость пустая?</b> Раскройте строку «Что есть в базе (если ведомости пустые — посмотрите сюда)». Обычно не загружена таксация, книга лесокультур или не выбран год.</div>
+</section>
+
+<section id="uhod">
+  <h2 class="sec"><small>Сайт</small>Рубки ухода</h2>
+  <p>Пробы рубок ухода: ведомость перечёта и обмер укладок хвороста на пробных площадях. Найдите участок по кварталу и выделу, заполните ведомость, внесите укладки, нажмите «Рассчитать». Пробы, введённые рабочими с телефона, появляются в списке слева.</p>
+  <figure><img src="img/w55-rubki-uhoda.jpg" alt="Рубки ухода" loading="lazy"><figcaption>Новая проба.</figcaption></figure>
+</section>
+
+<section id="lyudi">
+  <h2 class="sec"><small>Сайт</small>Люди: сотрудники, план работ, табель</h2>
+  <h3>Сотрудники</h3>
+  <ol class="steps">
+    <li>Нажмите <b class="ui">+ Новый сотрудник</b>.</li>
+    <li>Введите логин, PIN (не короче 4 знаков), ФИО, должность и участок.</li>
+    <li>Сообщите сотруднику логин и PIN: с ними он войдёт в приложение. Должность определяет, какое меню он увидит в телефоне.</li>
+  </ol>
+  <figure><img src="img/w60-sotrudniki.jpg" alt="Сотрудники" loading="lazy"><figcaption>Карточки сотрудников. Кнопка «Активен» отключает доступ уволенному, «Сбросить PIN» выдаёт новый PIN, если человек забыл старый.</figcaption></figure>
+  <h3>План работ</h3>
+  <p><b class="ui">+ Новая задача</b>: кому (человек или вся бригада), с какого дня, повторять ли несколько дней подряд, где (активная делянка) и что сделать. Задача появится у сотрудника на экране «Смена», а его отчёт по ней заполнится сам. Когда он нажмёт «Готово», статус сменится. Кнопка <b class="ui">Повторить завтра</b> копирует задачу на следующий день.</p>
+  <div class="phones" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+    <figure><img src="img/w61-plan-rabot.jpg" alt="План работ" loading="lazy"><figcaption>Задачи на неделю.</figcaption></figure>
+    <figure><img src="img/w62-plan-novaya.jpg" alt="Новая задача" loading="lazy"><figcaption>Новая задача.</figcaption></figure>
+  </div>
+  <h3>Табель — ввод</h3>
+  <p>Кто отметился в телефоне, у того статус и место уже подставлены (оранжевая надпись «подставлено, не сохранено»). Остаётся проверить и сохранить.</p>
+  <ol class="steps">
+    <li>Выберите дату.</li>
+    <li>Для тех, кто не отметился, нажмите <b class="ui">Заполнить по бригаде</b> и выберите бригаду: статус и место работы проставятся всем её членам. Кто отметил в телефоне «больничный» или «не работаю», тому так и останется.</li>
+    <li>Поправьте отдельных людей вручную (статус, место, вид работы, комментарий).</li>
+    <li>Нажмите <b class="ui">Сохранить табель</b>.</li>
+  </ol>
+  <figure><img src="img/w64-tabel.jpg" alt="Табель" loading="lazy"><figcaption>Отметки с телефона подставлены: у Гончарова «Больничный», у остальных место работы их бригады.</figcaption></figure>
+  <h3>Присутствие</h3>
+  <p>Календарь на месяц по отметкам из приложения: Р — работал, Б — больничный, Н — не работал, О — отпуск, В — выходной. Справа итоги.</p>
+  <figure><img src="img/w65-prisutstvie.jpg" alt="Присутствие" loading="lazy"><figcaption>Присутствие за октябрь.</figcaption></figure>
+  <h3>Заметки</h3>
+  <p>Сообщения рабочих с телефона, непрочитанные сверху.</p>
+  <ul>
+    <li><b class="ui">Ответить</b>: ответ придёт рабочему в телефон уведомлением и появится под заметкой.</li>
+    <li><b class="ui">Сделать задачей</b>: из заметки сразу получается задача в «План работ» с тем же текстом.</li>
+    <li><b class="ui">Прочитано</b>: когда разобрались.</li>
+  </ul>
+  <p>Ниже карточка <b>«Метки с карты»</b>: что рабочие отметили на карте в телефоне (ветровал, склад, дорога). Из метки тоже можно сделать задачу.</p>
+  <div class="phones" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))"><figure><img src="img/w66b-zametka-otvet.jpg" alt="Ответ на заметку." loading="lazy"><figcaption>Ответ на заметку.</figcaption></figure><figure><img src="img/w66c-zadacha-iz-zametki.jpg" alt="Задача из заметки: текст уже подставлен." loading="lazy"><figcaption>Задача из заметки: текст уже подставлен.</figcaption></figure></div>
+  <figure><img src="img/w66d-metki.jpg" alt="Метки с карты." loading="lazy"><figcaption>Метки с карты.</figcaption></figure>
+</section>
+
+<section id="uvedomleniya">
+  <h2 class="sec"><small>Сайт</small>Уведомления</h2>
+  <p>Колокольчик вверху справа, цифра на нём показывает непрочитанное. Программа сама предупреждает:</p>
+  <ul>
+    <li><b>освоение делянки</b> дошло до 90%, 100% или 110% лимита (каждый порог один раз);</li>
+    <li><b>сроки</b>: за 14 и за 3 дня до конца заготовки, вывозки и освидетельствования, и в день, когда срок прошёл;</li>
+    <li><b>заметки</b> рабочих и ответы на них.</li>
+  </ul>
+  <p>Нажмите уведомление, и откроется нужная делянка в нужном разделе.</p>
+  <figure><img src="img/w05-uvedomleniya.jpg" alt="Уведомления об освоении: переруб 113%, подходит к лимиту 99% и 94%." loading="lazy"><figcaption>Уведомления об освоении: переруб 113%, подходит к лимиту 99% и 94%.</figcaption></figure>
+</section>
+
+<section id="prochee">
+  <h2 class="sec"><small>Сайт</small>Календарь, ИИ-журнал, архив, настройки</h2>
+  <ul>
+    <li><b>Календарь</b>: разовые и периодические задачи конторы (сдать отчёт по ЕГАИС, текущие изменения). Метка «Скоро» за несколько дней до срока.</li>
+    <li><b>ИИ-журнал</b>: отчёты рабочих из приложения, которые программа разобрала, и журнал выполненных работ.</li>
+    <li><b>Архив</b>: сканы приказов, списки делянок и другие документы с поиском по тегам.</li>
+    <li><b>Настройки</b>: ключ ИИ-ассистента, путь к LibreOffice для МДО, <b>данные лесничего</b>, которые подставляются в акты и техкарты, и у администратора <b>копии базы</b>.</li>
+  </ul>
+  <figure><img src="img/w67-kalendar.jpg" alt="Календарь" loading="lazy"><figcaption>Календарь конторы.</figcaption></figure>
+  <figure><img src="img/w70-nastroyki.jpg" alt="Настройки" loading="lazy"><figcaption>Настройки. ФИО и должность лесничего заполните один раз.</figcaption></figure>
+</section>
+
+<section id="korzina">
+  <h2 class="sec"><small>Сайт</small>Корзина и копии базы</h2>
+  <h3>Корзина</h3>
+  <p>Удалённая делянка или участок лесных культур не пропадает сразу, а 30 дней лежит в разделе <b>Корзина</b> вместе с выделами, нарядами, актами и назначениями бригад. Нажмите <b class="ui">Вернуть</b>, и всё встанет на место. Через 30 дней запись стирается сама. <b class="ui">Стереть</b> сразу может только администратор.</p>
+  <figure><img src="img/w16-korzina.jpg" alt="Удалённая делянка в корзине: кто удалил, когда, до какого числа хранится." loading="lazy"><figcaption>Удалённая делянка в корзине: кто удалил, когда, до какого числа хранится.</figcaption></figure>
+  <h3>Копии базы</h3>
+  <span class="who">Администратор</span>
+  <p>Перед каждой загрузкой ЕГАИС, таксации, книги лесокультур и карточек перевода программа сама сохраняет копию всей базы. Хранятся последние 10. В «Настройках» в карточке «Копии базы» их можно скачать или сделать копию вручную кнопкой <b class="ui">Сделать копию сейчас</b>.</p>
+  <figure><img src="img/w71-kopii-bazy.jpg" alt="Копии базы в «Настройках»." loading="lazy"><figcaption>Копии базы в «Настройках».</figcaption></figure>
+</section>
+
+<section id="qgis">
+  <h2 class="sec"><small>Сайт</small>QGIS: модуль «Лесовод-мост»</h2>
+  <p>Для тех, кто работает с картами в QGIS. Модуль ставится в QGIS из zip-файла (меню «Модули → Установить из ZIP») и связывает QGIS с сайтом.</p>
+  <ul>
+    <li>Загрузить с сервера слои делянок, лесокультур и меток рабочих.</li>
+    <li>Раскрасить делянки по статусу, виду рубки или виду пользования, культуры по виду.</li>
+    <li>Выделить полигоны и выбрать «Отметить выбранное как лесные культуры…»: на сайте появится участок с контуром.</li>
+    <li>Опубликовать лесосеки, нарисованные в QGIS, чтобы они появились на карте в телефонах.</li>
+  </ul>
+  <p>Контур отдельной делянки или участка можно и не публиковать из QGIS: выделите полигон, «Экспорт → Сохранить выбранные объекты как…» в GeoJSON (или shp в zip) и загрузите файл в карточке делянки или участка на сайте.</p>
+</section>
+
+<section id="app-ustanovka">
+  <h2 class="sec"><small>Телефон</small>Установка и вход</h2>
+  <ol class="steps">
+    <li>Получите у мастера или в конторе файл приложения «Лесовод» (APK) и установите его. Android спросит разрешение на установку из этого источника, разрешите.</li>
+    <li>Откройте приложение, введите логин и PIN-код, которые выдала контора, нажмите <b class="ui">Войти</b>.</li>
+    <li>Разрешите доступ к местоположению: без него не работает «Вы здесь» на карте и метки.</li>
+  </ol>
+  <div class="phones" id="ph-vhod">
+    <figure><img src="img/p-m01-vhod.jpg" alt="Экран входа" loading="lazy"><figcaption>Экран входа. «Запомнить меня» оставьте включённым.</figcaption></figure>
+    <figure><img src="img/p-m01-vhod-zapolnen.jpg" alt="Логин и PIN введены" loading="lazy"><figcaption>Под PIN подсказка: забытый PIN сбрасывает лесничий на сайте.</figcaption></figure>
+  </div>
+  <div class="note"><b>Обновления приходят сами.</b> Когда выходит новая версия, при запуске приложение предложит обновиться. Соглашайтесь, иначе цифры на телефоне могут разойтись с сайтом.</div>
+</section>
+
+<section id="app-smena">
+  <h2 class="sec"><small>Телефон</small>Смена и отметка</h2>
+  <p>Первый экран после входа. Сверху крупные кнопки для вашей должности, ниже задачи на сегодня. Внизу меню; у разных должностей оно разное.</p>
+  <div class="tw"><table class="t">
+    <tr><th>Должность</th><th>Кнопки на «Смене»</th></tr>
+    <tr><td>Мастер и выше</td><td>Отметиться, Мои задачи, Остатки, Отчёт за день</td></tr>
+    <tr><td>Вальщик, лесоруб</td><td>Отметиться, Мои задачи, Отчёт за день, Проба</td></tr>
+    <tr><td>Тракторист</td><td>Отметиться, Мои задачи, Отчёт за день, Трелёвка</td></tr>
+  </table></div>
+  <ol class="steps">
+    <li>Утром нажмите <b class="ui">Отметиться</b> и выберите: работаю, не работаю или больничный. Отметка сама попадёт в табель на сайте.</li>
+    <li>Когда задача выполнена, нажмите под ней <b class="ui">Готово</b>.</li>
+    <li>Колокольчик вверху показывает уведомления: задачи, ответы на ваши заметки, у мастера ещё освоение делянок и сроки.</li>
+    <li>Оранжевая кнопка <b class="ui">+</b> внизу справа открывает быстрые действия: заметка, а также остатки (мастеру), трелёвка и поломка (трактористу).</li>
+  </ol>
+  <div class="phones" id="ph-smena">
+    <figure><img src="img/p-m02-smena.jpg" alt="Смена у мастера" loading="lazy"><figcaption>«Смена» у мастера.</figcaption></figure>
+    <figure><img src="img/p-m03-otmetka.jpg" alt="Отметка" loading="lazy"><figcaption>Отметка: работаю, не работаю, больничный.</figcaption></figure>
+    <figure><img src="img/p-w01-smena-valshik.jpg" alt="Смена у вальщика" loading="lazy"><figcaption>«Смена» у вальщика: кнопка «Проба» и задачи.</figcaption></figure>
+    <figure><img src="img/p-t01-smena-traktorist.jpg" alt="Смена у тракториста" loading="lazy"><figcaption>«Смена» у тракториста: кнопка «Трелёвка».</figcaption></figure>
+  </div>
+</section>
+
+<section id="app-ostatki">
+  <h2 class="sec"><small>Телефон</small>Остатки по делянке</h2>
+  <span class="who">Мастер, пом. лесничего, лесничий</span>
+  <ol class="steps">
+    <li>Внизу нажмите <b class="ui">Остатки</b>. Сразу виден список делянок: сверху <b>«Мои»</b> (где работает ваша бригада или ваши задачи), ниже <b>«Все активные»</b>. У каждой цветной процент освоения и сколько ещё можно до 110%.</li>
+    <li>Нажмите делянку. Если нужной нет, найдите её поиском по кварталу или названию.</li>
+  </ol>
+  <p>Сверху карточка «Освоение делянки» с теми же процентами, что на сайте, и сколько ещё можно заготовить до 100% и до 110%. Ниже по каждой породе два остатка: <b>по наряду</b> и <b>по ЕГАИС</b>, каждый со своим коридором ±10%. Поле «Прикинуть» показывает, каким станет процент после планируемой заготовки.</p>
+  <div class="tw"><table class="t">
+    <tr><th>Цвет процента</th><th>Значит</th></tr>
+    <tr><td><span class="lvl l-ok">зелёный</span></td><td>до 90%, работать дальше</td></tr>
+    <tr><td><span class="lvl l-am">жёлтый</span></td><td>90–110%, подходит к лимиту, заканчивать</td></tr>
+    <tr><td><span class="lvl l-red">красный</span></td><td>больше 110%, переруб, остановить заготовку</td></tr>
+  </table></div>
+  <div class="phones" id="ph-ostatki">
+    <figure><img src="img/p-m04-moi-delyanki.jpg" alt="Список делянок" loading="lazy"><figcaption>Список делянок с процентом и «до 110%». Кв.35 красным: переруб.</figcaption></figure>
+    <figure><img src="img/p-m06-ostatki-rezultat.jpg" alt="Освоение делянки" loading="lazy"><figcaption>Делянка кв.43: освоено 82%, можно ещё 206,78 м³ до 100%.</figcaption></figure>
+    <figure><img src="img/p-m07-ostatki-porody.jpg" alt="Остатки по породам" loading="lazy"><figcaption>Осина: остаток по наряду и по ЕГАИС, круг освоения.</figcaption></figure>
+    <figure><img src="img/p-m09-ostatki-pererub.jpg" alt="Итого по породе" loading="lazy"><figcaption>Итог по породе и предупреждение «ЕГАИС превышает наряд».</figcaption></figure>
+  </div>
+  <h3>Кубатурник</h3>
+  <p>Подсчёт объёма круглого леса по диаметрам. Выберите длину бревна, внесите количество по ступеням толщины. Вкладка «Сводка по ступеням» даёт таблицу «Диаметр / кол-во / объём». Кнопка <b class="ui">Добавить в отчёт</b> переносит посчитанный объём в «Отчёт о работе».</p>
+  <div class="phones" id="ph-kub"><figure><img src="img/p-m10-kubaturnik.jpg" alt="Кубатурник" loading="lazy"><figcaption>Кубатурник: сначала длина бревна.</figcaption></figure></div>
+</section>
+
+<section id="app-karta">
+  <h2 class="sec"><small>Телефон</small>Карта и метки</h2>
+  <p>На карте кварталы, выделы, делянки (цветом по статусу или виду работ) и лесокультуры. Кнопка местоположения показывает «Вы здесь».</p>
+  <ul>
+    <li><b>Метка</b>: долгое нажатие на карте, выберите тип (ветровал, дорога, склад, граница и др.), добавьте фото и текст. Метки видит контора на сайте в «Заметках» и может сделать из метки задачу.</li>
+    <li><b>Слои</b> (кнопка со стопкой листов): кварталы, выделы, делянки, лесные культуры, мои задачи, мои метки, склады, спутниковый снимок; цвет выделов по видам работ или по статусу.</li>
+    <li><b>Инструменты</b> (кнопка с линейкой): линейка и площадь, обмер обходом (идёте по границе, программа считает площадь), мои задачи.</li>
+    <li>Нажмите делянку на карте: в карточке её история и кнопка <b class="ui">Остатки</b>, которая сразу открывает остатки этой делянки.</li>
+  </ul>
+  <div class="phones" id="ph-karta">
+    <figure><img src="img/p-m11-karta.jpg" alt="Карта" loading="lazy"><figcaption>Карта: лесничество, поиск, инструменты, слои, «Вы здесь».</figcaption></figure>
+    <figure><img src="img/p-m12-karta-sloi.jpg" alt="Слои" loading="lazy"><figcaption>Слои и цвет выделов.</figcaption></figure>
+    <figure><img src="img/p-m13-karta-instrumenty.jpg" alt="Инструменты" loading="lazy"><figcaption>Инструменты: линейка и площадь, обмер обходом, мои задачи.</figcaption></figure>
+  </div>
+</section>
+
+<section id="app-otchet">
+  <h2 class="sec"><small>Телефон</small>Отчёт, заметки, пробы</h2>
+  <h3>Отчёт о работе</h3>
+  <ol class="steps">
+    <li>Нажмите <b class="ui">Отчёт за день</b> на «Смене» или <b class="ui">Ещё</b> → <b class="ui">Отчёт</b>.</li>
+    <li>Если на сегодня есть задача, тип работы и делянка уже подставлены (надпись «Подставлено из задачи…»). Проверьте.</li>
+    <li>Если подставлять нечего, выберите тип работы и где велась работа: <b class="ui">Делянка</b>, <b class="ui">Лесные культуры</b> или <b class="ui">Вручную</b>.</li>
+    <li>Коротко напишите, что сделано, при необходимости объём и фото, нажмите <b class="ui">Отправить отчёт</b>.</li>
+  </ol>
+  <h3>Заметка начальнику</h3>
+  <p>«Заметки» → напишите текст («в кв.42 выд.3 повалено ветром ~10 деревьев»), выберите получателя и нажмите <b class="ui">Отправить</b>. Заметка придёт на сайт в «Заметки», мастеру в телефон во «Входящие». Ответ конторы придёт уведомлением и будет виден под заметкой в «Мои заметки».</p>
+  <h3>Проба рубок ухода</h3>
+  <span class="who">Вальщик, лесоруб</span>
+  <p>Кнопка «Проба» на «Смене» или «Ещё» → «Проба рубок ухода»: найдите участок, внесите укладки хвороста прямо в лесу. Вкладка «Мои пробы» показывает отправленные. Пробы попадут на сайт в «Рубки ухода».</p>
+  <div class="phones" id="ph-rabochiy">
+    <figure><img src="img/p-w04-otchet.jpg" alt="Отчёт с подстановкой" loading="lazy"><figcaption>Отчёт вальщика: работа и делянка подставлены из задачи.</figcaption></figure>
+    <figure><img src="img/p-m14-zametki.jpg" alt="Заметки" loading="lazy"><figcaption>Заметки: новая, мои и входящие (у мастера).</figcaption></figure>
+    <figure><img src="img/p-w03-proba.jpg" alt="Проба рубок ухода" loading="lazy"><figcaption>Проба рубок ухода.</figcaption></figure>
+    <figure><img src="img/p-w02-eshche-valshik.jpg" alt="Ещё у вальщика" loading="lazy"><figcaption>«Ещё» у вальщика.</figcaption></figure>
+  </div>
+</section>
+
+<section id="app-master">
+  <h2 class="sec"><small>Телефон</small>Меню мастера</h2>
+  <span class="who">Мастер, пом. лесничего, лесничий</span>
+  <p>Кроме общего, в меню мастера есть:</p>
+  <ul>
+    <li><b>Инвентаризация лесных культур</b> и <b>Перевод лесных культур</b>: запись в журнал участка прямо в лесу.</li>
+    <li><b>Табель — ручной ввод</b>: у каждого человека кнопки «Работал», «Не работал», «Больничный», «Отпуск», «Выходной»; есть «Заполнить по бригаде». В конце <b class="ui">Сохранить табель</b>.</li>
+    <li><b>Уведомления</b>: освоение делянок (90/100/110%), сроки, заметки рабочих.</li>
+  </ul>
+  <div class="phones" id="ph-master">
+    <figure><img src="img/p-m15-eshche.jpg" alt="Ещё у мастера" loading="lazy"><figcaption>«Ещё» у мастера.</figcaption></figure>
+    <figure><img src="img/p-m17-inventarizatsiya.jpg" alt="Инвентаризация" loading="lazy"><figcaption>Инвентаризация: поиск участка, фильтр по году.</figcaption></figure>
+    <figure><img src="img/p-m19-tabel.jpg" alt="Табель" loading="lazy"><figcaption>Табель с телефона.</figcaption></figure>
+    <figure><img src="img/p-m20-uvedomleniya.jpg" alt="Уведомления" loading="lazy"><figcaption>Уведомления о перерубе и лимите.</figcaption></figure>
+  </div>
+  <div class="tw"><table class="t">
+    <tr><th>Что</th><th>Рабочие</th><th>Тракторист</th><th>Мастер и выше</th></tr>
+    <tr><td>Отметка, задачи, отчёт, карта, отправка заметок</td><td>да</td><td>да</td><td>да</td></tr>
+    <tr><td>Пробы рубок ухода</td><td>ввод (вальщик, лесоруб)</td><td>нет</td><td>просмотр</td></tr>
+    <tr><td>Трелёвка</td><td>нет</td><td>да</td><td>нет</td></tr>
+    <tr><td>Поломка техники</td><td>нет</td><td>да (и харвестерщик)</td><td>нет</td></tr>
+    <tr><td>Остатки, кубатурник, входящие заметки, лесокультуры, табель</td><td>нет</td><td>нет</td><td>да</td></tr>
+  </table></div>
+</section>
+
+<section id="app-profil">
+  <h2 class="sec"><small>Телефон</small>Профиль и тема</h2>
+  <p>«Ещё» → «Профиль». Здесь:</p>
+  <ul>
+    <li><b>Тема</b>: <b class="ui">Тёмная</b> (стоит сразу, лучше читается в лесу и бережёт батарею), <b class="ui">Светлая</b> или <b class="ui">Как в системе</b>.</li>
+    <li><b>Отправка данных</b>: «отправлено», если всё дошло до сервера, или сколько записей ещё ждут связи.</li>
+    <li><b>Карта</b>: лесничество по умолчанию, <b class="ui">Скачать карту</b> и <b class="ui">Подготовиться к выезду</b> (см. ниже).</li>
+    <li><b>Руководство</b>: открывает это руководство.</li>
+  </ul>
+  <div class="phones" id="ph-profil">
+    <figure><img src="img/p-m21-profil.jpg" alt="Профиль" loading="lazy"><figcaption>Профиль: кто вошёл, тема.</figcaption></figure>
+    <figure><img src="img/p-m21b-profil-niz.jpg" alt="Профиль ниже" loading="lazy"><figcaption>Отправка данных и карта.</figcaption></figure>
+    <figure><img src="img/p-m23-svetlaya-tema.jpg" alt="Светлая тема" loading="lazy"><figcaption>Так выглядит светлая тема.</figcaption></figure>
+  </div>
+</section>
+
+<section id="app-offline">
+  <h2 class="sec"><small>Телефон</small>Работа без связи</h2>
+  <h3>Перед выездом: «Подготовиться к выезду»</h3>
+  <p>Пока есть интернет, нажмите <b class="ui">Подготовиться к выезду</b> (в «Остатках» или в «Профиле»). Телефон одним нажатием сохранит список делянок, остатки по каждой своей делянке (если своих нет, по всем активным), задачи и границы карты лесничества. Появится надпись «Готово: N делянок, данные на чч:мм».</p>
+  <p>В лесу без связи остатки открываются из сохранённого, сверху жёлтая надпись «Данные на ДД.ММ чч:мм (нет связи)»: цифры на этот момент, новое с тех пор в них не вошло.</p>
+  <div class="phones" id="ph-offline">
+    <figure><img src="img/p-m21c-podgotovka.jpg" alt="Подготовка" loading="lazy"><figcaption>«Готово: 6 делянок, данные на 22:35».</figcaption></figure>
+    <figure><img src="img/p-m22-ostatki-bez-svyazi.jpg" alt="Без связи" loading="lazy"><figcaption>Остатки без связи: «Данные на 01.10 22:35 (нет связи)».</figcaption></figure>
+    <figure><img src="img/p-m22b-ostatki-bez-svyazi-detal.jpg" alt="Делянка без связи" loading="lazy"><figcaption>Делянка открывается и без связи.</figcaption></figure>
+  </div>
+  <h3>Что отправится само</h3>
+  <p>Отчёт, отметку, задачу «Готово», трелёвку, пробу, поломку, заметку, метку на карте и записи по лесокультурам можно сделать без интернета. Приложение сохранит их и отправит, когда появится связь. Пока что-то ждёт отправки, видна надпись <b>«Не отправлено: N»</b>, а в «Профиле» → «Отправка данных» сколько осталось. Не удаляйте приложение и не выходите из учётной записи, пока там не станет «отправлено».</p>
+</section>
+
+<section id="slova">
+  <h2 class="sec"><small>Справка</small>Словарь</h2>
+  <dl class="gl">
+    <dt>МДО</dt><dd>Материально-денежная оценка лесосеки. Из неё «Лесовод» берёт лимиты по породам и сортиментам.</dd>
+    <dt>ЛРБ</dt><dd>Лесорубочный билет.</dd>
+    <dt>Наряд</dt><dd>Наряд-задание: сколько и чего заготовлено по документам лесхоза.</dd>
+    <dt>ЕГАИС</dt><dd>Государственная система учёта древесины. «Лесовод» загружает из неё движение по складам.</dd>
+    <dt>ПЛС / ФЛС</dt><dd>Промежуточный и фактический лесосечный склад в ЕГАИС. Чтобы ЕГАИС учитывался, склад привязывают к делянке.</dd>
+    <dt>Освоение</dt><dd>Сколько процентов лимита делянки заготовлено. Берётся большее из нарядов и ЕГАИС.</dd>
+    <dt>Допуск ±10%</dt><dd>Разрешённое отклонение от лимита. Больше 110% — переруб.</dd>
+    <dt>ССР, ВСР, РР, УЗ…</dt><dd>Виды рубок: сплошная санитарная, выборочная санитарная, рубка реконструкции, уборка захламленности и т. д. Полный список в поле «Вид рубки».</dd>
+    <dt>Л/к</dt><dd>Лесные культуры.</dd>
+    <dt>Перевод</dt><dd>Перевод лесных культур в покрытые лесом земли (по полевой карточке).</dd>
+    <dt>Пресет</dt><dd>Сохранённый состав комиссии, чтобы не вводить его заново. Список общий для карточки делянки и акта освидетельствования.</dd>
+    <dt>Корзина</dt><dd>Место, где удалённая делянка или участок хранится 30 дней, пока его можно вернуть.</dd>
+  </dl>
+</section>
+
+<section id="problemy">
+  <h2 class="sec"><small>Справка</small>Если что-то не так</h2>
+  <div class="tw"><table class="t">
+    <tr><th>Что случилось</th><th>Что сделать</th></tr>
+    <tr><td>Забыл PIN</td><td>Попросите лесничего: «Сотрудники» → ваша карточка → «Сбросить PIN».</td></tr>
+    <tr><td>Случайно удалили делянку или участок</td><td>Откройте «Корзину» и нажмите «Вернуть» (в течение 30 дней).</td></tr>
+    <tr><td>После загрузки ЕГАИС или таксации всё сломалось</td><td>Администратор может скачать копию базы до загрузки в «Настройки» → «Копии базы».</td></tr>
+    <tr><td>Остаток на телефоне не совпадает с сайтом</td><td>Обновите приложение до последней версии. Проверьте, что выбрана та же делянка, а не другая с тем же выделом.</td></tr>
+    <tr><td>Освоение по ЕГАИС подозрительно мало</td><td>Откройте «Разбор ЕГАИС» и привяжите склады делянки. Загрузите выгрузку за весь год заново.</td></tr>
+    <tr><td>Ведомость текущих изменений пустая</td><td>Раскройте «Что есть в базе»: обычно не загружена таксация или книга л/к, или выбран не тот год.</td></tr>
+    <tr><td>Отчёт с телефона не дошёл</td><td>Посмотрите «Профиль» → «Отправка данных». Если «Не отправлено», найдите место со связью и откройте приложение: отправка начнётся сама.</td></tr>
+    <tr><td>В лесу нет связи, а нужны остатки</td><td>Заранее нажмите «Подготовиться к выезду». Без подготовки остатки без связи не открыть.</td></tr>
+    <tr><td>В телефоне всё слишком светлое или тёмное</td><td>«Ещё» → «Профиль» → «Тема».</td></tr>
+    <tr><td>На карте делянка закрашена целым выделом</td><td>Загрузите контур лесосеки в карточке делянки (GeoJSON или shp из QGIS).</td></tr>
+  </table></div>
+</section>
+
+</main>
+</div>
+
+<div id="lb" hidden><img alt=""></div>
+<script>
+(function(){
+  var lb=document.getElementById('lb'), im=lb.querySelector('img');
+  document.addEventListener('click',function(e){
+    var t=e.target;
+    if(t.tagName==='IMG' && t.closest('figure')){ im.src=t.src; im.alt=t.alt; lb.hidden=false; }
+    else if(!lb.hidden && t.closest('#lb')){ lb.hidden=true; im.src=''; }
+  });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ lb.hidden=true; } });
+})();
+</script>
