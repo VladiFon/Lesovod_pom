@@ -526,11 +526,11 @@ function UchastokDetail({ uchastokId, onListChanged }) {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Безвозвратно удалить участок вместе со всем журналом мероприятий?")) return;
+    if (!window.confirm("Удалить участок вместе с журналом мероприятий? Он попадёт в «Корзину» (Прочее → Корзина), оттуда его можно вернуть в течение 30 дней.")) return;
     setDeleting(true);
     try {
       await api.delete(`/lesokultury/uchastki/${uchastokId}`);
-      toast.show({ tone: "success", title: "Участок удалён" });
+      toast.show({ tone: "success", title: "Участок удалён", description: "Вернуть можно в «Корзине» 30 дней" });
       onListChanged(true);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });

@@ -10,6 +10,8 @@ import Modal from "../components/Modal.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
 import SvodkiModal from "./RaskhodSvodki.jsx";
+import { useCan } from "../auth.jsx";
+import { useScreenParam } from "../nav.js";
 
 /**
  * Экран "Расход / ЕГАИС" (screens/raskhod/) — Этап 9 плана.
@@ -1434,6 +1436,7 @@ function DelyankaEgaisSummary({ check, onOpenReview }) {
 
 function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
   const toast = useToast();
+  const can = useCan();
   const [balance, setBalance] = useState(null);
   const [naryady, setNaryady] = useState([]);
   const [egais, setEgais] = useState(null);
@@ -1592,7 +1595,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
               + Новый наряд
             </Button>
           )}
-          {view === "egais" && egaisPorodyCount > 0 && (
+          {view === "egais" && egaisPorodyCount > 0 && can("egais.delete") && (
             <Button variant="secondary" size="sm" onClick={handleDeleteEgais}>
               Удалить данные ЕГАИС
             </Button>
@@ -1704,8 +1707,12 @@ function SummaryModal({ open, onClose, delyankaId, delyankaLabel }) {
 
 export default function Raskhod() {
   const toast = useToast();
+  const can = useCan();
   const [delyanki, setDelyanki] = useState([]);
+  // Выбранная делянка — в адресе (#/raskhod?d=5): переживает F5 и
+  // открывается кнопкой «Расход» из карточки делянки.
   const [delyankaId, setDelyankaId] = useState("");
+  const [delyankaParam, setDelyankaParam] = useScreenParam("raskhod", "d");
   const [items, setItems] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1745,8 +1752,13 @@ export default function Raskhod() {
     loadEgaisReviewSummary();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (String(delyankaParam || "") !== String(delyankaId || "")) handleDelyankaChange(delyankaParam);
+  }, [delyankaParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleDelyankaChange = async (id) => {
     setDelyankaId(id);
+    setDelyankaParam(id);
     setSelectedItem(null);
     setItems([]);
     if (!id) return;
@@ -1754,6 +1766,8 @@ export default function Raskhod() {
     try {
       const res = await api.get(`/delyanki/${id}`);
       setItems(res.items || []);
+      // Один выдел — сразу открываем его баланс, без лишнего клика.
+      if ((res.items || []).length === 1) setSelectedItem(res.items[0]);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось загрузить выделы делянки", description: e.message });
     } finally {
@@ -1772,7 +1786,7 @@ export default function Raskhod() {
 
   const handleDeleteDelyankaEgais = async () => {
     const label = delyanki.find((d) => String(d.id) === String(delyankaId))?.nazvanie || `Делянка №${delyankaId}`;
-    if (!window.confirm(`Удалить данные выгрузки ЕГАИС по ВСЕМ выделам делянки «${label}»? Наряды-задания не затронет.`)) return;
+    if (!window.confirm(`Удалить данные выгрузки ЕГАИС по ВСЕМ выделам делянки «${label}»? Наряды-задания не затронет. Перед удалением сохранится автокопия базы.`)) return;
     try {
       const res = await api.delete(`/raskhod/delyanki/${delyankaId}/egais`);
       toast.show({
@@ -1851,7 +1865,7 @@ export default function Raskhod() {
             <Button variant="secondary" onClick={() => setSvodkiOpen(true)}>
               📑 Сводки прихода/расхода
             </Button>
-            {delyankaId && (
+            {delyankaId && can("egais.delete") && (
               <Button variant="secondary" onClick={handleDeleteDelyankaEgais}>
                 🗑️ Удалить ЕГАИС по делянке
               </Button>

@@ -10,6 +10,7 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
+import { useScreenParam } from "../nav.js";
 
 /**
  * Экран "Акты освидетельствования" (screens/inspection/) — Этап 10 плана.
@@ -663,7 +664,10 @@ export default function Inspection() {
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState(null);
+  // Выбранная делянка — в адресе (#/inspection?d=5), см. nav.js.
+  const [selectedParam, setSelectedParam] = useScreenParam("inspection", "d");
+  const selectedId = selectedParam ? Number(selectedParam) : null;
+  const setSelectedId = (id) => setSelectedParam(id ?? "");
   const [blankLoading, setBlankLoading] = useState(false);
   const [search, setSearch] = useState("");
 

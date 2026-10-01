@@ -7,7 +7,6 @@ const MAX_TABS = 8;
 
 const GROUP_OF = {};
 NAV_GROUPS.forEach((g) => g.items.forEach(([k, label]) => (GROUP_OF[k] = { label, group: g.title })));
-GROUP_OF.gallery = { label: "Витрина компонентов", group: "прочее" };
 
 /**
  * Рабочая область с вкладками (дизайн «Вкладки - новый дизайн»):

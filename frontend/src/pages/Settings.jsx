@@ -6,7 +6,7 @@ import TextField from "../components/TextField.jsx";
 import Modal from "../components/Modal.jsx";
 import DataTable from "../components/DataTable.jsx";
 import { useToast } from "../components/Toast.jsx";
-import { api, ApiError } from "../api/client.js";
+import { api, ApiError, API_BASE_URL } from "../api/client.js";
 
 /**
  * Settings — экран "Настройки" (Этап 4, первый переписанный экран).
@@ -519,6 +519,93 @@ function UsersCard() {
 // /api/auth/workers), по решению пользователя не дублировать UI в двух
 // местах.
 
+/**
+ * Автокопии базы (backend app/korzina.py): сервер сам делает копию перед
+ * импортом ЕГАИС, загрузкой таксации, книги культур и карточек перевода;
+ * хранятся последние 10. Здесь — список, «Сделать копию сейчас» и
+ * скачивание (только администратор).
+ */
+function BackupsCard() {
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      setData(await api.get("/korzina/backups"));
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось получить список копий", description: e.message });
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const makeNow = async () => {
+    setBusy(true);
+    try {
+      await api.post("/korzina/backups");
+      toast.show({ tone: "success", title: "Копия базы сохранена" });
+      load();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сделать копию", description: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const download = async (file) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/korzina/backups/${encodeURIComponent(file)}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("lesovod_token")}` },
+      });
+      if (!res.ok) throw new Error(`Ошибка сервера (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось скачать копию", description: e.message });
+    }
+  };
+
+  const items = data?.items || [];
+  return (
+    <Card
+      title="Копии базы"
+      subtitle={`Сервер сам сохраняет копию перед импортом ЕГАИС, таксации, книги культур и карточек перевода. Хранятся последние ${data?.hranit ?? 10}.`}
+      actions={
+        <Button variant="secondary" size="sm" loading={busy} onClick={makeNow}>
+          Сделать копию сейчас
+        </Button>
+      }
+    >
+      {items.length === 0 ? (
+        <p className="text-sm text-muted">Копий пока нет — первая появится при следующем импорте или по кнопке выше.</p>
+      ) : (
+        <div className="flex flex-col divide-y divide-border">
+          {items.map((it) => (
+            <div key={it.file} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <div className="min-w-0">
+                <div className="font-mono text-xs text-ink truncate">{it.file}</div>
+                <div className="text-xs text-muted">
+                  {it.created} · {it.size_mb} МБ
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => download(it.file)}>
+                ↓ Скачать
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function Settings({ currentUser }) {
   const toast = useToast();
 
@@ -783,6 +870,7 @@ export default function Settings({ currentUser }) {
       <MobileCard />
 
       {currentUser?.role === "admin" && <UsersCard />}
+      {currentUser?.role === "admin" && <BackupsCard />}
     </div>
   );
 }

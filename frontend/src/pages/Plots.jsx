@@ -13,6 +13,8 @@ import { useToast } from "../components/Toast.jsx";
 import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.jsx";
 import KonturBlock from "../components/KonturBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
+import { useCan } from "../auth.jsx";
+import { openScreen, useScreenParam } from "../nav.js";
 
 /**
  * Экран "Делянки" (screens/plots/) — Этап 5 плана.
@@ -554,6 +556,7 @@ function VidRubkiSelect({ item, vidy, onChange }) {
 
 function PlotDetail({ delyankaId, onListChanged }) {
   const toast = useToast();
+  const can = useCan();
   const [loading, setLoading] = useState(true);
   const [delyanka, setDelyanka] = useState(null);
   const [items, setItems] = useState([]);
@@ -799,11 +802,11 @@ function PlotDetail({ delyankaId, onListChanged }) {
 
   const handleDelete = async () => {
     const name = delyanka?.nazvanie || `делянку №${delyankaId}`;
-    if (!window.confirm(`Безвозвратно удалить ${name} вместе со всеми выделами? Действие нельзя отменить.`)) return;
+    if (!window.confirm(`Удалить ${name} вместе со всеми выделами и нарядами? Она попадёт в «Корзину» (Прочее → Корзина), оттуда её можно вернуть в течение 30 дней.`)) return;
     setBusyAction("delete");
     try {
       await api.delete(`/delyanki/${delyankaId}`);
-      toast.show({ tone: "success", title: "Делянка удалена" });
+      toast.show({ tone: "success", title: "Делянка удалена", description: "Вернуть можно в «Корзине» 30 дней" });
       onListChanged(true);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
@@ -853,14 +856,24 @@ function PlotDetail({ delyankaId, onListChanged }) {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={busyAction !== null}
-              onClick={() => setActivateModalOpen(true)}
-            >
-              Сделать активной
+            {/* Перекрёстные переходы (анализ удобства 01.10.2026): та же
+                делянка сразу открывается в «Расходе» и «Инспекции». */}
+            <Button variant="ghost" size="sm" onClick={() => openScreen("raskhod", { d: delyanka.id })}>
+              📊 Расход
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => openScreen("inspection", { d: delyanka.id })}>
+              🔍 Инспекция
+            </Button>
+            {delyanka.status !== "активна" && can("delyanka.edit") && (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={busyAction !== null}
+                onClick={() => setActivateModalOpen(true)}
+              >
+                Сделать активной
+              </Button>
+            )}
             <Button
               variant="secondary"
               size="sm"
@@ -870,15 +883,17 @@ function PlotDetail({ delyankaId, onListChanged }) {
             >
               В архив
             </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              loading={busyAction === "delete"}
-              disabled={busyAction !== null && busyAction !== "delete"}
-              onClick={handleDelete}
-            >
-              Удалить
-            </Button>
+            {can("delyanka.delete") && (
+              <Button
+                variant="danger"
+                size="sm"
+                loading={busyAction === "delete"}
+                disabled={busyAction !== null && busyAction !== "delete"}
+                onClick={handleDelete}
+              >
+                Удалить
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1189,7 +1204,11 @@ export default function Plots() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
+  // Выбранная делянка — в адресе (#/plots?d=5): переживает F5, ссылку
+  // можно переслать.
+  const [selectedParam, setSelectedParam] = useScreenParam("plots", "d");
+  const selectedId = selectedParam ? Number(selectedParam) : null;
+  const setSelectedId = (id) => setSelectedParam(id ?? "");
   const [importOpen, setImportOpen] = useState(false);
 
   const loadList = useCallback(async () => {

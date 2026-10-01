@@ -94,7 +94,14 @@ def login(body: LoginIn, conn=Depends(get_conn)):
     if user is None:
         raise HTTPException(401, "Неверный логин или пароль, либо учётная запись отключена")
     token, expires_at = webext.create_session(conn, user["id"])
-    return {"token": token, "expires_at": expires_at, "user": user}
+    return {"token": token, "expires_at": expires_at, "user": _s_pravami(user)}
+
+
+def _s_pravami(user):
+    """Пользователь + список разрешённых ему действий: сайт по нему прячет
+    кнопки, на которые у роли нет прав (сервер всё равно проверяет сам)."""
+    return {**user, "permissions": sorted(a for a, roli in webext.PERMISSIONS.items()
+                                          if user.get("role") in roli)}
 
 
 @router.post("/logout")
@@ -111,7 +118,7 @@ def logout(user=Depends(get_current_user), conn=Depends(get_conn)):
 
 @router.get("/me")
 def me(user=Depends(get_current_user)):
-    return user
+    return _s_pravami(user)
 
 
 # --------------------------------------------------------------------------- #

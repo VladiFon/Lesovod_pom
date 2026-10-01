@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useCan } from "../auth.jsx";
 import { api } from "../api/client.js";
 import { pollTask } from "../hooks/useTaskPolling.js";
 import Card from "../components/Card.jsx";
@@ -82,11 +83,15 @@ function yesNo(value) {
 function UploadModalInline({ onDone }) {
   const toast = useToast();
   const [files, setFiles] = useState([]);
-  const [reset, setReset] = useState(true);
+  // По умолчанию — дополнить. Заменить весь справочник может только
+  // администратор, и перед этим переспрашиваем (анализ удобства 01.10.2026).
+  const can = useCan();
+  const [reset, setReset] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const handleUpload = async () => {
     if (files.length === 0) return;
+    if (reset && !window.confirm("Заменить ВЕСЬ справочник таксации? Прежние кварталы и выделы будут стёрты и загружены заново из выбранных файлов. Перед этим сохранится автокопия базы.")) return;
     setSubmitting(true);
     try {
       const formData = new FormData();
@@ -112,15 +117,15 @@ function UploadModalInline({ onDone }) {
         onChange={(e) => setFiles(Array.from(e.target.files || []))}
         className="text-sm text-ink file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-mint-soft file:text-pine file:font-semibold file:cursor-pointer"
       />
-      <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
+      {can("taxation.replace") && <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
         <input
           type="checkbox"
           checked={reset}
           onChange={(e) => setReset(e.target.checked)}
           className="h-4 w-4 rounded border-2 border-pine accent-pine cursor-pointer"
         />
-        Заменить справочник (снять — дополнить существующий)
-      </label>
+        Заменить весь справочник (обычно не нужно — без галочки дополняет)
+      </label>}
       <Button variant="secondary" size="sm" onClick={handleUpload} loading={submitting} disabled={files.length === 0}>
         ↑ Загрузить описание (.docx)
       </Button>

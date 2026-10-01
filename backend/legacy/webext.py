@@ -1739,7 +1739,17 @@ def purge_expired_sessions(conn):
 PERMISSIONS = {
     "delyanka.view": ("admin", "lesovod", "viewer"),
     "delyanka.edit": ("admin", "lesovod"),
+    # Удаление делянки/участка кладёт его в корзину на 30 дней
+    # (app/korzina.py) — вернуть может лесничий, стереть навсегда — только
+    # администратор. Замена всей таксации и удаление ЕГАИС по делянке —
+    # только администратор (анализ удобства 01.10.2026: опасные кнопки
+    # были видны любому сотруднику).
     "delyanka.delete": ("admin", "lesovod"),
+    "korzina.view": ("admin", "lesovod"),
+    "korzina.purge": ("admin",),
+    "backups.manage": ("admin",),
+    "taxation.replace": ("admin",),
+    "egais.delete": ("admin",),
     # Постановка задачи рабочему (work_plan) — тот же круг ролей, что и
     # редактирование делянки (лесничий/админ), временная замена
     # полноценного экрана "План работ" (Фаза 4 плана доработки), см.

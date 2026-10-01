@@ -31,6 +31,7 @@ from app.routers import (
     delyanki,
     documents,
     inspection,
+    korzina as korzina_router,
     lesokultury,
     map as map_router,
     notes,
@@ -114,3 +115,4 @@ app.include_router(attendance.router)
 app.include_router(notes.router)
 app.include_router(notifications.router)
 app.include_router(trelevka.router)
+app.include_router(korzina_router.router)

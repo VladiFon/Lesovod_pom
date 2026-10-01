@@ -25,6 +25,7 @@ import config as legacy_config
 import delyanka
 import tehkarta_generator
 
+from app import korzina
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
@@ -177,8 +178,13 @@ def delete_delyanka(delyanka_id: int, user=Depends(require_permission("delyanka.
     d, _ = delyanka.get_delyanka_full(conn, delyanka_id)
     if d is None:
         raise HTTPException(404, "Делянка не найдена")
+    # Сначала в корзину (можно вернуть 30 дней), потом прежнее удаление.
+    snap = korzina.snapshot_delyanka(conn, delyanka_id)
+    korzina.polozhit(conn, "delyanka", delyanka_id, d.get("nazvanie"),
+                     snap, user["login"])
+    korzina.otvyazat(conn, snap)
     delyanka.delete_delyanka(conn, delyanka_id)
-    return {"ok": True}
+    return {"ok": True, "v_korzine": True}
 
 
 @router.post("/{delyanka_id}/archive")

@@ -18,6 +18,7 @@ import db as legacy_db
 from app.auth import require_office_writer_or_master
 from app.auth import get_current_user
 from app.auth import require_permission
+from app import korzina
 from app.database import get_conn
 
 router = APIRouter(prefix="/api/lesokultury", tags=["lesokultury"])
@@ -80,8 +81,13 @@ def delete_uchastok(uchastok_id: int, conn=Depends(get_conn), _user=Depends(requ
     u = legacy_db.get_lesokultury_uchastok(conn, uchastok_id)
     if u is None:
         raise HTTPException(404, "Участок не найден")
+    nazvanie = f"Кв. {u.get('kvartal') or '—'} / Выд. {u.get('vydel') or '—'}" + (f", {u.get('god_sozdaniya')} г." if u.get("god_sozdaniya") else "")
+    snap = korzina.snapshot_uchastok(conn, uchastok_id)
+    korzina.polozhit(conn, "lesokultury_uchastok", uchastok_id, nazvanie,
+                     snap, _user["login"])
+    korzina.otvyazat(conn, snap)
     legacy_db.delete_lesokultury_uchastok(conn, uchastok_id)
-    return {"ok": True}
+    return {"ok": True, "v_korzine": True}
 
 
 class ObedinitIn(BaseModel):
@@ -289,6 +295,7 @@ async def import_kniga_apply(
 ):
     """Та же сверка + запись. skip — JSON-список ключей строк, которые не
     загружать. Повторная загрузка той же книги дублей не создаёт."""
+    korzina.avtokopiya(conn, "pered_knigoy_lk")
     plan = await _kniga_plan(conn, file, lesnichestvo, god_from, god_to, overrides)
     try:
         skip_keys = json.loads(skip) if skip else []
@@ -333,6 +340,7 @@ async def kartochki_perevoda_apply(
 ):
     """Та же сверка + запись таксации в переводы отчётного года. Повторная
     загрузка тех же карточек только перезаписывает те же значения."""
+    korzina.avtokopiya(conn, "pered_kartochkami")
     plan = await _kartochki_plan(conn, file, god, lesnichestvo)
     try:
         skip_keys = json.loads(skip) if skip else []

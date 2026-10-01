@@ -20,12 +20,15 @@ export const NAV_GROUPS = [
       ["worker_notes", "Заметки"],
     ],
   },
-  { title: "прочее", items: [["ai_log", "ИИ-журнал"], ["archive", "Архив"], ["settings", "Настройки"]] },
+  { title: "прочее", items: [["ai_log", "ИИ-журнал"], ["archive", "Архив"], ["korzina", "Корзина"], ["settings", "Настройки"]] },
 ];
+
+// Пункты меню, которые видны не всем ролям (права — из /api/auth/me).
+export const NAV_PERMISSION = { korzina: "korzina.view" };
 
 const MONO = "'JetBrains Mono', monospace";
 
-export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, onLogout }) {
+export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, onLogout, permissions = [] }) {
   return (
     <nav className="w-[158px] shrink-0 h-screen flex flex-col overflow-y-auto" style={{ background: "#1a4331", color: "#eaf7ec" }}>
       <div style={{ padding: "18px 16px 14px" }}>
@@ -41,7 +44,7 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
             <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "#8fb79f", padding: "6px 8px 4px" }}>
               {group.title}
             </div>
-            {group.items.map(([key, label]) => {
+            {group.items.filter(([key]) => !NAV_PERMISSION[key] || permissions.includes(NAV_PERMISSION[key])).map(([key, label]) => {
               const isActive = key === activeKey;
               const isOpen = openKeys.includes(key);
               return (
@@ -69,14 +72,18 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
             })}
           </div>
         ))}
-        <button
-          type="button"
-          onClick={() => onNavigate?.("gallery")}
+        {/* Руководство для новых сотрудников (сайт + приложение) лежит
+            рядом с сайтом: frontend/public/guide/. «Витрина компонентов»
+            (служебный экран разработчика) из меню убрана. */}
+        <a
+          href="/guide/index.html"
+          target="_blank"
+          rel="noreferrer"
           className="text-left rounded-lg hover:!text-white"
-          style={{ marginTop: "auto", padding: "6px 8px", fontSize: 11.5, color: "#8fb79f", background: "transparent", border: 0, cursor: "pointer" }}
+          style={{ marginTop: "auto", padding: "6px 8px", fontSize: 12, color: "#bcefc5", textDecoration: "none" }}
         >
-          ⚙ Витрина компонентов
-        </button>
+          📖 Руководство
+        </a>
       </div>
 
       <div className="flex items-center justify-between" style={{ padding: "12px 14px", borderTop: "1px solid #235a41", gap: 6 }}>
