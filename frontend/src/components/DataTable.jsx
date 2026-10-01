@@ -12,6 +12,17 @@ import EmptyState from "./EmptyState.jsx";
  * selectable: включает столбец чекбоксов + selection/onSelectionChange
  * onRowClick(row): клик по строке (не по чекбоксу) — напр. открыть превью
  */
+// Даты из базы (ГГГГ-ММ-ДД [чч:мм:сс]) показываем как ДД.ММ.ГГГГ [чч:мм] —
+// один формат на всём сайте (анализ удобства 01.10.2026). Сортировка
+// по-прежнему по исходному значению.
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::\d{2})?)?$/;
+function ruDate(v) {
+  if (typeof v !== "string") return v;
+  const m = ISO_DATE.exec(v.trim());
+  if (!m) return v;
+  return `${m[3]}.${m[2]}.${m[1]}${m[4] ? ` ${m[4]}:${m[5]}` : ""}`;
+}
+
 export default function DataTable({
   columns,
   rows,
@@ -140,7 +151,7 @@ export default function DataTable({
                     )}
                     {columns.map((col) => (
                       <td key={col.key} className="px-4 py-2.5 text-ink text-[13.5px]">
-                        {col.render ? col.render(row) : row[col.key]}
+                        {col.render ? col.render(row) : ruDate(row[col.key])}
                       </td>
                     ))}
                   </tr>

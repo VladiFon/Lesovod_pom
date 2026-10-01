@@ -913,6 +913,7 @@ function PlotDetail({ delyankaId, onListChanged }) {
             </div>
             <p className="font-mono text-[10.5px] text-muted-2 mt-[3px]">
               {items.length} {pluralizeVydel(items.length)} · создана {formatDate(delyanka.created_at)}
+              {delyanka.updated_at ? ` · изменена ${formatDate(delyanka.updated_at)}${delyanka.updated_by ? ` (${delyanka.updated_by})` : ""}` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
