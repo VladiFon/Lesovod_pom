@@ -18,7 +18,8 @@ from app import legacy_bridge  # noqa: F401 — обязателен до import
 import secrets_store
 import config as legacy_config
 
-from app.database import init_db
+from app import signaly
+from app.database import get_connection, init_db
 from app.routers import (
     ai_log,
     archive,
@@ -84,6 +85,8 @@ def on_startup():
             pass
 
     threading.Thread(target=_warm_map_cache, daemon=True).start()
+    # Оповещения: освоение 90/100/110 % и сроки (app/signaly.py).
+    signaly.zapustit_fon(get_connection)
 
 
 @app.get("/api/health")

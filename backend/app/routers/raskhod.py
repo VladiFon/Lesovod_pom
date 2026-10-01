@@ -25,7 +25,7 @@ from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
 from app.auth import get_current_user, require_permission
 from app import svodka_raskhod
-from app import korzina
+from app import korzina, signaly
 import webext
 
 router = APIRouter(prefix="/api/raskhod", tags=["raskhod"])
@@ -168,6 +168,7 @@ def create_naryad(item_id: int, body: NaryadIn, user=Depends(require_permission(
         nomer_naryada=body.nomer_naryada, ploshad=body.ploshad,
         primechanie=body.primechanie, pozitsii=body.pozitsii,
     )
+    signaly.proverit(conn)
     return {"id": naryad_id}
 
 
@@ -239,6 +240,7 @@ def _run_import_egais(task_id: str, xlsx_path: str):
             "journal_rows_added": added,
             "journal_rows_replaced": save_stats.get("replaced_rows", 0),
         })
+        signaly.proverit(conn)  # новый факт ЕГАИС — проверить пороги освоения
     except Exception as e:  # noqa: BLE001
         webext.set_task_error(conn, task_id, str(e))
     finally:

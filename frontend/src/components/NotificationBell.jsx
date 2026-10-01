@@ -1,3 +1,4 @@
+import { openScreen } from "../nav.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "./Toast.jsx";
 import { api } from "../api/client.js";
@@ -24,6 +25,9 @@ const EVENT_META = {
   note: { icon: "📝", label: "Заметка", screen: "worker_notes" },
   proba: { icon: "🌲", label: "Проба ухода", screen: "uhody" },
   trelevka: { icon: "🚜", label: "Трелёвка", screen: null },
+  osvoenie: { icon: "📈", label: "Освоение делянки", screen: "raskhod", param: "d" },
+  srok: { icon: "⏰", label: "Срок", screen: "inspection", param: "d" },
+  otvet_na_zametku: { icon: "💬", label: "Ответ на заметку", screen: "worker_notes" },
 };
 
 function formatDateTime(s) {
@@ -104,8 +108,13 @@ export default function NotificationBell({ onNavigate }) {
 
   const handleClick = (item) => {
     markRead(item);
-    const screen = EVENT_META[item.event_type]?.screen;
-    if (screen && onNavigate) {
+    const meta = EVENT_META[item.event_type];
+    const screen = meta?.screen;
+    if (screen && meta.param && item.related_id) {
+      // Сразу на нужную делянку (адрес экрана, см. nav.js).
+      openScreen(screen, { [meta.param]: item.related_id });
+      setOpen(false);
+    } else if (screen && onNavigate) {
       onNavigate(screen);
       setOpen(false);
     }
