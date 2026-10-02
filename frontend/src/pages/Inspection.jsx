@@ -10,6 +10,7 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
+import { useScreenParam } from "../nav.js";
 
 /**
  * Экран "Акты освидетельствования" (screens/inspection/) — Этап 10 плана.
@@ -144,14 +145,30 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
       setForm(emptyActForm());
       setSelectedPreset("");
       setDraftPresetName(null);
+      // Всё, что уже известно (билет, площадь, вид рубки, комиссия
+      // делянки, лесничий, поля из прошлого акта), — сразу в форму.
+      api
+        .get(`/inspection/${delyankaId}/act-defaults`)
+        .then((d) => {
+          const { chleny, ...rest } = d || {};
+          setForm((f) => ({ ...f, ...rest, ...(chleny?.length ? { chleny_text: formatNamedList(chleny) } : {}) }));
+        })
+        .catch(() => {});
     }
-  }, [open]);
+  }, [open, delyankaId]);
 
   const applyPreset = (nazvanie) => {
     const p = presets.find((p) => p.nazvanie === nazvanie);
     if (!p) return;
+    // Пустые поля пресета не затирают уже подставленное (общий справочник:
+    // комиссия из карточки делянки хранит только председателя и членов).
     setForm((f) => ({
       ...f,
+      ...Object.fromEntries(Object.entries(presetToForm(p)).filter(([, v]) => v)),
+    }));
+  };
+
+  const presetToForm = (p) => ({
       predsedatel_dolzhnost: p.predsedatel_dolzhnost || "",
       predsedatel_fio: p.predsedatel_fio || "",
       chleny_text: formatNamedList(p.chleny),
@@ -170,8 +187,7 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
       sposob_ochistki: p.sposob_ochistki || "",
       rukovoditel_dolzhnost: p.rukovoditel_dolzhnost || "",
       rukovoditel_fio: p.rukovoditel_fio || "",
-    }));
-  };
+  });
 
   // Сохранение/удаление пресетов (Блок 5, PLAN_DORABOTKI, п. "создание/
   // удаление пресетов") — эндпоинты POST/DELETE /inspection/presets в
@@ -663,7 +679,10 @@ export default function Inspection() {
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState(null);
+  // Выбранная делянка — в адресе (#/inspection?d=5), см. nav.js.
+  const [selectedParam, setSelectedParam] = useScreenParam("inspection", "d");
+  const selectedId = selectedParam ? Number(selectedParam) : null;
+  const setSelectedId = (id) => setSelectedParam(id ?? "");
   const [blankLoading, setBlankLoading] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -744,7 +763,7 @@ export default function Inspection() {
                   ? `просрочен на ${-u.days} дн.`
                   : u?.level === "soon"
                     ? `через ${u.days} дн.`
-                    : r.srok_osvidetelstvovaniya;
+                    : `освид. до ${r.srok_osvidetelstvovaniya}`;
               const tone = u?.level === "overdue" ? "danger" : u?.level === "soon" ? "warning" : "neutral";
               const done = r.checklist?.filter((c) => c.is_done).length ?? 0;
               return (
@@ -765,7 +784,9 @@ export default function Inspection() {
                     заготовка {r.srok_okonchaniya_zagotovki || "—"} · вывозка {r.srok_okonchaniya_vyvozki || "—"}
                   </span>
                   <span className="font-mono text-[10.5px] text-muted-2">
-                    {r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% освоено` : "— % освоено"} · чек-лист{" "}
+                    <span className={r.osvoenie_level === "pererub" ? "text-error font-semibold" : r.osvoenie_level === "vnimanie" || r.osvoenie_level === "preduprezhdenie" ? "text-oak font-semibold" : ""}>
+                      {r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% освоено` : "— % освоено"}
+                    </span>{" "}· чек-лист{" "}
                     {r.checklist?.length ? `${done}/${r.checklist.length}` : "—"} · актов {r.acts?.length ?? 0}
                   </span>
                 </button>

@@ -573,6 +573,76 @@ def get_remaining(
     return result
 
 
+# ------------------------------------------------------- «Мои делянки» (0.6.0) ---
+def _r1(v):
+    return None if v is None else round(v, 1)
+
+
+@router.get("/my-delyanki")
+def my_delyanki(
+    conn=Depends(get_conn),
+    user=Depends(require_permission("bot.access")),
+):
+    """Список делянок для экрана «Мои делянки» приложения: остаток в одно
+    касание вместо «квартал → делянка → выдел» (анализ удобства 01.10.2026).
+
+    Для рабочего сначала идут «свои» (moya=true): куда назначена его
+    бригада/он сам (brigada_naznachenie, не завершено/не отменено) и где у
+    него активная задача в плане работ. Затем — остальные активные делянки
+    лесничества (мастеру леса нужны все). У каждой — то же освоение, что
+    в карточке «Освоение делянки» на сайте (raskhod_v2.compute_osvoenie_batch)."""
+    sid = user.get("sotrudnik_id")
+    moi = set()
+    if sid:
+        moi.update(r[0] for r in conn.execute(
+            """SELECT bn.delyanka_id FROM brigada_naznachenie bn
+               WHERE bn.status IN ('запланировано', 'активно')
+                 AND (bn.sotrudnik_id = :sid OR bn.brigada_id IN (
+                      SELECT brigada_id FROM brigada_sostav
+                      WHERE sotrudnik_id = :sid AND data_vyhoda IS NULL))""",
+            {"sid": sid},
+        ))
+        moi.update(r[0] for r in conn.execute(
+            """SELECT di.delyanka_id FROM work_plan wp
+               JOIN delyanka_item di ON di.id = wp.delyanka_item_id
+               WHERE wp.sotrudnik_id = ? AND wp.status = 'активна'""",
+            (sid,),
+        ))
+    rows = conn.execute(
+        """SELECT d.id, d.nazvanie, di.kvartal, di.vydel, di.lesoseka_nomer
+           FROM delyanka d JOIN delyanka_item di ON di.delyanka_id = d.id
+           WHERE d.status = 'активна' ORDER BY d.id, di.id"""
+    ).fetchall()
+    by_id = {}
+    for did, nazvanie, kvartal, vydel, lesoseka in rows:
+        e = by_id.setdefault(did, {"delyanka_id": did, "nazvanie": nazvanie, "kvartaly": [],
+                                   "vydely": [], "lesoseka_nomer": None})
+        if kvartal and str(kvartal) not in e["kvartaly"]:
+            e["kvartaly"].append(str(kvartal))
+        if vydel and str(vydel) not in e["vydely"]:
+            e["vydely"].append(str(vydel))
+        if lesoseka and not e["lesoseka_nomer"]:
+            e["lesoseka_nomer"] = str(lesoseka)
+    osv = raskhod_v2.compute_osvoenie_batch(conn, list(by_id))
+    out = []
+    for did, e in by_id.items():
+        o = osv.get(did) or {}
+        out.append({
+            "delyanka_id": did,
+            "nazvanie": e["nazvanie"],
+            "kvartal": ", ".join(e["kvartaly"]),
+            "vydel": ", ".join(e["vydely"]),
+            "lesoseka_nomer": e["lesoseka_nomer"],
+            "moya": did in moi,
+            "pct": o.get("pct"),
+            "level": o.get("level"),
+            "mozhno_do_100": _r1(o.get("mozhno_do_100")),
+            "mozhno_do_110": _r1(o.get("mozhno_do_110")),
+        })
+    out.sort(key=lambda r: (not r["moya"], r["kvartal"], r["vydel"]))
+    return out
+
+
 # ------------------------------------------------------------------------ задачи ---
 def _task_row_to_dict(row) -> dict:
     return {

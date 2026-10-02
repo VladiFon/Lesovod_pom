@@ -162,7 +162,10 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
           </details>
         )}
         {p.rows.length === 0 ? (
-          <p className="text-sm text-muted">За этот год строк нет.</p>
+          <p className="text-sm text-muted">
+            За этот год строк нет. Строки берутся из базы: делянки (рубки) — из «Делянок» и «Расхода», лесные культуры — из «Лесокультур»
+            (загрузите книгу л/к и карточки перевода), выделы — из «Таксации». Если там пусто, сначала загрузите эти данные; список «Что есть в базе» ниже подскажет, чего не хватает.
+          </p>
         ) : (
           <div className="overflow-auto border border-border rounded-md">
             <table className="w-full text-xs border-collapse">

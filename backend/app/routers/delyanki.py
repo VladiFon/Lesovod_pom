@@ -22,9 +22,11 @@ from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import delyanka/db/config
 import config as legacy_config
+import db as legacy_db
 import delyanka
 import tehkarta_generator
 
+from app import korzina
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
@@ -177,8 +179,13 @@ def delete_delyanka(delyanka_id: int, user=Depends(require_permission("delyanka.
     d, _ = delyanka.get_delyanka_full(conn, delyanka_id)
     if d is None:
         raise HTTPException(404, "Делянка не найдена")
+    # Сначала в корзину (можно вернуть 30 дней), потом прежнее удаление.
+    snap = korzina.snapshot_delyanka(conn, delyanka_id)
+    korzina.polozhit(conn, "delyanka", delyanka_id, d.get("nazvanie"),
+                     snap, user["login"])
+    korzina.otvyazat(conn, snap)
     delyanka.delete_delyanka(conn, delyanka_id)
-    return {"ok": True}
+    return {"ok": True, "v_korzine": True}
 
 
 @router.post("/{delyanka_id}/archive")
@@ -501,7 +508,17 @@ class PresetIn(BaseModel):
 
 @router.get("/presets/komissiya")
 def list_komissiya_presets(conn=Depends(get_conn)):
-    return delyanka.list_komissiya_presets(conn)
+    """Составы комиссий делянки + комиссии из пресетов акта
+    освидетельствования (Инспекция) — один общий справочник."""
+    own = delyanka.list_komissiya_presets(conn)
+    names = {p["nazvanie"] for p in own}
+    for p in legacy_db.list_osvidetelstvovanie_presets(conn):
+        if p["nazvanie"] in names or not (p.get("predsedatel_fio") or p.get("chleny")):
+            continue
+        own.append({"id": None, "nazvanie": p["nazvanie"], "predsedatel_dolzhnost": p.get("predsedatel_dolzhnost") or "",
+                    "predsedatel_fio": p.get("predsedatel_fio") or "", "chleny": p.get("chleny") or [],
+                    "iz_inspekcii": True})
+    return sorted(own, key=lambda p: p["nazvanie"])
 
 
 @router.post("/presets/komissiya")

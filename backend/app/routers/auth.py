@@ -94,7 +94,14 @@ def login(body: LoginIn, conn=Depends(get_conn)):
     if user is None:
         raise HTTPException(401, "Неверный логин или пароль, либо учётная запись отключена")
     token, expires_at = webext.create_session(conn, user["id"])
-    return {"token": token, "expires_at": expires_at, "user": user}
+    return {"token": token, "expires_at": expires_at, "user": _s_pravami(user)}
+
+
+def _s_pravami(user):
+    """Пользователь + список разрешённых ему действий: сайт по нему прячет
+    кнопки, на которые у роли нет прав (сервер всё равно проверяет сам)."""
+    return {**user, "permissions": sorted(a for a, roli in webext.PERMISSIONS.items()
+                                          if user.get("role") in roli)}
 
 
 @router.post("/logout")
@@ -111,7 +118,7 @@ def logout(user=Depends(get_current_user), conn=Depends(get_conn)):
 
 @router.get("/me")
 def me(user=Depends(get_current_user)):
-    return user
+    return _s_pravami(user)
 
 
 # --------------------------------------------------------------------------- #
@@ -199,6 +206,23 @@ def list_workers(user=Depends(require_permission("users.manage")), conn=Depends(
 def set_worker_active(worker_id: int, body: SetActiveIn,
                        user=Depends(require_permission("users.manage")), conn=Depends(get_conn)):
     webext.set_sotrudnik_active(conn, worker_id, body.is_active)
+    return {"ok": True}
+
+
+class ResetPinIn(BaseModel):
+    pin: str
+
+
+@router.patch("/workers/{worker_id}/pin")
+def reset_worker_pin(worker_id: int, body: ResetPinIn,
+                      user=Depends(require_permission("users.manage")), conn=Depends(get_conn)):
+    """«Забыл PIN» — администратор задаёт рабочему новый PIN (на телефоне
+    об этом подсказка на экране входа)."""
+    pin = body.pin.strip()
+    if len(pin) < 4:
+        raise HTTPException(400, "PIN слишком короткий (минимум 4 символа)")
+    if not webext.reset_sotrudnik_pin(conn, worker_id, pin):
+        raise HTTPException(404, "Сотрудник не найден")
     return {"ok": True}
 
 

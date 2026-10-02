@@ -82,7 +82,7 @@ from db import (
 
 # См. примечание 2 выше — Qt-свободные копии, backend больше не зависит
 # от PySide6/дерева screens/.
-from raskhod_v2 import _fmt_m3, compute_items_totals, get_delyanka_items
+from raskhod_v2 import _fmt_m3, compute_osvoenie_batch
 from dashboard_calc import _compute_fire_danger, _wind_direction_to_text
 import brigada
 
@@ -146,10 +146,13 @@ def get_summary():
 
 
 def _build_metrics(conn: sqlite3.Connection) -> dict:
+    # «В работе» — только активные делянки; черновики (импорт МДО без
+    # билета) считаются отдельно, иначе цифра расходилась со списком.
     try:
-        delyanki_count = conn.execute("SELECT COUNT(*) FROM delyanka").fetchone()[0]
+        delyanki_count = conn.execute("SELECT COUNT(*) FROM delyanka WHERE status = 'активна'").fetchone()[0]
+        chernoviki_count = conn.execute("SELECT COUNT(*) FROM delyanka WHERE status = 'черновик'").fetchone()[0]
     except sqlite3.OperationalError:
-        delyanki_count = 0
+        delyanki_count = chernoviki_count = 0
 
     try:
         completed_count = conn.execute("SELECT COUNT(*) FROM completed_works").fetchone()[0]
@@ -170,8 +173,21 @@ def _build_metrics(conn: sqlite3.Connection) -> dict:
         ai_queue_count = 0
     ai_queue_count = ai_queue_count or 0
 
+    # Заготовлено по ЕГАИС — по активным делянкам, тем же расчётом, что
+    # карточка «Освоение делянки» (наряды выше — по журналу расхода).
+    try:
+        ids = [r[0] for r in conn.execute("SELECT id FROM delyanka WHERE status = 'активна'")]
+        osv = compute_osvoenie_batch(conn, ids)
+        egais_vals = [o["fakt_egais"] for o in osv.values() if o.get("fakt_egais") is not None]
+        volume_egais = sum(egais_vals) if egais_vals else None
+    except Exception:  # noqa: BLE001 — секция отказоустойчива, как и остальные
+        volume_egais = None
+
     return {
         "delyanki_count": delyanki_count or 0,
+        "chernoviki_count": chernoviki_count or 0,
+        "volume_egais_m3": volume_egais,
+        "volume_egais_m3_fmt": _fmt_m3(volume_egais) if volume_egais is not None else None,
         "completed_count": completed_count or 0,
         "volume_m3": volume or 0,
         "volume_m3_fmt": _fmt_m3(volume),
@@ -203,34 +219,47 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
 
     try:
         delyanka_rows = conn.execute(
-            "SELECT id, nazvanie FROM delyanka WHERE status != 'архив'"
+            "SELECT id, nazvanie FROM delyanka WHERE status = 'активна'"
         ).fetchall()
     except sqlite3.OperationalError:
         delyanka_rows = []
 
-    overcuts = []
-    for delyanka_id, nazvanie in delyanka_rows:
-        try:
-            items = get_delyanka_items(conn, delyanka_id)
-        except sqlite3.OperationalError:
-            items = []
-        if not items:
-            continue
-        totals = compute_items_totals(conn, items)
-        if totals["fakt"] > totals["limit"]:
-            overcuts.append((nazvanie, totals["limit"], totals["fakt"]))
-    overcuts.sort(key=lambda row: row[2] - row[1], reverse=True)
+    # Переруб и «подходит к лимиту» — по тому же освоению, что карточка
+    # «Освоение делянки» (большее из наряда и ЕГАИС), с теми же порогами
+    # 90 / 100 / 110 %. Раньше здесь сравнивались только наряды с лимитом,
+    # и при перерубе по ЕГАИС дашборд писал «Перерубов не найдено».
+    try:
+        osvoenie = compute_osvoenie_batch(conn, [r[0] for r in delyanka_rows])
+    except sqlite3.OperationalError:
+        osvoenie = {}
+    nazvaniya = {r[0]: r[1] for r in delyanka_rows}
+    flagged = [
+        (nazvaniya[d], o) for d, o in osvoenie.items()
+        if o.get("pct") is not None and o["level"] in ("vnimanie", "preduprezhdenie", "pererub")
+    ]
+    flagged.sort(key=lambda row: row[1]["pct"], reverse=True)
 
-    for nazvanie, limit_obyom, fact_obyom in overcuts[:3]:
+    for nazvanie, o in flagged[:5]:
+        pct = o["pct"]
+        if o["level"] == "pererub":
+            title = f"Переруб: «{nazvanie or '—'}» — {pct:.0f}% лимита"
+            description = (f"Допуск +10% превышен на {-o['mozhno_do_110']:.1f} м³. "
+                           "Остановите заготовку и проверьте документы.")
+            severity = "critical"
+        elif o["level"] == "preduprezhdenie":
+            title = f"Лимит выбран: «{nazvanie or '—'}» — {pct:.0f}%"
+            description = f"До 110% можно заготовить не больше {max(o['mozhno_do_110'], 0):.1f} м³."
+            severity = "warning"
+        else:
+            title = f"Подходит к лимиту: «{nazvanie or '—'}» — {pct:.0f}%"
+            description = f"До 100% осталось {max(o['mozhno_do_100'], 0):.1f} м³."
+            severity = "warning"
         entries.append({
-            "category": "Перерубы",
+            "category": "Освоение",
             "timestamp": "сейчас",
-            "title": f"Перерубка на делянке «{nazvanie or '—'}»",
-            "description": (
-                f"Факт {fact_obyom:.1f} м³ превышает лимит "
-                f"{limit_obyom:.1f} м³. Требуется проверка."
-            ),
-            "severity": "critical",
+            "title": title,
+            "description": description,
+            "severity": severity,
         })
 
     try:
@@ -299,7 +328,7 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
             "category": "Статус",
             "timestamp": "сейчас",
             "title": "Критичных событий нет",
-            "description": "Перерубов, отчётов в очереди и новых актов не найдено.",
+            "description": "Делянок у лимита, отчётов в очереди и новых актов нет.",
             "severity": "info",
         })
 

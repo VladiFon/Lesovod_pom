@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
@@ -526,11 +526,11 @@ function UchastokDetail({ uchastokId, onListChanged }) {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Безвозвратно удалить участок вместе со всем журналом мероприятий?")) return;
+    if (!window.confirm("Удалить участок вместе с журналом мероприятий? Он попадёт в «Корзину» (Прочее → Корзина), оттуда его можно вернуть в течение 30 дней.")) return;
     setDeleting(true);
     try {
       await api.delete(`/lesokultury/uchastki/${uchastokId}`);
-      toast.show({ tone: "success", title: "Участок удалён" });
+      toast.show({ tone: "success", title: "Участок удалён", description: "Вернуть можно в «Корзине» 30 дней" });
       onListChanged(true);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
@@ -1152,6 +1152,30 @@ export default function Lesokultury() {
   const [gody, setGody] = useState([]);
   const [god, setGod] = useState("");
   const [search, setSearch] = useState("");
+  // Отдельные поля «Квартал» и «Выдел» — точное совпадение (общий поиск
+  // по «3» находил и кв.3, и выд.13, и 2013 год — анализ удобства 01.10.2026).
+  const [kvFilter, setKvFilter] = useState("");
+  const [vydFilter, setVydFilter] = useState("");
+  // «Что нужно в этом году»: инвентаризация 1-го и 3-го года (по ТКП) —
+  // по году создания участка.
+  const [nuzhnoFilter, setNuzhnoFilter] = useState(false);
+  const tekGod = new Date().getFullYear();
+  const shown = useMemo(() => {
+    const kv = kvFilter.trim();
+    const vyd = vydFilter.trim();
+    return uchastki.filter((u) => {
+      if (nuzhnoFilter) {
+        const vozrast = tekGod - parseInt(u.god_sozdaniya, 10);
+        if (!(vozrast === 1 || vozrast === 3)) return false;
+      }
+      if (kv && String(u.kvartal ?? "").trim() !== kv) return false;
+      if (vyd) {
+        const parts = String(u.vydel ?? "").split(/[,;\s]+/).map((x) => x.trim());
+        if (!parts.includes(vyd) && String(u.podvydel ?? "").trim() !== vyd) return false;
+      }
+      return true;
+    });
+  }, [uchastki, kvFilter, vydFilter, nuzhnoFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     api.get("/lesokultury/gody").then((rows) => setGody(rows || [])).catch(() => {});
@@ -1191,8 +1215,21 @@ export default function Lesokultury() {
           <Button variant="primary" onClick={() => setCreateOpen(true)}>Новый участок</Button>
           <Button variant="secondary" onClick={() => setImportOpen(true)}>Загрузить книгу л/к</Button>
           <Button variant="secondary" onClick={() => setKartochkiOpen(true)}>Загрузить карточки перевода</Button>
+          <label className="flex items-center gap-2 text-sm text-ink cursor-pointer" title={`Участки ${tekGod - 1} и ${tekGod - 3} года создания`}>
+            <input
+              type="checkbox"
+              checked={nuzhnoFilter}
+              onChange={(e) => setNuzhnoFilter(e.target.checked)}
+              className="h-4 w-4 rounded border-2 border-pine accent-pine cursor-pointer"
+            />
+            Нужна инвентаризация в {tekGod} (1-й и 3-й год)
+          </label>
+          <div className="flex gap-2">
+            <TextField placeholder="Квартал" value={kvFilter} onChange={(e) => setKvFilter(e.target.value)} />
+            <TextField placeholder="Выдел" value={vydFilter} onChange={(e) => setVydFilter(e.target.value)} />
+          </div>
           <TextField
-            placeholder="Поиск: квартал, выдел, лесничество, порода, делянка"
+            placeholder="Поиск: лесничество, порода, делянка…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -1222,13 +1259,13 @@ export default function Lesokultury() {
             <div className="p-5 flex justify-center">
               <div className="h-5 w-5 rounded-full border-2 border-pine border-t-transparent animate-spin" />
             </div>
-          ) : uchastki.length === 0 ? (
+          ) : shown.length === 0 ? (
             <div className="p-3">
-              <EmptyState icon="🌱" title="Участков пока нет" description="Создайте первый участок лесных культур кнопкой выше." />
+              <EmptyState icon="🌱" title="Участков пока нет" description="Быстрее всего — «Загрузить книгу л/к» (Excel книги учёта лесных культур): участки заведутся сами. Или «Новый участок» вручную." />
             </div>
           ) : (
             <ul className="flex flex-col gap-1">
-              {uchastki.map((u) => (
+              {shown.map((u) => (
                 <li key={u.id}>
                   <button
                     onClick={() => setSelectedId(u.id)}

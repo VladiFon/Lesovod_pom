@@ -315,9 +315,9 @@ export default function Documents() {
 
   const columns = [
     { key: "doc_type", header: "Тип документа", sortable: true, render: (r) => docTypeLabel(r.doc_type) },
-    { key: "delyanka_id", header: "Делянка", sortable: true, render: (r) => r.delyanka_id ?? "—" },
+    { key: "delyanka_id", header: "Делянка", sortable: true, sortValue: (r) => r.delyanka_nazvanie || "", render: (r) => r.delyanka_nazvanie || (r.delyanka_id ? `№${r.delyanka_id}` : "—") },
     { key: "created_at", header: "Дата создания", sortable: true },
-    { key: "created_by", header: "Автор", sortable: true, render: (r) => r.created_by || "—" },
+    { key: "created_by", header: "Автор", sortable: true, render: (r) => r.created_by_fio || r.created_by || "—" },
     {
       key: "status",
       header: "Статус",

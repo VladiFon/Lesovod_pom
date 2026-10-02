@@ -33,7 +33,7 @@ const DOLZHNOST_OPTIONS = [
   "Лесничий",
 ];
 
-function WorkerCard({ worker, onSetActive }) {
+function WorkerCard({ worker, onSetActive, onResetPin }) {
   const initial = (worker.fio || "?").trim().charAt(0).toUpperCase();
   return (
     <Card className={!worker.is_active ? "opacity-60" : ""}>
@@ -68,6 +68,13 @@ function WorkerCard({ worker, onSetActive }) {
         ].join(" ")}
       >
         {worker.is_active ? "Активен" : "Отключён"}
+      </button>
+      <button
+        onClick={() => onResetPin(worker)}
+        className="mt-2 w-full text-xs font-semibold rounded-full px-2.5 py-1.5 border border-border text-muted hover:bg-hover"
+        title="Рабочий забыл PIN — задать новый"
+      >
+        Сбросить PIN
       </button>
     </Card>
   );
@@ -124,6 +131,17 @@ export default function Sotrudniki() {
       });
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleResetPin = async (worker) => {
+    const pin = window.prompt(`Новый PIN для ${worker.fio} (минимум 4 цифры). Скажите его рабочему — он войдёт с ним в приложении.`);
+    if (pin == null) return;
+    try {
+      await api.patch(`/auth/workers/${worker.id}/pin`, { pin: pin.trim() });
+      toast.show({ tone: "success", title: "PIN изменён", description: `${worker.fio} входит с новым PIN` });
+    } catch (err) {
+      toast.show({ tone: "danger", title: "Не удалось сменить PIN", description: err instanceof ApiError ? err.message : "Неизвестная ошибка" });
     }
   };
 
@@ -202,7 +220,7 @@ export default function Sotrudniki() {
       ) : (
         <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
           {visibleWorkers.map((w) => (
-            <WorkerCard key={w.id} worker={w} onSetActive={handleSetActive} />
+            <WorkerCard key={w.id} worker={w} onSetActive={handleSetActive} onResetPin={handleResetPin} />
           ))}
         </div>
       )}

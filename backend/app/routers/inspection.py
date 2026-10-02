@@ -12,6 +12,7 @@ screens/raskhod/balance.py) — раньше здесь стояло прибл�
 переизобретение той же формы в app/aggregations.py (см. docstring этого
 файла — оставлен как есть на случай отката, но больше нигде не
 импортируется)."""
+import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -72,15 +73,16 @@ def list_inspection(conn=Depends(get_conn)):
     ids = [d["id"] for d in delyanki]
     checklists = legacy_db.get_checklists_batch(conn, ids)
     acts = legacy_db.list_osvidetelstvovanie_acts_batch(conn, ids)
+    # Тот же % освоения, что в карточке «Освоение делянки» (большее из
+    # наряда и ЕГАИС), а не «только наряды» — иначе одна делянка на разных
+    # экранах показывала 12% и 94%.
+    osvoenie = raskhod_v2.compute_osvoenie_batch(conn, ids)
 
     result = []
     for d in delyanki:
         srok_zagotovki, srok_vyvozki = legacy_db.get_delyanka_sroki(conn, d["id"])
-        _, items = delyanka.get_delyanka_full(conn, d["id"])
-        totals = compute_sortiment_limit_fakt_totals(conn, items) if items else {}
-        total_limit = sum(v["limit"] for v in totals.values())
-        total_fakt = sum(v["fakt"] for v in totals.values())
-        pct_osvoeniya = round(total_fakt / total_limit * 100, 1) if total_limit else None
+        osv = osvoenie.get(d["id"]) or {}
+        pct_osvoeniya = osv.get("pct")
 
         deadline = None
         vyvozka_dt = _parse_date(srok_vyvozki)
@@ -93,6 +95,9 @@ def list_inspection(conn=Depends(get_conn)):
             "srok_okonchaniya_vyvozki": srok_vyvozki,
             "srok_osvidetelstvovaniya": deadline,
             "pct_osvoeniya_limita": pct_osvoeniya,
+            "pct_osvoeniya_naryad": osv.get("pct_naryad"),
+            "pct_osvoeniya_egais": osv.get("pct_egais"),
+            "osvoenie_level": osv.get("level"),
             "checklist": checklists.get(d["id"], []),
             "acts": acts.get(d["id"], []),
         })
@@ -152,7 +157,83 @@ def delete_checklist_item(item_id: int, user=Depends(require_permission("inspect
 # --------------------------------------------------------------------------- #
 @router.get("/presets")
 def list_presets(conn=Depends(get_conn)):
-    return legacy_db.list_osvidetelstvovanie_presets(conn)
+    """Пресеты акта + составы комиссий, сохранённые в карточке делянки
+    (komissiya_preset): один общий справочник комиссий, а не отдельный
+    на каждый документ (анализ удобства 01.10.2026)."""
+    own = legacy_db.list_osvidetelstvovanie_presets(conn)
+    names = {p["nazvanie"] for p in own}
+    for p in delyanka.list_komissiya_presets(conn):
+        if p["nazvanie"] in names or not (p.get("predsedatel_fio") or p.get("chleny")):
+            continue
+        own.append({"nazvanie": p["nazvanie"], "predsedatel_dolzhnost": p.get("predsedatel_dolzhnost") or "",
+                    "predsedatel_fio": p.get("predsedatel_fio") or "", "chleny": p.get("chleny") or [],
+                    "iz_delyanki": True})
+    return sorted(own, key=lambda p: p["nazvanie"])
+
+
+@router.get("/{delyanka_id}/act-defaults")
+def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
+    """Что уже известно для акта освидетельствования этой делянки — чтобы
+    не заполнять 30+ полей с нуля: № и дата лесорубочного билета
+    (основание), разрешённая площадь (сумма по выделам), способ рубки (вид
+    рубки выделов), комиссия из карточки делянки, подрост, лесничий из
+    Настроек и «постоянные» поля (область, район, руководитель,
+    лесопользователь) из последнего составленного акта."""
+    d, items = delyanka.get_delyanka_full(conn, delyanka_id)
+    if d is None:
+        raise HTTPException(404, "Делянка не найдена")
+    out = {}
+    last = conn.execute(
+        "SELECT data_json FROM osvidetelstvovanie_acts WHERE data_json IS NOT NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if last:
+        try:
+            prev = json.loads(last[0] or "{}")
+        except ValueError:
+            prev = {}
+        for k in ("oblast", "rayon", "rukovoditel_dolzhnost", "rukovoditel_fio",
+                  "predstavitel_lesopolz_organizatsiya", "predstavitel_lesopolz_dolzhnost",
+                  "predstavitel_lesopolz_fio", "predstavitel_lesopolzovaniya_dolzhnost",
+                  "predstavitel_lesopolzovaniya_fio", "sposob_ucheta", "sposob_ochistki",
+                  "vid_osvidetelstvovaniya"):
+            if prev.get(k):
+                out[k] = prev[k]
+    lesnichiy = legacy_db.get_app_login(conn) or {}
+    if lesnichiy.get("fio"):
+        out["predstavitel_lesxoza_fio"] = lesnichiy["fio"]
+        out["predstavitel_lesxoza_dolzhnost"] = lesnichiy.get("dolzhnost") or "Лесничий"
+    if d.get("nomer_lesorubochnogo_bileta"):
+        out["osnovanie_nomer"] = d["nomer_lesorubochnogo_bileta"]
+    if d.get("data_lesorubochnogo_bileta"):
+        dt = str(d["data_lesorubochnogo_bileta"])
+        out["osnovanie_data"] = f"{dt[8:10]}.{dt[5:7]}.{dt[:4]}" if len(dt) == 10 and dt[4] == "-" else dt
+    ploshad = sum(float(it.get("ploshad") or 0) for it in items)
+    if ploshad:
+        out["ploshad_razresheno"] = str(round(ploshad, 2))
+    from app.vidy import vid_rubki_info
+
+    vidy = []
+    for it in items:
+        info = vid_rubki_info(it.get("vid_rubki_kod"), it.get("mdo_raw_json"))
+        nazv = info["vid_rubki"] if info["vid_rubki_kod"] else None
+        if nazv and nazv not in vidy:
+            vidy.append(nazv)
+    if vidy:
+        out["sposob_rubki"] = ", ".join(vidy)
+    if d.get("predsedatel_fio"):
+        out["predsedatel_fio"] = d["predsedatel_fio"]
+        out["predsedatel_dolzhnost"] = d.get("predsedatel_dolzhnost") or ""
+    try:
+        chleny = json.loads(d.get("chleny_json") or "[]")
+    except ValueError:
+        chleny = []
+    if chleny:
+        out["chleny"] = chleny
+    if d.get("podrost_ploshad"):
+        out["podrost_ploshad_ga"] = str(d["podrost_ploshad"])
+    if d.get("podrost_tys_sht"):
+        out["podrost_kolichestvo_tys"] = str(d["podrost_tys_sht"])
+    return out
 
 
 @router.post("/presets")

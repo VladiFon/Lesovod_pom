@@ -13,6 +13,9 @@ import { useToast } from "../components/Toast.jsx";
 import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.jsx";
 import KonturBlock from "../components/KonturBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
+import { useCan } from "../auth.jsx";
+import OsvoenieBadge from "../components/OsvoenieBadge.jsx";
+import { openScreen, useScreenParam } from "../nav.js";
 
 /**
  * Экран "Делянки" (screens/plots/) — Этап 5 плана.
@@ -552,8 +555,45 @@ function VidRubkiSelect({ item, vidy, onChange }) {
   );
 }
 
+// Чек-лист готовности делянки (анализ удобства 01.10.2026): карточка
+// длинная, и непонятно, что уже заполнено, а что нет.
+function gotovnost(delyanka, items, documents) {
+  const est = (t) => documents.some((d) => d.doc_type === t);
+  const vse = (f) => items.length > 0 && items.every(f);
+  return [
+    ["Лесорубочный билет", !!(delyanka.nomer_lesorubochnogo_bileta && delyanka.data_lesorubochnogo_bileta)],
+    ["Комиссия", !!delyanka.predsedatel_fio],
+    ["Контур", vse((it) => !!it.geom_geojson)],
+    ["Абрис", vse((it) => !!(it.abris_image_path || it.abris_coords_json))],
+    ["Акт обследования", est("akt")],
+    ["Техкарта", est("tehkarta")],
+    ["Акт готовности", est("akt_gotovnosti")],
+    ["Сроки заготовки/вывозки", !!(delyanka.srok_okonchaniya_zagotovki && delyanka.srok_okonchaniya_vyvozki)],
+  ];
+}
+
+function GotovnostChecklist({ delyanka, items, documents }) {
+  const punkty = gotovnost(delyanka, items, documents);
+  const gotovo = punkty.filter(([, ok]) => ok).length;
+  return (
+    <div className="rounded-[10px] bg-surface-alt px-3 py-2.5">
+      <div className="text-[11.5px] text-muted-2 mb-1.5">
+        Готовность делянки: {gotovo} из {punkty.length}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {punkty.map(([label, ok]) => (
+          <span key={label} className={["text-[12.5px]", ok ? "text-pine" : "text-muted"].join(" ")}>
+            {ok ? "✓" : "○"} {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PlotDetail({ delyankaId, onListChanged }) {
   const toast = useToast();
+  const can = useCan();
   const [loading, setLoading] = useState(true);
   const [delyanka, setDelyanka] = useState(null);
   const [items, setItems] = useState([]);
@@ -565,6 +605,11 @@ function PlotDetail({ delyankaId, onListChanged }) {
   const [docsLoading, setDocsLoading] = useState(false);
   const [presets, setPresets] = useState({ komissiya: [], listok: [], tehkarta: [] });
   const [activateModalOpen, setActivateModalOpen] = useState(false);
+  const [osvoenie, setOsvoenie] = useState(null);
+
+  useEffect(() => {
+    api.get(`/raskhod/delyanki/${delyankaId}/osvoenie`).then((r) => setOsvoenie(r?.itogo || null)).catch(() => setOsvoenie(null));
+  }, [delyankaId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -572,7 +617,19 @@ function PlotDetail({ delyankaId, onListChanged }) {
       const res = await api.get(`/delyanki/${delyankaId}`);
       setDelyanka(res.delyanka);
       setItems(res.items || []);
-      setForm(fieldsFromDelyanka(res.delyanka));
+      const f = fieldsFromDelyanka(res.delyanka);
+      // Лесничий из «Настроек» сам подставляется туда, где обычно пишется
+      // он: «Составил» техкарты и «Решение» листка (если ещё пусто).
+      try {
+        const l = await api.get("/settings/lesnichiy");
+        if (l?.fio) {
+          if (!f.sostavil_fio) Object.assign(f, { sostavil_fio: l.fio, sostavil_dolzhnost: f.sostavil_dolzhnost || l.dolzhnost || "" });
+          if (!f.listok_reshenie_fio) Object.assign(f, { listok_reshenie_fio: l.fio, listok_reshenie_dolzhnost: f.listok_reshenie_dolzhnost || l.dolzhnost || "" });
+        }
+      } catch {
+        // необязательно
+      }
+      setForm(f);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось загрузить делянку", description: e.message });
     } finally {
@@ -688,7 +745,12 @@ function PlotDetail({ delyankaId, onListChanged }) {
       predsedatel_fio: form.predsedatel_fio || "",
       chleny: parseChleny(form.chleny_text),
     });
-  const deleteKomissiyaPreset = (id) => deletePresetOrShowError(`/delyanki/presets/komissiya/${id}`);
+  // Комиссия из пресета Инспекции (общий справочник) удаляется там же,
+  // где сохранена, — здесь у неё нет id.
+  const deleteKomissiyaPreset = (id) =>
+    id == null
+      ? toast.show({ tone: "warning", title: "Этот состав сохранён в Инспекции", description: "Удалить его можно в акте освидетельствования." })
+      : deletePresetOrShowError(`/delyanki/presets/komissiya/${id}`);
 
   const saveListokPreset = (nazvanie) =>
     savePresetOrShowError("/delyanki/presets/listok", nazvanie, {
@@ -799,11 +861,11 @@ function PlotDetail({ delyankaId, onListChanged }) {
 
   const handleDelete = async () => {
     const name = delyanka?.nazvanie || `делянку №${delyankaId}`;
-    if (!window.confirm(`Безвозвратно удалить ${name} вместе со всеми выделами? Действие нельзя отменить.`)) return;
+    if (!window.confirm(`Удалить ${name} вместе со всеми выделами и нарядами? Она попадёт в «Корзину» (Прочее → Корзина), оттуда её можно вернуть в течение 30 дней.`)) return;
     setBusyAction("delete");
     try {
       await api.delete(`/delyanki/${delyankaId}`);
-      toast.show({ tone: "success", title: "Делянка удалена" });
+      toast.show({ tone: "success", title: "Делянка удалена", description: "Вернуть можно в «Корзине» 30 дней" });
       onListChanged(true);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
@@ -847,20 +909,32 @@ function PlotDetail({ delyankaId, onListChanged }) {
                 {delyanka.nazvanie || `Делянка №${delyanka.id}`}
               </h2>
               <StatusBadge status={delyanka.status} />
+              {osvoenie?.pct != null && <OsvoenieBadge pct={osvoenie.pct} level={osvoenie.level} suffix=" освоено" />}
             </div>
             <p className="font-mono text-[10.5px] text-muted-2 mt-[3px]">
               {items.length} {pluralizeVydel(items.length)} · создана {formatDate(delyanka.created_at)}
+              {delyanka.updated_at ? ` · изменена ${formatDate(delyanka.updated_at)}${delyanka.updated_by ? ` (${delyanka.updated_by})` : ""}` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={busyAction !== null}
-              onClick={() => setActivateModalOpen(true)}
-            >
-              Сделать активной
+            {/* Перекрёстные переходы (анализ удобства 01.10.2026): та же
+                делянка сразу открывается в «Расходе» и «Инспекции». */}
+            <Button variant="ghost" size="sm" onClick={() => openScreen("raskhod", { d: delyanka.id })}>
+              📊 Расход
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => openScreen("inspection", { d: delyanka.id })}>
+              🔍 Инспекция
+            </Button>
+            {delyanka.status !== "активна" && can("delyanka.edit") && (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={busyAction !== null}
+                onClick={() => setActivateModalOpen(true)}
+              >
+                Сделать активной
+              </Button>
+            )}
             <Button
               variant="secondary"
               size="sm"
@@ -870,17 +944,21 @@ function PlotDetail({ delyankaId, onListChanged }) {
             >
               В архив
             </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              loading={busyAction === "delete"}
-              disabled={busyAction !== null && busyAction !== "delete"}
-              onClick={handleDelete}
-            >
-              Удалить
-            </Button>
+            {can("delyanka.delete") && (
+              <Button
+                variant="danger"
+                size="sm"
+                loading={busyAction === "delete"}
+                disabled={busyAction !== null && busyAction !== "delete"}
+                onClick={handleDelete}
+              >
+                Удалить
+              </Button>
+            )}
           </div>
         </div>
+
+        <GotovnostChecklist delyanka={delyanka} items={items} documents={documents} />
 
         <Modal open={!!chastiItem} onClose={() => setChastiItem(null)} title="Площадь по выделам" size="lg">
           {chastiItem && (
@@ -1189,7 +1267,11 @@ export default function Plots() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
+  // Выбранная делянка — в адресе (#/plots?d=5): переживает F5, ссылку
+  // можно переслать.
+  const [selectedParam, setSelectedParam] = useScreenParam("plots", "d");
+  const selectedId = selectedParam ? Number(selectedParam) : null;
+  const setSelectedId = (id) => setSelectedParam(id ?? "");
   const [importOpen, setImportOpen] = useState(false);
 
   const loadList = useCallback(async () => {

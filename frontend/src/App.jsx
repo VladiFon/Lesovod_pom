@@ -22,6 +22,9 @@ import CalendarScreen from "./pages/Calendar.jsx";
 import AiLog from "./pages/AiLog.jsx";
 import Settings from "./pages/Settings.jsx";
 import ComponentGallery from "./pages/ComponentGallery.jsx";
+import Korzina from "./pages/Korzina.jsx";
+import { UserProvider } from "./auth.jsx";
+import { applyHash, readHash, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
 import { api } from "./api/client.js";
 
@@ -73,6 +76,8 @@ const READY_SCREENS = {
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
   calendar: { title: "Календарь", subtitle: "Рабочий календарь: разовые и периодические задачи", Page: CalendarScreen },
   ai_log: { title: "ИИ-журнал", subtitle: "Разбор отчётов с телефона и журнал выполненных работ", Page: AiLog },
+  // Удалённые делянки/участки лежат здесь 30 дней (app/korzina.py).
+  korzina: { title: "Корзина", subtitle: "Удалённые делянки и участки — можно вернуть в течение 30 дней", Page: Korzina },
   settings: { title: "Настройки", subtitle: "Ключи доступа и данные лесничего — общие для всех", Page: Settings },
   gallery: { title: "Витрина компонентов", subtitle: "Все базовые компоненты дизайн-системы на моковых данных", Page: ComponentGallery },
 };
@@ -95,7 +100,33 @@ const ROLE_LABELS = {
 export default function App() {
   // Вкладки (дизайн «Вкладки - новый дизайн»): левая панель — activeId,
   // необязательная правая — rightId.
-  const [tabState, dispatch] = useReducer(tabsReducer, { tabs: ["dashboard"], activeId: "dashboard", rightId: null });
+  // Стартовая вкладка — из адреса (#/raskhod?d=5), чтобы F5 и
+  // пересланная ссылка открывали тот же экран.
+  const [tabState, dispatch] = useReducer(tabsReducer, null, () => {
+    const { screen } = readHash();
+    if (screen && READY_SCREENS[screen] && screen !== "dashboard") {
+      return { tabs: ["dashboard", screen], activeId: screen, rightId: null };
+    }
+    return { tabs: ["dashboard"], activeId: "dashboard", rightId: null };
+  });
+
+  useEffect(() => {
+    setScreenOpener((id) => dispatch({ type: "open", id }));
+    const onPop = () => {
+      const screen = applyHash();
+      if (screen && READY_SCREENS[screen]) dispatch({ type: "open", id: screen });
+    };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("hashchange", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("hashchange", onPop);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (tabState.activeId) syncHash(tabState.activeId, { push: readHash().screen !== tabState.activeId });
+  }, [tabState.activeId]);
 
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState(null);
@@ -146,6 +177,7 @@ export default function App() {
   const sidebarUser = { fio: user.fio || user.login, role: ROLE_LABELS[user.role] || user.role };
 
   return (
+    <UserProvider user={user}>
     <ToastProvider>
       <div className="flex h-screen overflow-hidden">
         <Sidebar
@@ -154,6 +186,7 @@ export default function App() {
           onNavigate={(id) => dispatch({ type: "open", id })}
           user={sidebarUser}
           onLogout={handleLogout}
+          permissions={user.permissions || []}
         />
         <TabWorkspace
           screens={READY_SCREENS}
@@ -165,5 +198,6 @@ export default function App() {
         />
       </div>
     </ToastProvider>
+    </UserProvider>
   );
 }

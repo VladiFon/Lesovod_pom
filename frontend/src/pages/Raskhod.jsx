@@ -10,6 +10,8 @@ import Modal from "../components/Modal.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
 import SvodkiModal from "./RaskhodSvodki.jsx";
+import { useCan } from "../auth.jsx";
+import { useScreenParam } from "../nav.js";
 
 /**
  * Экран "Расход / ЕГАИС" (screens/raskhod/) — Этап 9 плана.
@@ -122,6 +124,15 @@ const EGAIS_REVIEW_TABS = [
   { key: "fls", label: "Приход на ФЛС", summaryKey: "fls_prihod_new", icon: "🌲" },
 ];
 
+// Подсказки «что тут делать» над каждой очередью разбора (анализ
+// удобства 01.10.2026: без них непонятно, какую кнопку жать).
+const EGAIS_REVIEW_HINTS = {
+  korrektirovki:
+    "В ЕГАИС кто-то вручную поправил остаток на складе. Если вы знаете об этой поправке и она уже отражена в нарядах — «Учтено». Если это чужая ошибка, которая к вашим делянкам не относится, — «Игнорировать».",
+  fls:
+    "Лес пришёл на склад ФЛС (промежуточный). Если это продолжение уже учтённой заготовки (перевезли с лесосеки на ФЛС) — «Часть цепочки», чтобы не посчитать дважды. Если на ФЛС заготовили отдельно — «Отдельная заготовка».",
+};
+
 const SKLAD_HOW = {
   ambiguous: { tone: "warning", label: "подходит несколько выделов" },
   conflict: { tone: "warning", label: "номер лесосеки не совпал" },
@@ -162,7 +173,10 @@ function KorrektirovkaRow({ row, busy, onResolve }) {
 }
 
 function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
-  const [pick, setPick] = useState(row.item_id ? String(row.item_id) : "");
+  // Если подходящий по кварталу/выделу выдел один — сразу предлагаем его,
+  // остаётся только нажать «Привязать».
+  const guess = !row.item_id && row.candidates.length === 1 ? row.candidates[0] : null;
+  const [pick, setPick] = useState(row.item_id ? String(row.item_id) : guess ? String(guess.item_id) : "");
   const how = SKLAD_HOW[row.how] || { tone: "neutral", label: row.how };
   const candidateIds = new Set(row.candidates.map((c) => c.item_id));
   const kvartaly = new Set((row.kvartal || "").split(", ").filter(Boolean));
@@ -180,6 +194,9 @@ function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
             {row.item_label ? ` · → ${row.item_label}` : ""}
           </span>
         </div>
+        {guess && (
+          <div className="text-xs text-pine mt-1">Скорее всего это «{guess.label}» — проверьте и нажмите «Привязать».</div>
+        )}
       </div>
       <div className="flex items-center gap-2 shrink-0 flex-wrap">
         <select
@@ -260,6 +277,23 @@ function EgaisReviewModal({ open, onClose }) {
   const [busyId, setBusyId] = useState(null);
   const [skladyAll, setSkladyAll] = useState(false);
   const [skladItems, setSkladItems] = useState([]);
+  // «Только моё лесничество» — из Настроек (данные лесничего). Чужие
+  // склады (соседнего лесничества) обычно разбирать не нужно.
+  const [moeLesnichestvo, setMoeLesnichestvo] = useState("");
+  const [tolkoMoe, setTolkoMoe] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+    api
+      .get("/settings/lesnichiy")
+      // На старых базах там бывает код лесничества (число), а не название —
+      // тогда фильтр не показываем, сравнивать не с чем.
+      .then((l) => {
+        const v = String(l?.lesnichestvo || "").trim();
+        setMoeLesnichestvo(/^\d+$/.test(v) ? "" : v);
+      })
+      .catch(() => {});
+  }, [open]);
 
   const loadSummary = useCallback(() => {
     api.get("/raskhod/egais/review/summary").then(setSummary).catch(() => {});
@@ -364,12 +398,21 @@ function EgaisReviewModal({ open, onClose }) {
             отнести однозначно: пока склад не привязан, его объём не учитывается ни в одной делянке. Привязка
             делается один раз и сразу пересчитывает все загруженные выгрузки.
           </div>
-          <label className="flex items-center gap-2 text-sm text-ink cursor-pointer select-none shrink-0">
-            <input type="checkbox" checked={skladyAll} onChange={(e) => setSkladyAll(e.target.checked)} />
-            Показать все склады
-          </label>
+          <div className="flex flex-col gap-1.5 shrink-0">
+            <label className="flex items-center gap-2 text-sm text-ink cursor-pointer select-none">
+              <input type="checkbox" checked={skladyAll} onChange={(e) => setSkladyAll(e.target.checked)} />
+              Показать все склады
+            </label>
+            {moeLesnichestvo && (
+              <label className="flex items-center gap-2 text-sm text-ink cursor-pointer select-none">
+                <input type="checkbox" checked={tolkoMoe} onChange={(e) => setTolkoMoe(e.target.checked)} />
+                Только {moeLesnichestvo} лесничество
+              </label>
+            )}
+          </div>
         </div>
       )}
+      {EGAIS_REVIEW_HINTS[tab] && <div className="text-xs text-muted max-w-[640px] mb-3">{EGAIS_REVIEW_HINTS[tab]}</div>}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -384,7 +427,10 @@ function EgaisReviewModal({ open, onClose }) {
               <KorrektirovkaRow key={row.id} row={row} busy={busyId === row.id} onResolve={resolveKorrektirovka} />
             ))}
           {tab === "sklady" &&
-            rows.map((row) => (
+            rows
+              .filter((row) => !tolkoMoe || !moeLesnichestvo || !row.lesnichestvo ||
+                row.lesnichestvo.toLowerCase().includes(moeLesnichestvo.toLowerCase()))
+              .map((row) => (
               <SkladRow
                 key={row.sklad}
                 row={row}
@@ -409,7 +455,36 @@ function emptyPozitsiya() {
   return { poroda: "", sortiment: "KR", obyom: "" };
 }
 
-function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadDelyanki, limitKubaturaTotal }) {
+function naryadObyom(n) {
+  return (n?.pozitsii || []).reduce((sum, p) => sum + (Number(p.obyom) || 0), 0);
+}
+
+// Проверка «на опечатку» перед сохранением наряда (анализ удобства
+// 01.10.2026): лишний ноль в объёме сразу портит освоение делянки.
+function naryadPreduprezhdeniya({ pozitsii, naryady, editing, limit }) {
+  const novyy = pozitsii.reduce((sum, p) => sum + (Number(p.obyom) || 0), 0);
+  const drugie = (naryady || []).filter((n) => !editing || n.id !== editing.id);
+  const out = [];
+  if (limit > 0) {
+    const fakt = drugie.reduce((sum, n) => sum + naryadObyom(n), 0) + novyy;
+    const pct = Math.round((fakt / limit) * 100);
+    if (pct > 110) out.push(`После этого наряда по выделу будет ${pct}% лимита (${fmtM3(fakt)} из ${fmtM3(limit)} м³) — это больше 110%.`);
+  }
+  const obyomy = drugie.map(naryadObyom).filter((v) => v > 0).sort((a, b) => a - b);
+  if (obyomy.length >= 3) {
+    const tipichnyy = obyomy[Math.floor(obyomy.length / 2)];
+    if (novyy >= tipichnyy * 3) {
+      out.push(`Объём наряда ${fmtM3(novyy)} м³ — в ${Math.round(novyy / tipichnyy)} раз(а) больше обычного (около ${fmtM3(tipichnyy)} м³). Нет ли лишнего нуля?`);
+    }
+  }
+  return out;
+}
+
+function fmtM3(v) {
+  return (Math.round(v * 10) / 10).toLocaleString("ru-RU");
+}
+
+function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadDelyanki, limitKubaturaTotal, naryady }) {
   const toast = useToast();
   const [data, setData] = useState("");
   const [nomer, setNomer] = useState("");
@@ -472,6 +547,8 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
       toast.show({ tone: "warning", title: "Укажите дату наряда" });
       return;
     }
+    const preduprezhdeniya = naryadPreduprezhdeniya({ pozitsii, naryady, editing, limit: limitKubaturaTotal || 0 });
+    if (preduprezhdeniya.length && !window.confirm(`Проверьте наряд:\n\n• ${preduprezhdeniya.join("\n• ")}\n\nСохранить всё равно?`)) return;
     setSubmitting(true);
     try {
       const body = {
@@ -740,12 +817,15 @@ function EgaisColumnsToggle({ checked, onChange }) {
  * по сортиментам. Данные те же, что и в таблице (rowsData). */
 const CARD_TONES = {
   green: ["#eaf7ec", "#1a4331", "в лимите"],
-  oak: ["#fdf1e4", "#a8681f", "почти предел"],
+  oak: ["#fdf1e4", "#a8681f", "подходит к лимиту"],
+  full: ["#fdf1e4", "#a8681f", "лимит выбран"],
   error: ["#fbeaea", "#ba1a1a", "переруб"],
 };
+// Те же пороги, что у «Освоения делянки»: 90 / 100 / 110 % от лимита по
+// большему из нарядов и ЕГАИС.
 function usageTone(limit, fakt) {
   const pct = limit > 0 ? (fakt / limit) * 100 : 0;
-  return pct > 100 ? "error" : pct >= 80 ? "oak" : "green";
+  return pct > 110 ? "error" : pct >= 100 ? "full" : pct >= 90 ? "oak" : "green";
 }
 const fmt1 = (v) => (v ?? 0).toLocaleString("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const MONO_STYLE = { fontFamily: "'JetBrains Mono', monospace" };
@@ -799,7 +879,16 @@ function PorodaCard({ title, cell, sorts, hvorost, selected, onClick, total }) {
         <div className="flex flex-col gap-[5px]">
           <div className="flex items-center justify-between text-[11px] text-muted-2" style={MONO_STYLE}>
             <span>ЕГАИС {fmt1(cell.fakt_egais)} м³</span>
-            <span>расхождение {delta >= 0 ? "+" : "−"}{fmt1(Math.abs(delta))}</span>
+            <span
+              className="cursor-help underline decoration-dotted"
+              title={
+                delta >= 0
+                  ? "По ЕГАИС вывезено/учтено больше, чем записано в нарядах. Обычно не внесены наряды — добавьте их. Если наряды все, проверьте привязку склада в «Разбор ЕГАИС»."
+                  : "В нарядах записано больше, чем прошло по ЕГАИС. Возможно, лес ещё не оформлен в ЕГАИС, не загружена свежая выгрузка или в наряде опечатка."
+              }
+            >
+              расхождение {delta >= 0 ? "+" : "−"}{fmt1(Math.abs(delta))} ⓘ
+            </span>
           </div>
           <ProgressBar value={cell.fakt_egais} limit={cell.limit} color="#8fb79f" />
         </div>
@@ -1431,6 +1520,7 @@ function DelyankaEgaisSummary({ check, onOpenReview }) {
 
 function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
   const toast = useToast();
+  const can = useCan();
   const [balance, setBalance] = useState(null);
   const [naryady, setNaryady] = useState([]);
   const [egais, setEgais] = useState(null);
@@ -1589,7 +1679,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
               + Новый наряд
             </Button>
           )}
-          {view === "egais" && egaisPorodyCount > 0 && (
+          {view === "egais" && egaisPorodyCount > 0 && can("egais.delete") && (
             <Button variant="secondary" size="sm" onClick={handleDeleteEgais}>
               Удалить данные ЕГАИС
             </Button>
@@ -1640,6 +1730,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
         onSaved={load}
         ploshadDelyanki={ploshadInfo?.ploshad_delyanki}
         limitKubaturaTotal={ploshadInfo?.limit_kubatura_total}
+        naryady={naryady}
       />
     </div>
   );
@@ -1701,8 +1792,12 @@ function SummaryModal({ open, onClose, delyankaId, delyankaLabel }) {
 
 export default function Raskhod() {
   const toast = useToast();
+  const can = useCan();
   const [delyanki, setDelyanki] = useState([]);
+  // Выбранная делянка — в адресе (#/raskhod?d=5): переживает F5 и
+  // открывается кнопкой «Расход» из карточки делянки.
   const [delyankaId, setDelyankaId] = useState("");
+  const [delyankaParam, setDelyankaParam] = useScreenParam("raskhod", "d");
   const [items, setItems] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1742,8 +1837,13 @@ export default function Raskhod() {
     loadEgaisReviewSummary();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (String(delyankaParam || "") !== String(delyankaId || "")) handleDelyankaChange(delyankaParam);
+  }, [delyankaParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleDelyankaChange = async (id) => {
     setDelyankaId(id);
+    setDelyankaParam(id);
     setSelectedItem(null);
     setItems([]);
     if (!id) return;
@@ -1751,6 +1851,8 @@ export default function Raskhod() {
     try {
       const res = await api.get(`/delyanki/${id}`);
       setItems(res.items || []);
+      // Один выдел — сразу открываем его баланс, без лишнего клика.
+      if ((res.items || []).length === 1) setSelectedItem(res.items[0]);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось загрузить выделы делянки", description: e.message });
     } finally {
@@ -1769,7 +1871,7 @@ export default function Raskhod() {
 
   const handleDeleteDelyankaEgais = async () => {
     const label = delyanki.find((d) => String(d.id) === String(delyankaId))?.nazvanie || `Делянка №${delyankaId}`;
-    if (!window.confirm(`Удалить данные выгрузки ЕГАИС по ВСЕМ выделам делянки «${label}»? Наряды-задания не затронет.`)) return;
+    if (!window.confirm(`Удалить данные выгрузки ЕГАИС по ВСЕМ выделам делянки «${label}»? Наряды-задания не затронет. Перед удалением сохранится автокопия базы.`)) return;
     try {
       const res = await api.delete(`/raskhod/delyanki/${delyankaId}/egais`);
       toast.show({
@@ -1848,7 +1950,7 @@ export default function Raskhod() {
             <Button variant="secondary" onClick={() => setSvodkiOpen(true)}>
               📑 Сводки прихода/расхода
             </Button>
-            {delyankaId && (
+            {delyankaId && can("egais.delete") && (
               <Button variant="secondary" onClick={handleDeleteDelyankaEgais}>
                 🗑️ Удалить ЕГАИС по делянке
               </Button>
@@ -1880,7 +1982,7 @@ export default function Raskhod() {
           <EmptyState
             icon="🧮"
             title="Выберите делянку и выдел"
-            description="Баланс лимитов/факта и наряды-задания считаются для конкретного выдела делянки."
+            description="Выберите делянку в списке выше (в нём только активные: черновик становится активным после ввода лесорубочного билета в «Делянках»). Затем — выдел, если их несколько."
           />
         </Card>
       )}

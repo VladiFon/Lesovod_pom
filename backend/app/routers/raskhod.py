@@ -25,6 +25,7 @@ from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
 from app.auth import get_current_user, require_permission
 from app import svodka_raskhod
+from app import korzina, signaly
 import webext
 
 router = APIRouter(prefix="/api/raskhod", tags=["raskhod"])
@@ -120,7 +121,7 @@ def get_item_egais_balance_check(item_id: int, conn=Depends(get_conn)):
 
 
 @router.delete("/items/{item_id}/egais")
-def delete_item_egais(item_id: int, user=Depends(require_permission("raskhod.edit")),
+def delete_item_egais(item_id: int, user=Depends(require_permission("egais.delete")),
                        conn=Depends(get_conn)):
     """Удаляет данные последней выгрузки ЕГАИС по этому выделу (см.
     legacy_raskhod.delete_egais_snapshot_for_item) - например, если
@@ -131,6 +132,23 @@ def delete_item_egais(item_id: int, user=Depends(require_permission("raskhod.edi
     if not deleted:
         raise HTTPException(404, "Данных ЕГАИС по этому выделу нет")
     return {"ok": True}
+
+
+@router.delete("/delyanki/{delyanka_id}/egais")
+def delete_delyanka_egais(delyanka_id: int, user=Depends(require_permission("egais.delete")),
+                           conn=Depends(get_conn)):
+    """Удаляет данные последней выгрузки ЕГАИС сразу по всем выделам
+    делянки. Кнопка «Удалить ЕГАИС по делянке» на сайте звала этот адрес,
+    а маршрута не было (терялся при переносе) — кнопка отвечала 404.
+    Только администратор; перед удалением — автокопия базы."""
+    items = legacy_raskhod.get_delyanka_items(conn, delyanka_id)
+    if not items:
+        raise HTTPException(404, "Делянка не найдена или в ней нет выделов")
+    korzina.avtokopiya(conn, "pered_udaleniem_egais")
+    touched = legacy_raskhod.delete_egais_snapshot_for_delyanka(conn, items)
+    if not touched:
+        raise HTTPException(404, "Данных ЕГАИС по выделам этой делянки нет")
+    return {"ok": True, "items_affected": len(touched), "items_total": len(items)}
 
 
 class NaryadIn(BaseModel):
@@ -150,6 +168,7 @@ def create_naryad(item_id: int, body: NaryadIn, user=Depends(require_permission(
         nomer_naryada=body.nomer_naryada, ploshad=body.ploshad,
         primechanie=body.primechanie, pozitsii=body.pozitsii,
     )
+    signaly.proverit(conn)
     return {"id": naryad_id}
 
 
@@ -221,6 +240,7 @@ def _run_import_egais(task_id: str, xlsx_path: str):
             "journal_rows_added": added,
             "journal_rows_replaced": save_stats.get("replaced_rows", 0),
         })
+        signaly.proverit(conn)  # новый факт ЕГАИС — проверить пороги освоения
     except Exception as e:  # noqa: BLE001
         webext.set_task_error(conn, task_id, str(e))
     finally:
@@ -231,6 +251,7 @@ def _run_import_egais(task_id: str, xlsx_path: str):
 @router.post("/egais/import")
 def import_egais(background_tasks: BackgroundTasks, file: UploadFile = File(...),
                   user=Depends(require_permission("raskhod.edit")), conn=Depends(get_conn)):
+    korzina.avtokopiya(conn, "pered_egais")
     dest = UPLOADS_DIR / f"egais_{uuid4().hex}_{file.filename}"
     with open(dest, "wb") as out:
         shutil.copyfileobj(file.file, out)

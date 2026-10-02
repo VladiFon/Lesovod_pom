@@ -54,3 +54,41 @@ def set_note_read(
     if not ok:
         raise HTTPException(404, "Заметка не найдена")
     return {"ok": True}
+
+
+class NoteReplyIn(BaseModel):
+    text: str
+
+
+@router.post("/{note_id}/reply")
+def reply_to_note(
+    note_id: int,
+    body: NoteReplyIn,
+    user=Depends(require_office_or_master),
+    conn=Depends(get_conn),
+) -> dict:
+    """Ответить рабочему на заметку — ответ увидит автор в «Моих заметках»
+    приложения и получит уведомление."""
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "Пустой ответ")
+    kto = user.get("fio") or user.get("login") or ""
+    if not webext.otvetit_na_zametku(conn, note_id, text, kto):
+        raise HTTPException(404, "Заметка не найдена")
+    return {"ok": True}
+
+
+@router.get("/metki")
+def list_metki(
+    user=Depends(require_office_or_master),
+    conn=Depends(get_conn),
+) -> list[dict]:
+    """Метки рабочих с карты приложения (ветровал, склад, дорога…) — на
+    сайте, чтобы из метки можно было поставить задачу."""
+    from app import map_features
+
+    cats = {c["code"]: c["label"] for c in map_features.GEO_NOTE_CATEGORIES}
+    notes = map_features.list_geo_notes(conn)
+    for n in notes:
+        n["kategoriya_label"] = cats.get(n["kategoriya"], n["kategoriya"])
+    return notes

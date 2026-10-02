@@ -8,6 +8,7 @@ import Modal from "../components/Modal.jsx";
 import DataTable from "../components/DataTable.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
+import ZadachaModal from "../components/ZadachaModal.jsx";
 
 /**
  * Экран "План работ" — Фаза 4 плана доработки веб-версии.
@@ -49,6 +50,7 @@ export default function PlanRabot() {
   const [sotrudnikFilter, setSotrudnikFilter] = useState("");
 
   const [tasks, setTasks] = useState(null);
+  const [novayaOpen, setNovayaOpen] = useState(false);
   const [sotrudniki, setSotrudniki] = useState([]);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -186,6 +188,25 @@ export default function PlanRabot() {
     }
   };
 
+  const handleRepeat = async (task) => {
+    const [y, m, d] = String(task.data).split("-").map(Number);
+    const dt = new Date(y, m - 1, d + 1);
+    const next = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    try {
+      await api.post("/work-plan/", {
+        sotrudnik_id: task.sotrudnik_id,
+        data: next,
+        zadacha: task.zadacha,
+        delyanka_item_id: task.delyanka_item_id || null,
+        lesokultury_uchastok_id: task.lesokultury_uchastok_id || null,
+      });
+      toast.show({ tone: "success", title: "Задача повторена", description: `На ${next.split("-").reverse().join(".")}` });
+      loadTasks();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось повторить задачу", description: e.message });
+    }
+  };
+
   const handleDelete = async (task) => {
     if (!window.confirm(`Удалить задачу «${task.zadacha}» для ${task.sotrudnik_fio}?`)) return;
     try {
@@ -241,6 +262,7 @@ export default function PlanRabot() {
         header: "",
         render: (t) => (
           <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => handleRepeat(t)} title="Та же задача тому же сотруднику на следующий день">Повторить завтра</Button>
             <Button size="sm" variant="ghost" onClick={() => openEditModal(t)}>Изменить</Button>
             <Button size="sm" variant="ghost" onClick={() => handleDelete(t)}>Удалить</Button>
           </div>
@@ -270,7 +292,7 @@ export default function PlanRabot() {
             </select>
           </div>
           <div className="ml-auto">
-            <Button variant="primary" onClick={openCreateModal}>
+            <Button variant="primary" onClick={() => setNovayaOpen(true)}>
               + Новая задача
             </Button>
           </div>
@@ -286,6 +308,8 @@ export default function PlanRabot() {
           emptyDescription="Поставьте первую задачу кнопкой «+ Новая задача» выше, либо расширьте диапазон дат."
         />
       </Card>
+
+      <ZadachaModal open={novayaOpen} onClose={() => setNovayaOpen(false)} onCreated={loadTasks} />
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Изменить задачу" : "Новая задача"}>
         <div className="flex flex-col gap-4">

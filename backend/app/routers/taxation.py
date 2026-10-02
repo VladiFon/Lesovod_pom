@@ -12,6 +12,7 @@ import config as legacy_config
 import db as legacy_db
 
 from app.auth import require_permission
+from app import korzina
 from app.database import get_conn
 from app.paths import UPLOADS_DIR
 import webext
@@ -56,12 +57,19 @@ def _run_build_db(task_id: str, docx_paths: List[str], reset: bool):
 def build_taxation_db(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    reset: bool = True,
+    reset: bool = False,
     conn=Depends(get_conn), _user=Depends(require_permission("taxation.edit")),
 ):
     """Загружает одно или несколько таксационных описаний (.docx) и
     перестраивает справочник lesnichestvo/kvartal/vydel/sostav в фоне
-    (может быть долгим на больших выгрузках)."""
+    (может быть долгим на больших выгрузках).
+
+    reset=True (стереть всю прежнюю таксацию) — только администратор и
+    по умолчанию выключено (01.10.2026: галочка «Заменить справочник»
+    стояла включённой и была видна всем). Перед загрузкой — автокопия базы."""
+    if reset and not webext.has_permission(_user, "taxation.replace"):
+        raise HTTPException(403, "Заменить весь справочник таксации может только администратор")
+    korzina.avtokopiya(conn, "pered_taksaciey")
     saved_paths = []
     for f in files:
         dest = UPLOADS_DIR / f"taksatsia_{uuid4().hex}_{f.filename}"
@@ -92,3 +100,15 @@ def get_vydel(kvartal: str, vydel: str, lesnichestvo: Optional[str] = None, conn
     if card is None:
         raise HTTPException(404, "Выдел не найден в таксации")
     return card
+
+
+@router.get("/vydel-history")
+def get_vydel_history(kvartal: str, vydel: str, lesnichestvo: Optional[str] = None, conn=Depends(get_conn)):
+    """Что было на выделе (делянки, лесные культуры и мероприятия,
+    выполненные работы) — для карточки Таксации. Та же история, что в
+    приложении (map_features.vydel_history), но лесничество — по названию,
+    как его выбирают на этом экране."""
+    from app import map_features
+
+    num = legacy_config.LCH_MAP.get(lesnichestvo) if lesnichestvo else None
+    return map_features.vydel_history(conn, str(num) if num is not None else None, kvartal, vydel)

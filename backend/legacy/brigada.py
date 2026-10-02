@@ -338,18 +338,16 @@ def list_delyanki_dlya_raspredeleniya(conn):
     назначение (кто там сейчас) + следующее назначение ЭТОЙ бригады/
     рабочего (куда они поедут дальше, если уже запланировано)."""
     delyanki = delyanka.list_delyanki(conn, status="активна")
+    # % освоения — как в карточке «Освоение делянки» (большее из наряда и
+    # ЕГАИС), иначе бригада «не видит», что делянка уже дорублена по ЕГАИС.
+    osvoenie = raskhod_v2.compute_osvoenie_batch(conn, [d["id"] for d in delyanki])
     result = []
     for d in delyanki:
         _, items = delyanka.get_delyanka_full(conn, d["id"])
 
-        pct_osvoeniya_limita = None
+        pct_osvoeniya_limita = (osvoenie.get(d["id"]) or {}).get("pct")
         pct_ploshad_ostatka = None
         if items:
-            totals = raskhod_v2.compute_sortiment_limit_fakt_totals(conn, items)
-            total_limit = sum(v["limit"] for v in totals.values())
-            total_fakt = sum(v["fakt"] for v in totals.values())
-            if total_limit:
-                pct_osvoeniya_limita = round(total_fakt / total_limit * 100, 1)
 
             ploshad_delyanki_sum = 0.0
             ploshad_ostatok_sum = 0.0
@@ -381,6 +379,7 @@ def list_delyanki_dlya_raspredeleniya(conn):
         result.append({
             **d,
             "pct_osvoeniya_limita": pct_osvoeniya_limita,
+            "osvoenie_level": (osvoenie.get(d["id"]) or {}).get("level"),
             "pct_ploshad_ostatka": pct_ploshad_ostatka,
             "srok_okonchaniya_zagotovki": srok_zagotovki,
             "srok_okonchaniya_vyvozki": srok_vyvozki,

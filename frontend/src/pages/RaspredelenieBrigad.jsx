@@ -6,6 +6,7 @@ import TextField from "../components/TextField.jsx";
 import TextAreaField from "../components/TextAreaField.jsx";
 import Modal from "../components/Modal.jsx";
 import DataTable from "../components/DataTable.jsx";
+import OsvoenieBadge from "../components/OsvoenieBadge.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
 
@@ -24,7 +25,6 @@ import { useToast } from "../components/Toast.jsx";
  * приём, что и URGENT_SOON_DAYS в Inspection.jsx: сигнал считает бэкенд
  * (is_zavershaetsya), здесь только раскраска на основе тех же цифр.
  */
-const PCT_OSVOENIYA_PORIG = 85;
 const PLOSHAD_OSTATOK_PORIG = 15;
 const SROK_DNEI_PORIG = 14;
 
@@ -306,7 +306,7 @@ export default function RaspredelenieBrigad() {
   const delyankiColumns = useMemo(
     () => [
       { key: "nazvanie", header: "Делянка", render: (r) => r.nazvanie || `Делянка №${r.id}` },
-      { key: "pct_osvoeniya_limita", header: "% освоения", render: (r) => pctBadge(r.pct_osvoeniya_limita, PCT_OSVOENIYA_PORIG, true) },
+      { key: "pct_osvoeniya_limita", header: "% освоения", render: (r) => <OsvoenieBadge pct={r.pct_osvoeniya_limita} level={r.osvoenie_level} /> },
       { key: "pct_ploshad_ostatka", header: "% площади в остатке", render: (r) => pctBadge(r.pct_ploshad_ostatka, PLOSHAD_OSTATOK_PORIG, false) },
       { key: "srok_okonchaniya_vyvozki", header: "Срок вывозки", render: (r) => srokBadge(r.srok_okonchaniya_vyvozki) },
       { key: "tekushee", header: "Сейчас работает", render: (r) => executorLabel(r.tekushee_naznachenie) },
