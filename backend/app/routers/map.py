@@ -434,7 +434,42 @@ def get_lesokultury_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str]
         wanted.setdefault((num, u["kvartal"], u["vydel"]), []).append(u)
     result = _vydel_polygons(lesnichestvo_num, wanted) if wanted else {"type": "FeatureCollection", "features": []}
     result["features"].extend(own)
+    podrobno = _lesokultury_podrobno(conn)
+    for f in result["features"]:
+        f["properties"] = {**podrobno.get(f["properties"].get("id"), {}), **f["properties"]}
     return result
+
+
+def _lesokultury_podrobno(conn) -> dict:
+    """Характеристики участка для карточки в QGIS (плагин «Лесовод-мост»,
+    кнопка «Что здесь»): способ создания, схема, густота, ТЛУ и последнее
+    мероприятие из журнала (инвентаризация с приживаемостью и т.п.)."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(lesokultury_uchastok)").fetchall()}
+    want = [c for c in ("metod_sozdaniya", "sposob_obrabotki", "posadochnyy_material", "shema_mezhdu_ryadami",
+                        "shema_v_ryadu", "gustota_posadki", "normativ_perevoda", "tlu", "kategoriya_ploshadi",
+                        "vydel_staryy", "podvydel", "primechaniya") if c in cols]
+    out: dict = {}
+    for row in conn.execute(f"SELECT id, {', '.join(want) or 'NULL'} FROM lesokultury_uchastok").fetchall():
+        d = dict(zip(want, row[1:]))
+        mr, vr = d.pop("shema_mezhdu_ryadami", None), d.pop("shema_v_ryadu", None)
+        if mr or vr:
+            d["shema_posadki"] = f"{mr or '?'} × {vr or '?'} м"
+        out[row[0]] = {k: v for k, v in d.items() if v not in (None, "")}
+    for u_id, tip, data, prizh, kol, sostav in conn.execute(
+        """SELECT m.uchastok_id, m.tip, m.data, m.prizhivaemost_pct, m.kolichestvo_na_ga, m.sostav_fakt
+           FROM lesokultury_meropriyatiya m
+           WHERE m.id = (SELECT m2.id FROM lesokultury_meropriyatiya m2 WHERE m2.uchastok_id = m.uchastok_id
+                         ORDER BY m2.data DESC, m2.id DESC LIMIT 1)"""
+    ).fetchall():
+        d = out.setdefault(u_id, {})
+        d["posl_meropriyatie"] = " ".join(str(x) for x in (tip, data) if x)
+        if prizh is not None:
+            d["prizhivaemost_pct"] = prizh
+        if kol is not None:
+            d["kolichestvo_na_ga"] = kol
+        if sostav:
+            d["sostav_fakt"] = sostav
+    return out
 
 
 class LesokulturyIzQgis(BaseModel):
