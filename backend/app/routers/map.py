@@ -348,7 +348,21 @@ def get_lesokultury_kartochka(uchastok_id: int, conn=Depends(get_conn), _user=De
             "WHERE uchastok_id = ? ORDER BY data DESC, id DESC LIMIT 10", (uchastok_id,)
         ).fetchall()
     ]
-    return {**podrobno, **{k: v for k, v in base.items() if v not in (None, "")}, "zhurnal": zhurnal}
+    out = {**podrobno, **{k: v for k, v in base.items() if v not in (None, "")}}
+    # телефон ждёт числа в этих полях и строки во всех остальных
+    chisla = {"id", "ploshad", "prizhivaemost_pct", "kolichestvo_na_ga", "has_kontur", "vid_kultur_avto"}
+    for k, v in list(out.items()):
+        if k in chisla - {"id", "has_kontur", "vid_kultur_avto"}:
+            try:
+                out[k] = float(str(v).replace(",", "."))
+            except (TypeError, ValueError):
+                out.pop(k)
+        elif k not in chisla:
+            out[k] = str(v)
+    for z in zhurnal:
+        z["tip"], z["data"] = (str(z["tip"]) if z["tip"] is not None else None,
+                               str(z["data"]) if z["data"] is not None else None)
+    return {**out, "zhurnal": zhurnal}
 
 
 @router.get("/vydel-history")
