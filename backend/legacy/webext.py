@@ -1318,10 +1318,13 @@ def notify(conn, event_type, text, related_id=None, recipient_sotrudnik_id=None)
 
 # Видно читающему, если общее или адресовано ему (у офисных логинов
 # sotrudnik_id нет — сравнение с NULL не истинно, остаются только общие).
-_NOTIF_VISIBLE = "(n.recipient_sotrudnik_id IS NULL OR n.recipient_sotrudnik_id = :sid)"
+# Рядовые рабочие (не руководители) с 05.10.2026 тоже читают уведомления, но
+# только адресованные лично им (например, «вам отправили метку») — общие
+# руководительские им не показываются: obshie=False.
+_NOTIF_VISIBLE = "((n.recipient_sotrudnik_id IS NULL AND :obshie = 1) OR n.recipient_sotrudnik_id = :sid)"
 
 
-def list_notifications(conn, reader_type, reader_id, viewer_sotrudnik_id=None, unread_only=False, limit=50):
+def list_notifications(conn, reader_type, reader_id, viewer_sotrudnik_id=None, unread_only=False, limit=50, obshie=True):
     conn.row_factory = sqlite3.Row
     q = f"""
         SELECT n.id, n.recipient_sotrudnik_id, n.event_type, n.text, n.related_id, n.created_at,
@@ -1334,11 +1337,11 @@ def list_notifications(conn, reader_type, reader_id, viewer_sotrudnik_id=None, u
     if unread_only:
         q += " AND r.notification_id IS NULL"
     q += " ORDER BY n.created_at DESC, n.id DESC LIMIT :lim"
-    rows = conn.execute(q, {"sid": viewer_sotrudnik_id, "rt": reader_type, "rid": reader_id, "lim": limit}).fetchall()
+    rows = conn.execute(q, {"sid": viewer_sotrudnik_id, "obshie": 1 if obshie else 0, "rt": reader_type, "rid": reader_id, "lim": limit}).fetchall()
     return [{**dict(r), "is_read": bool(r["is_read"])} for r in rows]
 
 
-def count_unread_notifications(conn, reader_type, reader_id, viewer_sotrudnik_id=None):
+def count_unread_notifications(conn, reader_type, reader_id, viewer_sotrudnik_id=None, obshie=True):
     return conn.execute(
         f"""
         SELECT COUNT(*) FROM notifications n
@@ -1346,16 +1349,16 @@ def count_unread_notifications(conn, reader_type, reader_id, viewer_sotrudnik_id
                ON r.notification_id = n.id AND r.reader_type = :rt AND r.reader_id = :rid
         WHERE {_NOTIF_VISIBLE} AND r.notification_id IS NULL
         """,
-        {"sid": viewer_sotrudnik_id, "rt": reader_type, "rid": reader_id},
+        {"sid": viewer_sotrudnik_id, "obshie": 1 if obshie else 0, "rt": reader_type, "rid": reader_id},
     ).fetchone()[0]
 
 
-def set_notification_read(conn, notification_id, reader_type, reader_id, is_read, viewer_sotrudnik_id=None):
+def set_notification_read(conn, notification_id, reader_type, reader_id, is_read, viewer_sotrudnik_id=None, obshie=True):
     """Отметка ТОЛЬКО для этого читателя. False — уведомления нет или оно
     не видно читающему (чужое адресное неотличимо от несуществующего)."""
     visible = conn.execute(
         f"SELECT 1 FROM notifications n WHERE n.id = :nid AND {_NOTIF_VISIBLE}",
-        {"nid": notification_id, "sid": viewer_sotrudnik_id},
+        {"nid": notification_id, "sid": viewer_sotrudnik_id, "obshie": 1 if obshie else 0},
     ).fetchone()
     if not visible:
         return False
@@ -1373,13 +1376,13 @@ def set_notification_read(conn, notification_id, reader_type, reader_id, is_read
     return True
 
 
-def mark_all_notifications_read(conn, reader_type, reader_id, viewer_sotrudnik_id=None):
+def mark_all_notifications_read(conn, reader_type, reader_id, viewer_sotrudnik_id=None, obshie=True):
     cur = conn.execute(
         f"""
         INSERT OR IGNORE INTO notification_reads (notification_id, reader_type, reader_id)
         SELECT n.id, :rt, :rid FROM notifications n WHERE {_NOTIF_VISIBLE}
         """,
-        {"sid": viewer_sotrudnik_id, "rt": reader_type, "rid": reader_id},
+        {"sid": viewer_sotrudnik_id, "obshie": 1 if obshie else 0, "rt": reader_type, "rid": reader_id},
     )
     conn.commit()
     return cur.rowcount

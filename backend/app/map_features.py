@@ -405,7 +405,11 @@ def author_fio_map(conn) -> Dict[str, str]:
     return fios
 
 
-def list_geo_notes(conn, telegram_id: Optional[str] = None) -> List[dict]:
+def list_geo_notes(conn, telegram_id: Optional[str] = None, sotrudnik_id: Optional[int] = None) -> List[dict]:
+    """Метки для карты. telegram_id — только свои; sotrudnik_id — плюс
+    чужие, которые этому сотруднику отправили и он их принял (у таких
+    shared_from_fio/share_id заполнены: в приложении «Убрать с карты»
+    вместо «Удалить»)."""
     q = ("SELECT id, telegram_id, lat, lon, note_text, photo_path, created_at, kategoriya "
          "FROM geo_notes WHERE lat IS NOT NULL AND lon IS NOT NULL")
     params: tuple = ()
@@ -416,11 +420,143 @@ def list_geo_notes(conn, telegram_id: Optional[str] = None) -> List[dict]:
     fios = author_fio_map(conn)
     out = []
     for note_id, tg, lat, lon, text, photo, created, kat in conn.execute(q, params).fetchall():
-        kat = kat if kat in GEO_NOTE_CODES else "zametka"
-        out.append({"id": note_id, "telegram_id": tg, "lat": lat, "lon": lon, "note_text": text,
-                    "has_photo": bool(photo), "created_at": created, "kategoriya": kat,
-                    "author_fio": fios.get(str(tg)) if tg else None})
+        out.append(_geo_note_dict(note_id, tg, lat, lon, text, photo, created, kat, fios))
+    if telegram_id is not None and sotrudnik_id is not None:
+        for share_id, from_fio, row in _accepted_shares(conn, sotrudnik_id, own=telegram_id):
+            note = _geo_note_dict(*row, fios)
+            note.update(share_id=share_id, shared_from_fio=from_fio)
+            out.append(note)
     return out
+
+
+def _geo_note_dict(note_id, tg, lat, lon, text, photo, created, kat, fios) -> dict:
+    kat = kat if kat in GEO_NOTE_CODES else "zametka"
+    return {"id": note_id, "telegram_id": tg, "lat": lat, "lon": lon, "note_text": text,
+            "has_photo": bool(photo), "created_at": created, "kategoriya": kat,
+            "author_fio": fios.get(str(tg)) if tg else None}
+
+
+# --------------------------------------------------------------------------- #
+#   Отправка меток другим сотрудникам (05.10.2026)
+# --------------------------------------------------------------------------- #
+# Метка остаётся одна (у автора), получателю создаётся «приглашение»:
+# ожидает -> принята (метка появляется у него на карте) / отклонена.
+# Автор удалил метку — исчезает и у получателей (ON DELETE CASCADE и явное
+# удаление в delete_geo_note — в SQLite внешние ключи не всегда включены).
+GEO_NOTE_SHARES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS geo_note_shares (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    note_id INTEGER NOT NULL REFERENCES geo_notes(id) ON DELETE CASCADE,
+    from_telegram_id TEXT,
+    from_fio TEXT,
+    to_sotrudnik_id INTEGER NOT NULL REFERENCES sotrudniki(id),
+    komment TEXT,
+    status TEXT NOT NULL DEFAULT 'ozhidaet',
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    otvet_at TEXT,
+    UNIQUE (note_id, to_sotrudnik_id)
+);
+CREATE INDEX IF NOT EXISTS idx_geo_note_shares_to ON geo_note_shares(to_sotrudnik_id, status);
+"""
+SHARE_WAITING, SHARE_ACCEPTED, SHARE_DECLINED = "ozhidaet", "prinyata", "otklonena"
+
+_NOTE_COLS = "n.id, n.telegram_id, n.lat, n.lon, n.note_text, n.photo_path, n.created_at, n.kategoriya"
+
+
+def _accepted_shares(conn, sotrudnik_id: int, own: Optional[str] = None):
+    rows = conn.execute(
+        f"""SELECT s.id, s.from_fio, {_NOTE_COLS} FROM geo_note_shares s JOIN geo_notes n ON n.id = s.note_id
+            WHERE s.to_sotrudnik_id = ? AND s.status = ? AND n.lat IS NOT NULL AND n.lon IS NOT NULL
+            ORDER BY s.id DESC""",
+        (sotrudnik_id, SHARE_ACCEPTED),
+    ).fetchall()
+    for r in rows:
+        if own is not None and r[3] == own:
+            continue  # своя метка, вернувшаяся по пересылке, — уже есть среди своих
+        yield r[0], r[1], r[2:]
+
+
+def coworkers(conn, except_sotrudnik_id: Optional[int] = None) -> List[dict]:
+    """Кому можно отправить метку: все активные сотрудники с входом в приложение."""
+    return [
+        {"id": r[0], "fio": r[1], "dolzhnost": r[2], "uchastok": r[3]}
+        for r in conn.execute(
+            "SELECT id, fio, dolzhnost, uchastok FROM sotrudniki WHERE is_active = 1 ORDER BY fio"
+        ).fetchall()
+        if r[0] != except_sotrudnik_id
+    ]
+
+
+def share_geo_note(conn, note_id: int, from_telegram_id: Optional[str], from_fio: Optional[str],
+                   to_ids: List[int], komment: Optional[str] = None) -> List[dict]:
+    """Создаёт приглашения; повторная отправка тому же — снова «ожидает»
+    (если он раньше отклонил или убрал метку). Возвращает
+    [{"share_id", "to_sotrudnik_id", "fio", "novoe"}] — novoe=False, если
+    метка у него уже принята (уведомлять не нужно)."""
+    komment = (komment or "").strip()[:300] or None
+    active = {r[0]: r[1] for r in conn.execute("SELECT id, fio FROM sotrudniki WHERE is_active = 1").fetchall()}
+    out = []
+    for to_id in dict.fromkeys(to_ids):
+        if to_id not in active:
+            raise ValueError(f"Сотрудник id={to_id} не найден или отключён")
+        row = conn.execute("SELECT id, status FROM geo_note_shares WHERE note_id = ? AND to_sotrudnik_id = ?",
+                           (note_id, to_id)).fetchone()
+        if row and row[1] == SHARE_ACCEPTED:
+            out.append({"share_id": row[0], "to_sotrudnik_id": to_id, "fio": active[to_id], "novoe": False})
+            continue
+        if row:
+            conn.execute("UPDATE geo_note_shares SET status = ?, from_telegram_id = ?, from_fio = ?, komment = ?, "
+                         "created_at = datetime('now', 'localtime'), otvet_at = NULL WHERE id = ?",
+                         (SHARE_WAITING, from_telegram_id, from_fio, komment, row[0]))
+            share_id = row[0]
+        else:
+            share_id = conn.execute(
+                "INSERT INTO geo_note_shares (note_id, from_telegram_id, from_fio, to_sotrudnik_id, komment) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (note_id, from_telegram_id, from_fio, to_id, komment),
+            ).lastrowid
+        out.append({"share_id": share_id, "to_sotrudnik_id": to_id, "fio": active[to_id], "novoe": True})
+    conn.commit()
+    return out
+
+
+def incoming_shares(conn, sotrudnik_id: int, status: Optional[str] = SHARE_WAITING) -> List[dict]:
+    q = (f"SELECT s.id, s.from_fio, s.komment, s.status, s.created_at, {_NOTE_COLS} "
+         "FROM geo_note_shares s JOIN geo_notes n ON n.id = s.note_id WHERE s.to_sotrudnik_id = ?")
+    params: list = [sotrudnik_id]
+    if status:
+        q += " AND s.status = ?"
+        params.append(status)
+    fios = author_fio_map(conn)
+    out = []
+    for share_id, from_fio, komment, st, created, *note in conn.execute(q + " ORDER BY s.id DESC", params).fetchall():
+        out.append({"share_id": share_id, "from_fio": from_fio, "komment": komment, "status": st,
+                    "shared_at": created, "note": _geo_note_dict(*note, fios)})
+    return out
+
+
+def answer_share(conn, share_id: int, sotrudnik_id: int, accept: bool) -> Optional[dict]:
+    """Принять / отклонить (или убрать уже принятую с карты). None — нет
+    такого приглашения у этого сотрудника."""
+    row = conn.execute("SELECT note_id FROM geo_note_shares WHERE id = ? AND to_sotrudnik_id = ?",
+                       (share_id, sotrudnik_id)).fetchone()
+    if row is None:
+        return None
+    status = SHARE_ACCEPTED if accept else SHARE_DECLINED
+    conn.execute("UPDATE geo_note_shares SET status = ?, otvet_at = datetime('now', 'localtime') WHERE id = ?",
+                 (status, share_id))
+    conn.commit()
+    return {"share_id": share_id, "note_id": row[0], "status": status}
+
+
+def share_visible_to(conn, note_id: int, sotrudnik_id: Optional[int]) -> bool:
+    """Отправленная этому сотруднику метка (ожидает или принята) — можно смотреть фото."""
+    if sotrudnik_id is None:
+        return False
+    return conn.execute(
+        "SELECT 1 FROM geo_note_shares WHERE note_id = ? AND to_sotrudnik_id = ? AND status IN (?, ?)",
+        (note_id, sotrudnik_id, SHARE_WAITING, SHARE_ACCEPTED),
+    ).fetchone() is not None
 
 
 def geo_note_photo_path(conn, note_id: int) -> Optional[tuple]:
@@ -453,6 +589,7 @@ def ensure_schema(conn) -> None:
     if cols and "kategoriya" not in cols:
         conn.execute("ALTER TABLE geo_notes ADD COLUMN kategoriya TEXT")
     conn.executescript(TRACKS_SCHEMA)
+    conn.executescript(GEO_NOTE_SHARES_SCHEMA)
     conn.commit()
 
 

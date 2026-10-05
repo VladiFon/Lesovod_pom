@@ -161,6 +161,25 @@ def _office_or_master(office_roles):
 # Чтение веб-разделов с данными рабочих (присутствие, заметки, трелёвка,
 # уведомления): admin/lesovod/viewer + рабочие-руководители.
 require_office_or_master = _office_or_master(OFFICE_ROLES)
+
+
+def require_notification_reader(user=Depends(get_current_user), conn=Depends(get_conn)):
+    """Колокольчик (05.10.2026): офисные роли и руководители — как раньше
+    (общие + адресные); остальные рабочие тоже читают, но только адресные
+    им лично (user["_obshie"] = False) — например, «вам отправили метку»."""
+    role = user.get("role")
+    if role in OFFICE_ROLES:
+        return {**user, "_obshie": True}
+    if role == "worker" and user.get("sotrudnik_id"):
+        row = conn.execute("SELECT dolzhnost FROM sotrudniki WHERE id = ? AND is_active = 1",
+                           (user["sotrudnik_id"],)).fetchone()
+        if row is None:
+            raise HTTPException(403, "Учётная запись отключена")
+        master = (row[0] or "").strip().casefold() in config.DOLZHNOSTI_MASTER_URODNYA
+        return {**user, "_obshie": master}
+    raise HTTPException(403, "Недостаточно прав")
+
+
 # Запись (например, инвентаризация/перевод лесных культур из поля): то же,
 # но без viewer.
 require_office_writer_or_master = _office_or_master(OFFICE_WRITE_ROLES)

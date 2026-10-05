@@ -28,6 +28,7 @@ const EVENT_META = {
   osvoenie: { icon: "📈", label: "Освоение делянки", screen: "raskhod", param: "d" },
   srok: { icon: "⏰", label: "Срок", screen: "inspection", param: "d" },
   otvet_na_zametku: { icon: "💬", label: "Ответ на заметку", screen: "worker_notes" },
+  metka: { icon: "📍", label: "Метка от коллеги", screen: null },
 };
 
 function formatDateTime(s) {
