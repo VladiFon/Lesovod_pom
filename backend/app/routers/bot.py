@@ -832,7 +832,8 @@ def list_geo_notes(conn=Depends(get_conn), user=Depends(require_permission("bot.
     telegram_id = user.get("app_identity") if user.get("role") == "worker" else None
     if user.get("role") == "worker" and not telegram_id:
         return []
-    notes = map_features.list_geo_notes(conn, telegram_id)
+    # + метки, которые ему отправили коллеги и он принял (05.10.2026)
+    notes = map_features.list_geo_notes(conn, telegram_id, user.get("sotrudnik_id") if telegram_id else None)
     for note in notes:
         note["photo_url"] = f"/api/bot/geo-notes/{note['id']}/photo" if note["has_photo"] else None
     return notes
@@ -843,7 +844,8 @@ def get_geo_note_photo(note_id: int, conn=Depends(get_conn), user=Depends(requir
     row = map_features.geo_note_photo_path(conn, note_id)
     if row is None or not row[1]:
         raise HTTPException(404, "Фото не найдено")
-    if user.get("role") == "worker" and row[0] != user.get("app_identity"):
+    if (user.get("role") == "worker" and row[0] != user.get("app_identity")
+            and not map_features.share_visible_to(conn, note_id, user.get("sotrudnik_id"))):
         raise HTTPException(404, "Фото не найдено")
     path = Path(row[1])
     if not path.is_file() or path.suffix.lower() not in _PHOTO_SUFFIXES:
@@ -857,9 +859,102 @@ def delete_geo_note(note_id: int, conn=Depends(get_conn), user=Depends(require_p
     row = conn.execute("SELECT telegram_id FROM geo_notes WHERE id=?", (note_id,)).fetchone()
     if row is None or (user.get("role") == "worker" and row[0] != user.get("app_identity")):
         raise HTTPException(404, "Метка не найдена")
+    # у получателей метка пропадает вместе с уведомлениями «вам отправили метку»
+    conn.execute("DELETE FROM notifications WHERE event_type = 'metka' AND related_id IN "
+                 "(SELECT id FROM geo_note_shares WHERE note_id = ?)", (note_id,))
+    conn.execute("DELETE FROM geo_note_shares WHERE note_id=?", (note_id,))
     conn.execute("DELETE FROM geo_notes WHERE id=?", (note_id,))
     conn.commit()
     return {"deleted": True}
+
+
+# ------------------------------------------------- отправка меток коллегам ---
+# 05.10.2026 (просьба Влада): свою метку можно отправить конкретному
+# сотруднику; ему приходит уведомление, он принимает — и метка появляется у
+# него на карте (GET /geo-notes выше). Метка одна, у автора; у получателя —
+# строка geo_note_shares (см. map_features.GEO_NOTE_SHARES_SCHEMA).
+class GeoNoteShareIn(BaseModel):
+    sotrudnik_ids: List[int]
+    komment: Optional[str] = None
+
+
+def _worker_only(user: dict) -> None:
+    if user.get("role") != "worker" or not user.get("sotrudnik_id"):
+        raise HTTPException(403, "Доступно только учётным записям рабочих (worker-login)")
+
+
+@router.get("/coworkers")
+def list_coworkers(conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+    """Кому можно отправить метку: все активные сотрудники, кроме себя."""
+    return map_features.coworkers(conn, user.get("sotrudnik_id"))
+
+
+@router.post("/geo-notes/{note_id}/share")
+def share_geo_note(note_id: int, body: GeoNoteShareIn, conn=Depends(get_conn),
+                   user=Depends(require_permission("bot.access"))):
+    """Отправить метку. Свою — любой; чужую, принятую от коллеги, — тоже
+    можно переслать дальше (автор остаётся прежним)."""
+    _worker_only(user)
+    row = conn.execute("SELECT telegram_id, note_text, kategoriya FROM geo_notes WHERE id=?", (note_id,)).fetchone()
+    own = row is not None and row[0] == user.get("app_identity")
+    if row is None or not (own or map_features.share_visible_to(conn, note_id, user["sotrudnik_id"])):
+        raise HTTPException(404, "Метка не найдена")
+    ids = [i for i in body.sotrudnik_ids if i != user["sotrudnik_id"]]
+    if not ids:
+        raise HTTPException(400, "Выберите, кому отправить метку")
+    try:
+        shares = map_features.share_geo_note(conn, note_id, user.get("app_identity"), user.get("fio"), ids,
+                                             body.komment)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    label = next((c["label"] for c in map_features.GEO_NOTE_CATEGORIES if c["code"] == row[2]), "Метка")
+    text = (row[1] or "").strip()
+    for sh in shares:
+        if sh["novoe"]:
+            msg = f"{user.get('fio') or 'Коллега'} отправил(а) вам метку «{label}»"
+            if text:
+                msg += f": {text}"
+            if body.komment and body.komment.strip():
+                msg += f" — {body.komment.strip()}"
+            webext.notify(conn, "metka", msg, related_id=sh["share_id"], recipient_sotrudnik_id=sh["to_sotrudnik_id"])
+    return {"otpravleno": [{"fio": sh["fio"], "uzhe_prinyata": not sh["novoe"]} for sh in shares]}
+
+
+@router.get("/geo-note-shares/incoming")
+def list_incoming_geo_note_shares(status: Optional[str] = map_features.SHARE_WAITING, conn=Depends(get_conn),
+                                  user=Depends(require_permission("bot.access"))):
+    """Метки, которые мне отправили (по умолчанию — ещё не принятые);
+    status=all — все."""
+    _worker_only(user)
+    shares = map_features.incoming_shares(conn, user["sotrudnik_id"], None if status == "all" else status)
+    for sh in shares:
+        note = sh["note"]
+        note["photo_url"] = f"/api/bot/geo-notes/{note['id']}/photo" if note["has_photo"] else None
+    return shares
+
+
+def _answer_share(conn, share_id: int, user: dict, accept: bool) -> dict:
+    _worker_only(user)
+    result = map_features.answer_share(conn, share_id, user["sotrudnik_id"], accept)
+    if result is None:
+        raise HTTPException(404, "Метка не найдена — возможно, автор её удалил")
+    # уведомление об этой метке больше не висит непрочитанным
+    for (n_id,) in conn.execute("SELECT id FROM notifications WHERE event_type = 'metka' AND related_id = ? "
+                                "AND recipient_sotrudnik_id = ?", (share_id, user["sotrudnik_id"])).fetchall():
+        webext.set_notification_read(conn, n_id, "sotrudnik", user["sotrudnik_id"], True, user["sotrudnik_id"])
+    return result
+
+
+@router.post("/geo-note-shares/{share_id}/accept")
+def accept_geo_note_share(share_id: int, conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+    """Принять — метка появится на моей карте."""
+    return _answer_share(conn, share_id, user, True)
+
+
+@router.post("/geo-note-shares/{share_id}/decline")
+def decline_geo_note_share(share_id: int, conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+    """Отклонить или убрать уже принятую метку со своей карты (у автора она остаётся)."""
+    return _answer_share(conn, share_id, user, False)
 
 
 # ------------------------------------------------------------ треки обмера ---

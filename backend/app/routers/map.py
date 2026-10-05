@@ -325,6 +325,46 @@ def get_lesokultury_for_map(lesnichestvo_num: Optional[str] = None, conn=Depends
     return map_features.lesokultury_for_map(conn, lesnichestvo_num)
 
 
+@router.get("/lesokultury/{uchastok_id}/kartochka")
+def get_lesokultury_kartochka(uchastok_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Карточка участка лесных культур по тапу на карте телефона (05.10.2026):
+    то же, что «Что здесь» в QGIS — способ создания, схема, густота, ТЛУ,
+    последнее мероприятие — плюс журнал мероприятий."""
+    cols = [d[0] for d in conn.execute("SELECT * FROM lesokultury_uchastok LIMIT 0").description]
+    row = conn.execute("SELECT * FROM lesokultury_uchastok WHERE id = ?", (uchastok_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Участок лесных культур не найден")
+    u = dict(zip(cols, row))
+    base = {k: u.get(k) for k in ("id", "lesnichestvo", "kvartal", "vydel", "ploshad", "god_sozdaniya",
+                                   "glavnaya_poroda", "sostav_formula", "status")}
+    base["has_kontur"] = bool(u.get("geom_geojson"))
+    base.update(vidy.vid_kultur_info(u.get("vid_kultur"), u.get("naznachenie_plantatsii"),
+                                     u.get("metod_sozdaniya"), u.get("primechaniya")))
+    podrobno = _lesokultury_podrobno(conn).get(uchastok_id, {})
+    zhurnal = [
+        {"tip": tip, "data": data, "prizhivaemost_pct": prizh, "kolichestvo_na_ga": kol}
+        for tip, data, prizh, kol in conn.execute(
+            "SELECT tip, data, prizhivaemost_pct, kolichestvo_na_ga FROM lesokultury_meropriyatiya "
+            "WHERE uchastok_id = ? ORDER BY data DESC, id DESC LIMIT 10", (uchastok_id,)
+        ).fetchall()
+    ]
+    out = {**podrobno, **{k: v for k, v in base.items() if v not in (None, "")}}
+    # телефон ждёт числа в этих полях и строки во всех остальных
+    chisla = {"id", "ploshad", "prizhivaemost_pct", "kolichestvo_na_ga", "has_kontur", "vid_kultur_avto"}
+    for k, v in list(out.items()):
+        if k in chisla - {"id", "has_kontur", "vid_kultur_avto"}:
+            try:
+                out[k] = float(str(v).replace(",", "."))
+            except (TypeError, ValueError):
+                out.pop(k)
+        elif k not in chisla:
+            out[k] = str(v)
+    for z in zhurnal:
+        z["tip"], z["data"] = (str(z["tip"]) if z["tip"] is not None else None,
+                               str(z["data"]) if z["data"] is not None else None)
+    return {**out, "zhurnal": zhurnal}
+
+
 @router.get("/vydel-history")
 def get_vydel_history(kvartal: str, vydel: str, lesnichestvo_num: Optional[str] = None,
                       conn=Depends(get_conn), _user=Depends(get_current_user)):
@@ -562,6 +602,156 @@ def create_lesokultury_from_qgis(body: LesokulturyIzQgis, token: str, conn=Depen
                  (json.dumps(geometry, ensure_ascii=False), uchastok_id))
     conn.commit()
     return {"id": uchastok_id, "ploshad_kontura": area, "lesnichestvo": lesnichestvo}
+
+
+# --------------------------------------------------------------------------- #
+#   Делянка из QGIS (05.10.2026): как «Отметить как лесные культуры», только
+#   выделенный полигон (лесосека ГИСлесхоза, выдел, свой контур) становится
+#   контуром лесосеки делянки — уже заведённой на этом выделе или новой.
+# --------------------------------------------------------------------------- #
+def _delyanki_na_vydele(conn, lesnichestvo: Optional[str], kvartal: str, vydel: str) -> list:
+    kv, vd = map_features.norm_id(kvartal), map_features.norm_id(vydel)
+    out = []
+    for (item_id, d_id, nazvanie, d_status, i_lesn, i_kv, i_vd, status_rabot, ploshad, geom,
+         nomer, vid_kod) in conn.execute(
+        """SELECT i.id, d.id, d.nazvanie, d.status, i.lesnichestvo, i.kvartal, i.vydel, i.status_rabot,
+                  i.ploshad, i.geom_geojson, i.lesoseka_nomer, i.vid_rubki_kod
+           FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id ORDER BY d.id DESC"""
+    ).fetchall():
+        if map_features.norm_id(i_kv) != kv or (vd and map_features.norm_id(i_vd) != vd):
+            continue
+        if lesnichestvo and i_lesn and not map_features.same_lesnichestvo(i_lesn, lesnichestvo):
+            continue
+        out.append({"item_id": item_id, "delyanka_id": d_id, "nazvanie": nazvanie, "status": d_status,
+                    "arhiv": d_status == "архив", "status_rabot": status_rabot or map_features.STATUS_WAITING,
+                    "kvartal": map_features.norm_id(i_kv), "vydel": map_features.norm_id(i_vd),
+                    "ploshad": ploshad, "has_kontur": bool(geom), "lesoseka_nomer": nomer,
+                    "vid_rubki_kod": vid_kod})
+    # сначала рабочие, архивные — в конце
+    return sorted(out, key=lambda r: r["arhiv"])
+
+
+@router.get("/qgis/delyanki-na-vydele")
+def get_delyanki_na_vydele_for_qgis(token: str, kvartal: str, vydel: str = "",
+                                    lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
+    """Делянки, уже заведённые на этом квартале/выделе — плагин предлагает
+    привязать контур к одной из них или завести новую."""
+    _check_service_token(token)
+    lesnichestvo = _lesnichestvo_name(lesnichestvo_num) if lesnichestvo_num else None
+    return _delyanki_na_vydele(conn, lesnichestvo, kvartal, vydel)
+
+
+class DelyankaIzQgis(BaseModel):
+    """Контур лесосеки из QGIS. item_id — привязать к этому выделу делянки;
+    delyanka_id без item_id — добавить выдел в эту делянку (несколько
+    полигонов одной делянкой); ни того ни другого — новая делянка."""
+
+    geometry: dict
+    lesnichestvo_num: Optional[str] = None
+    kvartal: str
+    vydel: str = ""
+    item_id: Optional[int] = None
+    delyanka_id: Optional[int] = None
+    nazvanie: Optional[str] = None
+    vid_rubki_kod: Optional[str] = None
+    lesoseka_nomer: Optional[str] = None
+
+
+def _qgis_polygon(geometry_in: dict) -> dict:
+    from shapely.geometry import shape
+
+    from app import kontur as kontur_mod
+
+    try:
+        geom = shape(geometry_in)
+        if geom.is_empty or geom.geom_type not in ("Polygon", "MultiPolygon"):
+            raise ValueError
+        return kontur_mod._checked(geom)
+    except kontur_mod.KonturError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception:  # noqa: BLE001 — не GeoJSON-полигон
+        raise HTTPException(400, "Нужен полигон GeoJSON в WGS84")
+
+
+@router.post("/qgis/delyanka")
+def create_delyanka_from_qgis(body: DelyankaIzQgis, token: str, conn=Depends(get_conn)):
+    """Привязывает выделенный в QGIS полигон к делянке как её контур
+    лесосеки (как загрузка «Контур лесосеки» на сайте) или заводит новую
+    делянку с этим контуром (таксация выдела подтягивается сама, площадь —
+    по контуру)."""
+    _check_service_token(token)
+    import delyanka as delyanka_store
+
+    from app import kontur as kontur_mod
+
+    geometry = _qgis_polygon(body.geometry)
+    try:
+        vid = vidy.proverit_vid_rubki(body.vid_rubki_kod)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    area = kontur_mod.area_ha(geometry)
+    lesnichestvo = _lesnichestvo_name(body.lesnichestvo_num) if body.lesnichestvo_num else None
+    kv, vd = map_features.norm_id(body.kvartal), map_features.norm_id(body.vydel)
+    nomer = (body.lesoseka_nomer or "").strip() or None
+    geom_json = json.dumps(geometry, ensure_ascii=False)
+
+    if body.item_id is not None:
+        row = conn.execute(
+            """SELECT i.delyanka_id, d.nazvanie, i.ploshad, i.vid_rubki_kod, i.lesoseka_nomer, i.lesnichestvo
+               FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id WHERE i.id = ?""",
+            (body.item_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Выдел делянки не найден — обновите список в окне плагина")
+        delyanka_id, nazvanie, ploshad, old_vid, old_nomer, i_lesn = row
+        dop = {"geom_geojson": geom_json}
+        if vid and not (old_vid or "").strip():
+            dop["vid_rubki_kod"] = vid
+        if nomer and not (old_nomer or "").strip():
+            dop["lesoseka_nomer"] = nomer
+        conn.execute(f"UPDATE delyanka_item SET {', '.join(f'{k} = ?' for k in dop)} WHERE id = ?",
+                     (*dop.values(), body.item_id))
+        conn.commit()
+        warning = None
+        try:
+            own = float(str(ploshad).replace(",", "."))
+        except (TypeError, ValueError):
+            own = None
+        if own and abs(own - area) > max(0.1, own * 0.1):
+            warning = f"площадь контура {area} га, у лесосеки записано {own} га"
+        return {"item_id": body.item_id, "delyanka_id": delyanka_id, "nazvanie": nazvanie,
+                "ploshad_kontura": area, "warning": warning, "novaya": False}
+
+    if not kv:
+        raise HTTPException(400, "Нужен номер квартала")
+    if body.delyanka_id is not None:
+        d = conn.execute("SELECT nazvanie FROM delyanka WHERE id = ?", (body.delyanka_id,)).fetchone()
+        if d is None:
+            raise HTTPException(404, "Делянка не найдена")
+        delyanka_id, nazvanie = body.delyanka_id, d[0]
+        tax = delyanka_store._lookup_taxatsia(conn, kv, vd, lesnichestvo_hint=lesnichestvo) or {}
+        poryadok = conn.execute("SELECT COALESCE(MAX(poryadok), 0) + 1 FROM delyanka_item WHERE delyanka_id = ?",
+                                (delyanka_id,)).fetchone()[0]
+        item_id = conn.execute(
+            """INSERT INTO delyanka_item
+                   (delyanka_id, poryadok, lesnichestvo, kvartal, vydel, sostav, vozrast, polnota, tip_lesa,
+                    bonitet, proishozhdenie, kategoriya_lesov, zapas_na_ga)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (delyanka_id, poryadok, lesnichestvo or tax.get("lesnichestvo") or "", kv, vd, tax.get("sostav"),
+             tax.get("vozrast"), tax.get("polnota"), tax.get("tip_lesa"), tax.get("bonitet"),
+             tax.get("proishozhdenie"), tax.get("kategoriya_lesov"), tax.get("zapas_na_ga")),
+        ).lastrowid
+    else:
+        nazvanie = (body.nazvanie or "").strip() or f"кв. {kv} выд. {vd or '—'} (QGIS)"
+        delyanka_id = delyanka_store.create_delyanka_manual(conn, nazvanie, kv, vd, lesnichestvo)
+        item_id = conn.execute("SELECT id FROM delyanka_item WHERE delyanka_id = ? ORDER BY id LIMIT 1",
+                               (delyanka_id,)).fetchone()[0]
+    # площадь лесосеки — по контуру, а не всего таксационного выдела
+    conn.execute("UPDATE delyanka_item SET geom_geojson = ?, ploshad = ?, vid_rubki_kod = ?, lesoseka_nomer = ? "
+                 "WHERE id = ?", (geom_json, str(area), vid, nomer, item_id))
+    conn.commit()
+    return {"item_id": item_id, "delyanka_id": delyanka_id, "nazvanie": nazvanie, "ploshad_kontura": area,
+            "warning": None, "novaya": True}
 
 
 @router.get("/qgis/tracks.geojson")
