@@ -2228,7 +2228,7 @@ def delete_uhody_proba(conn, proba_id):
     conn.commit()
 
 
-def mark_uhody_proba_completed(conn, proba_id, sotrudnik_ids):
+def mark_uhody_proba_completed(conn, proba_id, sotrudnik_ids, storonnie=None):
     """Отмечает пробу рубок ухода выполненной — Фаза 2 плана доработки.
 
     1. Снимает снимок ФИО/должности выбранных sotrudnik_ids на СЕЙЧАС
@@ -2248,23 +2248,32 @@ def mark_uhody_proba_completed(conn, proba_id, sotrudnik_ids):
     proba = get_uhody_proba(conn, proba_id)
     if proba is None:
         raise ValueError(f"Проба {proba_id} не найдена")
-    if not sotrudnik_ids:
+    # сторонние исполнители (не из справочника) — ФИО вручную, без повторов
+    storonnie_fio = []
+    for name in storonnie or []:
+        name = " ".join(str(name or "").split())
+        if name and name.casefold() not in {n.casefold() for n in storonnie_fio}:
+            storonnie_fio.append(name)
+    if not sotrudnik_ids and not storonnie_fio:
         raise ValueError("Не выбран ни один исполнитель")
+
+    rows = []
+    if sotrudnik_ids:
+        placeholders = ",".join("?" for _ in sotrudnik_ids)
+        rows = conn.execute(
+            f"SELECT id, fio, dolzhnost FROM sotrudniki WHERE id IN ({placeholders})",
+            sotrudnik_ids,
+        ).fetchall()
+        if not rows and not storonnie_fio:
+            raise ValueError("Выбранные исполнители не найдены")
 
     if proba["completed_at"]:
         unmark_uhody_proba_completed(conn, proba_id)
 
-    placeholders = ",".join("?" for _ in sotrudnik_ids)
-    rows = conn.execute(
-        f"SELECT id, fio, dolzhnost FROM sotrudniki WHERE id IN ({placeholders})",
-        sotrudnik_ids,
-    ).fetchall()
-    if not rows:
-        raise ValueError("Выбранные исполнители не найдены")
-
     lesnichestvo = (proba["data"] or {}).get("lesnichestvo") or ""
     today = datetime.now().strftime("%Y-%m-%d")
     ispolniteli = [{"id": r[0], "fio": r[1], "dolzhnost": r[2] or ""} for r in rows]
+    ispolniteli += [{"id": None, "fio": name, "dolzhnost": "", "storonniy": True} for name in storonnie_fio]
 
     conn.executemany(
         "INSERT INTO completed_works "

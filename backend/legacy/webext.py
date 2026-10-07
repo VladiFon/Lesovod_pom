@@ -391,6 +391,15 @@ def ensure_webext_schema(conn: sqlite3.Connection) -> None:
     )
     conn.commit()
 
+    # Увольнение с даты (просьба Влада 07.10.2026): data_uvolneniya —
+    # с этого дня сотрудник отключается и пропадает из всех выборов;
+    # primechanie — свободная заметка (перевод на другую должность и т.п.).
+    existing_s_cols = {row[1] for row in conn.execute("PRAGMA table_info(sotrudniki)").fetchall()}
+    for col in ("data_uvolneniya", "primechanie"):
+        if col not in existing_s_cols:
+            conn.execute(f"ALTER TABLE sotrudniki ADD COLUMN {col} TEXT")
+    apply_uvolneniya(conn)
+
     # recipient_sotrudnik_id в worker_notes — адресат заметки (NULL = общая,
     # видна всем руководителям), для баз, созданных до этого добавления.
     existing_wn_cols = {row[1] for row in conn.execute("PRAGMA table_info(worker_notes)").fetchall()}
@@ -877,17 +886,71 @@ def create_sotrudnik(conn, login, pin, fio, dolzhnost="", uchastok=""):
     return sotrudnik_id
 
 
+def apply_uvolneniya(conn):
+    """Отключает сотрудников, у которых наступила дата увольнения
+    (data_uvolneniya <= сегодня), и закрывает их сессии в приложении.
+    Дешёвый UPDATE — вызывается при чтении списка и при входе/запросах
+    рабочего, поэтому увольнение «с такого-то числа» срабатывает само."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        ids = [r[0] for r in conn.execute(
+            "SELECT id FROM sotrudniki WHERE is_active = 1 AND data_uvolneniya IS NOT NULL "
+            "AND data_uvolneniya != '' AND data_uvolneniya <= ?", (today,),
+        ).fetchall()]
+    except sqlite3.OperationalError:  # колонки ещё нет (до миграции)
+        return
+    if not ids:
+        return
+    marks = ",".join("?" for _ in ids)
+    conn.execute(f"UPDATE sotrudniki SET is_active = 0 WHERE id IN ({marks})", ids)
+    conn.execute(f"DELETE FROM worker_sessions WHERE sotrudnik_id IN ({marks})", ids)
+    conn.commit()
+
+
 def list_sotrudniki(conn):
+    apply_uvolneniya(conn)
     rows = conn.execute(
-        "SELECT id, login, fio, dolzhnost, uchastok, is_active, created_at "
+        "SELECT id, login, fio, dolzhnost, uchastok, is_active, created_at, data_uvolneniya, primechanie "
         "FROM sotrudniki ORDER BY id"
     ).fetchall()
-    cols = ["id", "login", "fio", "dolzhnost", "uchastok", "is_active", "created_at"]
+    cols = ["id", "login", "fio", "dolzhnost", "uchastok", "is_active", "created_at",
+            "data_uvolneniya", "primechanie"]
     return [dict(zip(cols, r)) for r in rows]
+
+
+def update_sotrudnik(conn, sotrudnik_id, **fields):
+    """Правка карточки сотрудника: fio, dolzhnost, uchastok, primechanie,
+    data_uvolneniya ("YYYY-MM-DD"; "" — отменить увольнение). Если дата
+    увольнения уже наступила — сотрудник отключается сразу; если
+    увольнение отменили — снова включается. ФИО/должность синхронизируются
+    в lesorub_directory (см. create_sotrudnik). Возвращает False, если
+    сотрудника нет."""
+    if not conn.execute("SELECT 1 FROM sotrudniki WHERE id = ?", (sotrudnik_id,)).fetchone():
+        return False
+    allowed = ("fio", "dolzhnost", "uchastok", "primechanie", "data_uvolneniya")
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if updates:
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        conn.execute(f"UPDATE sotrudniki SET {sets} WHERE id = ?", (*updates.values(), sotrudnik_id))
+    if updates.get("data_uvolneniya") == "":
+        conn.execute("UPDATE sotrudniki SET is_active = 1 WHERE id = ?", (sotrudnik_id,))
+    sync = {k: updates[k] for k in ("fio", "dolzhnost") if k in updates}
+    if "uchastok" in updates:
+        sync["lesnichestvo"] = updates["uchastok"]
+    if sync:
+        sets = ", ".join(f"{k} = ?" for k in sync)
+        conn.execute(f"UPDATE lesorub_directory SET {sets} WHERE viber_id = ?",
+                     (*sync.values(), f"app:{sotrudnik_id}"))
+    conn.commit()
+    apply_uvolneniya(conn)
+    return True
 
 
 def set_sotrudnik_active(conn, sotrudnik_id, is_active: bool):
     conn.execute("UPDATE sotrudniki SET is_active=? WHERE id=?", (1 if is_active else 0, sotrudnik_id))
+    if is_active:
+        # включили вручную — значит, не уволен (иначе дата снова отключит)
+        conn.execute("UPDATE sotrudniki SET data_uvolneniya = NULL WHERE id = ?", (sotrudnik_id,))
     conn.commit()
     if not is_active:
         conn.execute("DELETE FROM worker_sessions WHERE sotrudnik_id=?", (sotrudnik_id,))
@@ -909,6 +972,7 @@ def reset_sotrudnik_pin(conn, sotrudnik_id, pin):
 
 
 def authenticate_sotrudnik(conn, login, pin):
+    apply_uvolneniya(conn)
     row = conn.execute(
         "SELECT id, login, pin_hash, fio, dolzhnost, uchastok, is_active "
         "FROM sotrudniki WHERE login=?", (login,),
@@ -942,6 +1006,7 @@ def get_worker_by_token(conn, token):
     несёт app_identity — синтетический viber_id (см. create_sotrudnik),
     его роутеры app/routers/bot.py используют вместо telegram_id, который
     в мобильном приложении взять неоткуда."""
+    apply_uvolneniya(conn)
     row = conn.execute(
         """SELECT sotrudniki.id, sotrudniki.login, sotrudniki.fio, sotrudniki.dolzhnost,
                   sotrudniki.uchastok, sotrudniki.is_active, worker_sessions.expires_at
@@ -1128,6 +1193,7 @@ def list_recipients(conn):
     строчные, в sotrudniki — с заглавной ("Мастер леса"), а lower() в
     SQLite не понимает кириллицу."""
     import config  # локально: webext не зависит от config на верхнем уровне
+    apply_uvolneniya(conn)
     rows = conn.execute(
         "SELECT id, fio, dolzhnost FROM sotrudniki WHERE is_active = 1 ORDER BY fio"
     ).fetchall()
@@ -1571,10 +1637,13 @@ def get_tabel_day(conn, data):
         LEFT JOIN delyanka_item ON delyanka_item.id = tz.delyanka_item_id
         LEFT JOIN lesokultury_uchastok lku ON lku.id = tz.lesokultury_uchastok_id
         LEFT JOIN vidy_rabot ON vidy_rabot.id = tz.vid_raboty_id
+        -- уволенные видны за дни до увольнения и там, где уже есть запись
         WHERE sotrudniki.is_active = 1
+           OR (COALESCE(sotrudniki.data_uvolneniya, '') != '' AND sotrudniki.data_uvolneniya > ?)
+           OR tz.id IS NOT NULL
         ORDER BY sotrudniki.fio
         """,
-        (data,),
+        (data, data),
     ).fetchall()
     result = [dict(r) for r in rows]
     mobile_status = _tabel_mobile_status_by_sotrudnik(conn, data)

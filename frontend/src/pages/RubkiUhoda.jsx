@@ -52,7 +52,7 @@ const emptyForm = () => ({
   vozrast: "",
   sostav: "",
   polnota: "",
-  vid_polzovaniya: "",
+  vid_polzovaniya: "Промежуточное",
   vid_rubki: "",
   sposob_rubki: "",
   god_rubki: "",
@@ -65,6 +65,9 @@ const emptyForm = () => ({
 });
 
 // Поля шапки, которые подтягиваются из лесных культур (ключи podskazka с сервера).
+// Вид пользования — только из трёх (то же в backend/legacy/uhody.py:VIDY_POLZOVANIYA).
+const VIDY_POLZOVANIYA = ["Главное", "Промежуточное", "Прочее"];
+
 const LK_POLYA = ["lesnichestvo", "sostav", "polnota", "vozrast", "ploshad_lesoseki"];
 
 const sameValue = (a, b) => {
@@ -300,6 +303,10 @@ export default function RubkiUhoda() {
   const [sotrudnikiList, setSotrudnikiList] = useState([]);
   const [completeModalOpen, setCompleteModalOpen] = useState(false);
   const [pickedSotrudnikIds, setPickedSotrudnikIds] = useState([]);
+  // поиск по ФИО в окне «Кто выполнил» и сторонние исполнители (не наши)
+  const [ispolnSearch, setIspolnSearch] = useState("");
+  const [storonnie, setStoronnie] = useState([]);
+  const [storonniyInput, setStoronniyInput] = useState("");
   const [completing, setCompleting] = useState(false);
 
   // ---- доработка: пробы ↔ лесные культуры ---- //
@@ -642,22 +649,46 @@ export default function RubkiUhoda() {
 
   // ---- Фаза 2 плана доработки: отметка "выполнено" + исполнители ---- //
   const openCompleteModal = () => {
-    setPickedSotrudnikIds(ispolniteli.map((i) => i.id));
+    setPickedSotrudnikIds(ispolniteli.filter((i) => i.id != null).map((i) => i.id));
+    setStoronnie(ispolniteli.filter((i) => i.id == null).map((i) => i.fio));
+    setIspolnSearch("");
+    setStoronniyInput("");
     setCompleteModalOpen(true);
   };
+
+  const addStoronniy = () => {
+    const name = storonniyInput.trim().replace(/\s+/g, " ");
+    if (!name) return;
+    setStoronnie((list) => (list.some((n) => n.toLowerCase() === name.toLowerCase()) ? list : [...list, name]));
+    setStoronniyInput("");
+  };
+
+  const filteredSotrudniki = useMemo(() => {
+    const q = ispolnSearch.trim().toLowerCase();
+    if (!q) return sotrudnikiList;
+    return sotrudnikiList.filter((s) =>
+      `${s.fio || ""} ${s.dolzhnost || ""} ${s.uchastok || ""}`.toLowerCase().includes(q)
+    );
+  }, [sotrudnikiList, ispolnSearch]);
 
   const toggleSotrudnikPick = (id) => {
     setPickedSotrudnikIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const handleConfirmComplete = async () => {
-    if (pickedSotrudnikIds.length === 0) {
-      toast.show({ tone: "warning", title: "Выберите хотя бы одного исполнителя" });
+    // вписанное, но не добавленное кнопкой — тоже считаем
+    const extra = storonniyInput.trim().replace(/\s+/g, " ");
+    const storonnieAll = extra && !storonnie.includes(extra) ? [...storonnie, extra] : storonnie;
+    if (pickedSotrudnikIds.length === 0 && storonnieAll.length === 0) {
+      toast.show({ tone: "warning", title: "Выберите хотя бы одного исполнителя или впишите вручную" });
       return;
     }
     setCompleting(true);
     try {
-      const record = await api.post(`/uhody/proby/${selectedId}/complete`, { sotrudnik_ids: pickedSotrudnikIds });
+      const record = await api.post(`/uhody/proby/${selectedId}/complete`, {
+        sotrudnik_ids: pickedSotrudnikIds,
+        storonnie: storonnieAll,
+      });
       setCompletedAt(record.completed_at);
       setIspolniteli(record.ispolniteli || []);
       setCompleteModalOpen(false);
@@ -954,10 +985,16 @@ export default function RubkiUhoda() {
               onChange={(e) => setForm({ ...form, vozrast: e.target.value })}
               hint={lkHint(form.iz_lesokultur, "vozrast", form.vozrast)}
             />
-            <TextField
+            <SelectField
               label="Вид пользования"
               value={form.vid_polzovaniya}
               onChange={(e) => setForm({ ...form, vid_polzovaniya: e.target.value })}
+              options={
+                // у старых проб могло быть вписано руками — показываем как есть
+                form.vid_polzovaniya && !VIDY_POLZOVANIYA.includes(form.vid_polzovaniya)
+                  ? [...VIDY_POLZOVANIYA, form.vid_polzovaniya]
+                  : VIDY_POLZOVANIYA
+              }
             />
             <TextField
               label="Состав насаждения"
@@ -1251,15 +1288,26 @@ export default function RubkiUhoda() {
       </div>
 
       <Modal open={completeModalOpen} onClose={() => setCompleteModalOpen(false)} title="Кто выполнил работу?">
-        <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto">
+        <TextField
+          placeholder="🔍 Поиск по ФИО, должности, участку"
+          value={ispolnSearch}
+          onChange={(e) => setIspolnSearch(e.target.value)}
+          autoFocus
+        />
+        <div className="text-xs text-muted mt-2 mb-1">
+          Выбрано: {pickedSotrudnikIds.length + storonnie.length}
+        </div>
+        <div className="flex flex-col gap-1 max-h-[40vh] overflow-y-auto border border-border rounded-md">
           {sotrudnikiList.length === 0 ? (
             <EmptyState
               icon="👤"
               title="Справочник сотрудников пуст"
-              description="Добавьте сотрудников в Настройках, во вкладке «Сотрудники (мобильное приложение)»."
+              description="Добавьте сотрудников в разделе «Сотрудники» или впишите исполнителей вручную ниже."
             />
+          ) : filteredSotrudniki.length === 0 ? (
+            <div className="p-4 text-sm text-muted text-center">Никого не нашлось — впишите вручную ниже</div>
           ) : (
-            sotrudnikiList.map((s) => (
+            filteredSotrudniki.map((s) => (
               <label
                 key={s.id}
                 className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-hover cursor-pointer"
@@ -1276,6 +1324,44 @@ export default function RubkiUhoda() {
                 </div>
               </label>
             ))
+          )}
+        </div>
+        <div className="mt-4">
+          <div className="text-[11.5px] font-semibold text-muted mb-1">Не наши (сторонние) — вписать ФИО</div>
+          <div className="flex gap-2">
+            <TextField
+              className="flex-1"
+              placeholder="Например: Петров И.И. (ЧУП «Лес»)"
+              value={storonniyInput}
+              onChange={(e) => setStoronniyInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addStoronniy();
+                }
+              }}
+            />
+            <Button variant="secondary" onClick={addStoronniy}>+ Добавить</Button>
+          </div>
+          {storonnie.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {storonnie.map((name) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1.5 bg-oak-soft text-ink text-sm rounded-full px-3 py-1"
+                >
+                  {name}
+                  <button
+                    type="button"
+                    onClick={() => setStoronnie((list) => list.filter((n) => n !== name))}
+                    className="text-muted hover:text-ink"
+                    aria-label="Убрать"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
           )}
         </div>
         <div className="flex items-center justify-end gap-2 mt-6">
