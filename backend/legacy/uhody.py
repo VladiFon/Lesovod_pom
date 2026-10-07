@@ -238,6 +238,8 @@ def build_proba_payload(form: dict, calc_result: dict) -> dict:
             "doljnost": komissiya.get("doljnost") or "",
             "fio": komissiya.get("fio") or "",
         },
+        # что подставлено из участка лесных культур (см. app/uhody_lesokultury.py)
+        "iz_lesokultur": form.get("iz_lesokultur") or {},
     }
 
 

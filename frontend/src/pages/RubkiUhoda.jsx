@@ -7,6 +7,7 @@ import {
   deleteProba,
   generateAndDownload,
   getPorody,
+  getLesokulturyDannye,
   getProba,
   listKomissiyaPresets,
   listLesokulturyUchastkiForPicker,
@@ -59,7 +60,80 @@ const emptyForm = () => ({
   kol_ploshadok: "",
   ploshad_ploshadki: "",
   komissiya: { perechet1: "", perechet2: "", perechet3: "", doljnost: "", fio: "" },
+  // что подставлено из участка лесных культур: {поле: значение, uchastok_id}
+  iz_lesokultur: {},
 });
+
+// Поля шапки, которые подтягиваются из лесных культур (ключи podskazka с сервера).
+const LK_POLYA = ["lesnichestvo", "sostav", "polnota", "vozrast", "ploshad_lesoseki"];
+
+const sameValue = (a, b) => {
+  const na = Number(String(a ?? "").replace(",", "."));
+  const nb = Number(String(b ?? "").replace(",", "."));
+  if (String(a ?? "").trim() !== "" && String(b ?? "").trim() !== "" && !Number.isNaN(na) && !Number.isNaN(nb)) {
+    return na === nb;
+  }
+  return String(a ?? "").trim() === String(b ?? "").trim();
+};
+
+/** Подпись под полем шапки: значение подтянуто из лесных культур — или
+ * его поправили руками, и тогда видно, что записано в культурах. */
+function lkHint(iz, field, value) {
+  if (!iz || iz[field] === undefined || iz[field] === null || iz[field] === "") return undefined;
+  if (sameValue(iz[field], value)) {
+    return <span className="text-pine">🌱 из лесных культур (подтянуто автоматически)</span>;
+  }
+  return <span className="text-oak">⚠ в лесных культурах: {String(iz[field])}</span>;
+}
+
+const fmtVal = (v, suffix = "") => (v === null || v === undefined || v === "" ? "—" : `${v}${suffix}`);
+
+/** Карточка одного участка культур на экране пробы. */
+function LkUchastokCard({ s, picked, applied, onApply, onTogglePick }) {
+  const ist = s.istochniki || {};
+  const rows = [
+    ["Состав", fmtVal(s.sostav), ist.sostav],
+    ["Полнота", fmtVal(s.polnota), ist.polnota],
+    ["Возраст, лет", fmtVal(s.vozrast), ist.vozrast],
+    ["Площадь, га", fmtVal(s.ploshad), ist.ploshad],
+    ["Год создания", fmtVal(s.god_sozdaniya)],
+    ["Густота посадки, шт/га", fmtVal(s.gustota_posadki)],
+    ["Деревьев на 1 га (инв.)", fmtVal(s.kolichestvo_na_ga), s.posledn_inventarizatsiya],
+    ["Приживаемость", fmtVal(s.prizhivaemost_pct, "%"), s.posledn_inventarizatsiya],
+  ];
+  return (
+    <div className={["rounded-md border p-3", picked ? "border-pine bg-mint-soft" : "border-border"].join(" ")}>
+      <div className="flex flex-wrap items-center gap-2 justify-between">
+        <div className="text-sm font-semibold text-ink">
+          Кв. {s.kvartal || "—"} / Выд. {s.vydel || "—"}
+          {s.glavnaya_poroda ? ` · ${s.glavnaya_poroda}` : ""}
+          {s.god_sozdaniya ? ` · ${s.god_sozdaniya} г.` : ""}
+          <span className="ml-2 text-xs font-normal text-muted">{s.status}</span>
+          {applied && (
+            <span className="ml-2 text-xs font-medium bg-mint text-pine rounded-full px-2 py-0.5">подставлено в ведомость</span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" onClick={onApply}>↙ Подставить в ведомость</Button>
+          <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input type="checkbox" className="w-4 h-4 accent-pine" checked={picked} onChange={onTogglePick} />
+            проба на этом участке
+          </label>
+        </div>
+      </div>
+      <div className="grid gap-x-4 gap-y-2 mt-3 grid-cols-[repeat(auto-fill,minmax(170px,1fr))]">
+        {rows.map(([caption, value, src]) => (
+          <div key={caption}>
+            <div className="text-xs font-semibold text-muted-2">{caption}</div>
+            <div className="text-sm text-ink font-semibold">{value}</div>
+            {src && value !== "—" && <div className="text-[11px] text-faint">{src}</div>}
+          </div>
+        ))}
+      </div>
+      {s.posledn_uhod && <div className="text-xs text-muted mt-2">Последний уход: {s.posledn_uhod}</div>}
+    </div>
+  );
+}
 
 /** Подписанный select — тот же класс, что использует Taxation.jsx для
  * "Лесничество" (в компонентах дизайн-кита нет отдельного Select). */
@@ -242,6 +316,9 @@ export default function RubkiUhoda() {
   const [lesokulturyOptions, setLesokulturyOptions] = useState([]);
   const [lesokulturySearch, setLesokulturySearch] = useState("");
   const [lesokulturyLoading, setLesokulturyLoading] = useState(false);
+  // Участки культур на выделе пробы (и уже привязанные к ней) — сводка с сервера.
+  const [lkDannye, setLkDannye] = useState([]);
+  const [lkLoading, setLkLoading] = useState(false);
 
   useEffect(() => {
     setLesokulturyLoading(true);
@@ -268,6 +345,43 @@ export default function RubkiUhoda() {
   }, []);
 
   const isEditing = selectedId !== null;
+
+  /** Участки культур по кварталу/выделу + уже привязанные к пробе (ids). */
+  const loadLkDannye = async ({ kv, vd, lesnichestvo, ids = [], dataZ }) => {
+    setLkLoading(true);
+    try {
+      const byVydel = kv ? await getLesokulturyDannye({ kvartal: kv, vydel: vd, lesnichestvo, data_zamera: dataZ }) : [];
+      const missing = ids.filter((id) => !byVydel.some((s) => s.id === id));
+      const byIds = missing.length ? await getLesokulturyDannye({ ids: missing.join(","), data_zamera: dataZ }) : [];
+      const all = [...byVydel, ...byIds];
+      setLkDannye(all);
+      return all;
+    } catch {
+      setLkDannye([]);
+      return [];
+    } finally {
+      setLkLoading(false);
+    }
+  };
+
+  /** Подставить данные участка культур в шапку ведомости (с отметкой). */
+  const applyLk = (s, { quiet = false } = {}) => {
+    const pod = s.podskazka || {};
+    setForm((f) => {
+      const next = { ...f };
+      const iz = { uchastok_id: s.id };
+      for (const key of LK_POLYA) {
+        if (pod[key] !== undefined && pod[key] !== null && pod[key] !== "") {
+          next[key] = pod[key];
+          iz[key] = pod[key];
+        }
+      }
+      next.iz_lesokultur = iz;
+      return next;
+    });
+    if (!lesokulturyUchastokIds.includes(s.id)) toggleLesokulturyPick(s);
+    if (!quiet) toast.show({ tone: "success", title: "Данные лесных культур подставлены в ведомость" });
+  };
 
   // ------------------------------------------------------------------- //
   const reloadProby = useCallback(() => {
@@ -302,19 +416,21 @@ export default function RubkiUhoda() {
   //   Поиск участка (кв./выдел) — предзаполнение формы
   // ------------------------------------------------------------------- //
   const handleSearchVydel = async () => {
-    if (!searchKvartal.trim() || !searchVydelNomer.trim()) {
+    const kv = searchKvartal.trim();
+    const vd = searchVydelNomer.trim();
+    if (!kv || !vd) {
       toast.show({ tone: "warning", title: "Укажите номер квартала и номер выдела" });
       return;
     }
     setSearching(true);
+    // Пометки «из лесных культур» относились к прошлому выделу.
+    setForm((f) => ({ ...f, iz_lesokultur: {} }));
+    let card = null;
     try {
-      const card = await api.get("/taxation/vydel", {
-        kvartal: searchKvartal.trim(),
-        vydel: searchVydelNomer.trim(),
-      });
+      card = await api.get("/taxation/vydel", { kvartal: kv, vydel: vd });
       setVydelCard(card);
-      setKvartal(searchKvartal.trim());
-      setVydel(searchVydelNomer.trim());
+      setKvartal(kv);
+      setVydel(vd);
       setPloshadVydela(card.ploshad ?? "");
       setForm((f) => ({
         ...f,
@@ -326,13 +442,39 @@ export default function RubkiUhoda() {
       }));
     } catch (e) {
       setVydelCard(null);
-      if (e.status === 404) {
-        toast.show({ tone: "warning", title: "Участок не найден", description: "Проверьте квартал и выдел." });
-      } else {
+      if (e.status !== 404) {
         toast.show({ tone: "danger", title: "Поиск не удался", description: e.message });
+        setSearching(false);
+        return;
       }
-    } finally {
-      setSearching(false);
+    }
+    // Лесные культуры на этом выделе — даже если в таксации выдела нет
+    // (новый выдел после перевода культур).
+    const lk = await loadLkDannye({ kv, vd, lesnichestvo: card?.lesnichestvo, dataZ: dataZamera });
+    setSearching(false);
+    if (!card && lk.length === 0) {
+      toast.show({ tone: "warning", title: "Участок не найден", description: "Проверьте квартал и выдел." });
+      return;
+    }
+    if (!card) {
+      setKvartal(kv);
+      setVydel(vd);
+    }
+    // Один участок культур на выделе — подставляем сразу; несколько —
+    // человек выбирает сам кнопкой «Подставить» на нужном.
+    if (lk.length === 1) {
+      applyLk(lk[0], { quiet: true });
+      toast.show({
+        tone: "success",
+        title: "Подтянуты данные лесных культур",
+        description: "Состав, полнота, возраст и площадь — из участка культур на этом выделе.",
+      });
+    } else if (lk.length > 1) {
+      toast.show({
+        tone: "info",
+        title: `На выделе несколько участков лесных культур (${lk.length})`,
+        description: "Выберите нужный в блоке «Лесные культуры на выделе».",
+      });
     }
   };
 
@@ -353,6 +495,7 @@ export default function RubkiUhoda() {
     setIspolniteli([]);
     setLesokulturyUchastokIds([]);
     setLesokulturySelectedInfo([]);
+    setLkDannye([]);
     setPhotos({ stolb_delyanki: false, stolb_proby: false });
     setAvtorFio(null);
   };
@@ -388,6 +531,7 @@ export default function RubkiUhoda() {
           doljnost: data.komissiya?.doljnost || "",
           fio: data.komissiya?.fio || "",
         },
+        iz_lesokultur: data.iz_lesokultur || {},
       });
       // rows хранятся уже посчитанными — для повторного редактирования
       // нужны только сырые поля, расчётные колонки вернутся после
@@ -407,6 +551,13 @@ export default function RubkiUhoda() {
       setLesokulturySelectedInfo(record.lesokultury_uchastki || []);
       setPhotos(record.photos || { stolb_delyanki: false, stolb_proby: false });
       setAvtorFio(record.avtor_fio || null);
+      loadLkDannye({
+        kv: record.kvartal,
+        vd: record.vydel,
+        lesnichestvo: data.lesnichestvo,
+        ids: record.lesokultury_uchastok_ids || [],
+        dataZ: record.data_zamera,
+      });
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось открыть пробу", description: e.message });
     }
@@ -659,7 +810,7 @@ export default function RubkiUhoda() {
       {/* ---------- Правая колонка ---------- */}
       <div className="flex-1 min-w-0 flex flex-col gap-6">
         {/* Поиск участка */}
-        <Card title="Участок" subtitle="Поиск по кварталу/выделу — предзаполняет лесничество, категорию, состав и полноту">
+        <Card title="Участок" subtitle="Поиск по кварталу/выделу — предзаполняет лесничество, категорию, состав и полноту; если на выделе есть лесные культуры — данные берутся из них">
           <div className="flex items-end gap-4 flex-wrap">
             <TextField
               label="Квартал"
@@ -718,6 +869,38 @@ export default function RubkiUhoda() {
           </Card>
         )}
 
+        {/* Лесные культуры на выделе — подтягиваются автоматически */}
+        {(lkLoading || lkDannye.length > 0) && (
+          <Card
+            title="Лесные культуры на выделе"
+            subtitle="Подтянуто автоматически из «Лесных культур» по кварталу/выделу — сверяйте с натурой; под каждым значением видно, откуда оно"
+          >
+            {lkLoading ? (
+              <div className="p-2 flex justify-center">
+                <div className="h-4 w-4 rounded-full border-2 border-pine border-t-transparent animate-spin" />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {lkDannye.length > 1 && (
+                  <p className="text-sm text-muted">
+                    На этом выделе несколько участков культур — нажмите «Подставить в ведомость» на том, где взята проба.
+                  </p>
+                )}
+                {lkDannye.map((s) => (
+                  <LkUchastokCard
+                    key={s.id}
+                    s={s}
+                    picked={lesokulturyUchastokIds.includes(s.id)}
+                    applied={form.iz_lesokultur?.uchastok_id === s.id}
+                    onApply={() => applyLk(s)}
+                    onTogglePick={() => toggleLesokulturyPick(s)}
+                  />
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
         {/* Шапка ведомости */}
         <Card
           title={isEditing ? `Ведомость перечёта — проба №${selectedId}` : "Ведомость перечёта — новая проба"}
@@ -742,6 +925,7 @@ export default function RubkiUhoda() {
               className="col-span-2"
               value={form.lesnichestvo}
               onChange={(e) => setForm({ ...form, lesnichestvo: e.target.value })}
+              hint={lkHint(form.iz_lesokultur, "lesnichestvo", form.lesnichestvo)}
             />
             <TextField label="Дата замера" type="date" value={dataZamera} onChange={(e) => setDataZamera(e.target.value)} />
 
@@ -755,6 +939,7 @@ export default function RubkiUhoda() {
               type="number"
               value={form.ploshad_lesoseki}
               onChange={(e) => setForm({ ...form, ploshad_lesoseki: e.target.value })}
+              hint={lkHint(form.iz_lesokultur, "ploshad_lesoseki", form.ploshad_lesoseki)}
             />
             <TextField
               label="Категория лесов"
@@ -767,6 +952,7 @@ export default function RubkiUhoda() {
               type="number"
               value={form.vozrast}
               onChange={(e) => setForm({ ...form, vozrast: e.target.value })}
+              hint={lkHint(form.iz_lesokultur, "vozrast", form.vozrast)}
             />
             <TextField
               label="Вид пользования"
@@ -777,6 +963,7 @@ export default function RubkiUhoda() {
               label="Состав насаждения"
               value={form.sostav}
               onChange={(e) => setForm({ ...form, sostav: e.target.value })}
+              hint={lkHint(form.iz_lesokultur, "sostav", form.sostav)}
             />
 
             <TextField
@@ -785,6 +972,7 @@ export default function RubkiUhoda() {
               step="0.1"
               value={form.polnota}
               onChange={(e) => setForm({ ...form, polnota: e.target.value })}
+              hint={lkHint(form.iz_lesokultur, "polnota", form.polnota)}
             />
             <TextField label="Год рубки" value={form.god_rubki} onChange={(e) => setForm({ ...form, god_rubki: e.target.value })} />
             <SelectField

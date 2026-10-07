@@ -79,3 +79,8 @@ export async function generateAndDownload(probaId, kind) {
   const doc = await api.get(`/documents/${documentId}`);
   await downloadBlob(`/documents/${documentId}/download`, doc.file_name);
 }
+
+// --- Данные лесных культур для шапки пробы ---
+// По кварталу/выделу (или ids уже привязанных участков) — сводка участков
+// культур и podskazka, что подставить в ведомость (см. app/uhody_lesokultury.py).
+export const getLesokulturyDannye = (params) => api.get("/uhody/lesokultury-dannye", params);
