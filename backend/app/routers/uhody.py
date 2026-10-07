@@ -34,6 +34,7 @@ osvetlenie_komissiya_preset). Роутер сам ничего не считае
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -49,6 +50,7 @@ from app.auth import get_current_user, require_permission
 from app.database import get_conn, get_connection
 from app.paths import UPLOADS_DIR
 from app.doc_tasks import new_task_dir, register_document
+from app import uhody_lesokultury
 import webext
 
 router = APIRouter(prefix="/api/uhody", tags=["uhody"])
@@ -103,6 +105,10 @@ class ProbaFormData(BaseModel):
     kol_ploshadok: Any = None
     ploshad_ploshadki: Any = None
     komissiya: KomissiyaData = Field(default_factory=KomissiyaData)
+    # Какие поля шапки подставлены из участка лесных культур: {поле: значение,
+    # uchastok_id} — экран показывает пометку «из лесных культур» и
+    # расхождение, если значение потом поправили руками.
+    iz_lesokultur: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProbaSaveRequest(BaseModel):
@@ -276,6 +282,13 @@ def _check_lesokultury_ids(conn, ids: list[int]) -> None:
 
 def _save_proba(conn, payload: ProbaSaveRequest, proba_id: int | None, photos: dict | None = None) -> dict:
     form = payload.form.model_dump()
+    if proba_id is None:
+        # Новая проба на участке культур (с телефона шапку не заполняют):
+        # пустые состав/полнота/возраст/площадь берём из культур.
+        form = uhody_lesokultury.zapolnit_pustye(
+            conn, form, payload.kvartal, payload.vydel, payload.lesokultury_uchastok_ids,
+            god=_god_zamera(payload.data_zamera),
+        )
     try:
         calc_result = legacy_uhody.calculate_proba(
             rows=[row.model_dump() for row in payload.rows],
@@ -309,6 +322,16 @@ def _save_proba(conn, payload: ProbaSaveRequest, proba_id: int | None, photos: d
     if photos:
         legacy_db.set_uhody_proba_photos(conn, new_id, **photos)
     return legacy_db.get_uhody_proba(conn, new_id)
+
+
+def _god_zamera(data_zamera: str) -> Optional[int]:
+    text = (data_zamera or "").strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(text[:10], fmt).year
+        except ValueError:
+            continue
+    return None
 
 
 @router.post("/proby")
@@ -409,6 +432,30 @@ def list_lesokultury_uchastki_for_picker(
     сохранении пробы (мульти-select «на каких участках проведена проба») —
     тот же принцип, что и /sotrudniki выше."""
     return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=False, search=search)
+
+
+@router.get("/lesokultury-dannye")
+def lesokultury_dannye(
+    kvartal: str = "",
+    vydel: str = "",
+    lesnichestvo: str = "",
+    ids: str = "",
+    data_zamera: str = "",
+    user=Depends(get_current_user), conn=Depends(get_conn),
+) -> list[dict]:
+    """Участки лесных культур на квартале/выделе пробы (или по ids через
+    запятую — уже привязанные к пробе) со сводкой: состав, полнота,
+    возраст, площадь на выделе, последняя инвентаризация/уход — и
+    podskazka, что подставить в шапку ведомости. У каждого значения в
+    istochniki — откуда оно взято. Читать может любой вошедший (рабочий с
+    телефона тоже)."""
+    id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    if not id_list and not kvartal.strip():
+        raise HTTPException(status_code=400, detail="Укажите квартал (и выдел) или ids участков.")
+    return uhody_lesokultury.naiti(
+        conn, kvartal, vydel, lesnichestvo=lesnichestvo, ids=id_list or None,
+        god=_god_zamera(data_zamera),
+    )
 
 
 class CompleteProbaRequest(BaseModel):
