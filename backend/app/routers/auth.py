@@ -7,6 +7,7 @@
 app/auth.py) — эти эндпоинты можно уже сейчас проверить через curl/Postman
 или /docs, а обязательным для остальных экранов авторизация станет по мере
 Этапа 4."""
+from datetime import datetime
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -207,6 +208,39 @@ def set_worker_active(worker_id: int, body: SetActiveIn,
                        user=Depends(require_permission("users.manage")), conn=Depends(get_conn)):
     webext.set_sotrudnik_active(conn, worker_id, body.is_active)
     return {"ok": True}
+
+
+class UpdateWorkerIn(BaseModel):
+    """Правка карточки сотрудника — передаются только меняемые поля.
+    data_uvolneniya: "YYYY-MM-DD" — уволить с этого дня, "" — отменить."""
+    fio: Optional[str] = None
+    dolzhnost: Optional[Dolzhnost] = None
+    uchastok: Optional[str] = None
+    primechanie: Optional[str] = None
+    data_uvolneniya: Optional[str] = None
+
+
+@router.patch("/workers/{worker_id}")
+def update_worker(worker_id: int, body: UpdateWorkerIn,
+                  user=Depends(require_permission("users.manage")), conn=Depends(get_conn)):
+    """Перевод на другую должность, смена участка/ФИО, увольнение с даты —
+    с этого дня сотрудник не входит в приложение и не попадает в выборы
+    (исполнители, план работ, бригады, табель)."""
+    fields = body.model_dump(exclude_unset=True)
+    if "fio" in fields:
+        fields["fio"] = (fields["fio"] or "").strip()
+        if not fields["fio"]:
+            raise HTTPException(400, "ФИО не может быть пустым")
+    if fields.get("data_uvolneniya"):
+        try:
+            fields["data_uvolneniya"] = datetime.strptime(fields["data_uvolneniya"][:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, "Дата увольнения — в формате ГГГГ-ММ-ДД")
+    elif "data_uvolneniya" in fields:
+        fields["data_uvolneniya"] = ""
+    if not webext.update_sotrudnik(conn, worker_id, **fields):
+        raise HTTPException(404, "Сотрудник не найден")
+    return next((w for w in webext.list_sotrudniki(conn) if w["id"] == worker_id), {"id": worker_id})
 
 
 class ResetPinIn(BaseModel):

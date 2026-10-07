@@ -33,7 +33,11 @@ const DOLZHNOST_OPTIONS = [
   "Лесничий",
 ];
 
-function WorkerCard({ worker, onSetActive, onResetPin }) {
+const fmtDate = (iso) => (iso ? iso.slice(0, 10).split("-").reverse().join(".") : "");
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+function WorkerCard({ worker, onSetActive, onResetPin, onEdit }) {
+  const uvolen = worker.data_uvolneniya && worker.data_uvolneniya <= todayIso();
   const initial = (worker.fio || "?").trim().charAt(0).toUpperCase();
   return (
     <Card className={!worker.is_active ? "opacity-60" : ""}>
@@ -44,6 +48,11 @@ function WorkerCard({ worker, onSetActive, onResetPin }) {
         <div className="min-w-0 flex-1">
           <div className="font-ui font-bold text-ink text-base truncate">{worker.fio}</div>
           <div className="text-muted text-sm truncate">{worker.dolzhnost || "Должность не указана"}</div>
+          {worker.data_uvolneniya && (
+            <div className="text-error text-xs font-semibold mt-0.5">
+              {uvolen ? "Уволен" : "Увольняется"} с {fmtDate(worker.data_uvolneniya)}
+            </div>
+          )}
         </div>
       </div>
 
@@ -56,18 +65,26 @@ function WorkerCard({ worker, onSetActive, onResetPin }) {
           <span className="text-muted-2">Логин</span>
           <span className="text-ink font-mono truncate ml-2">{worker.login}</span>
         </div>
+        {worker.primechanie && <div className="text-muted text-xs mt-1">{worker.primechanie}</div>}
       </div>
+
+      <button
+        onClick={() => onEdit(worker)}
+        className="mt-4 w-full text-xs font-semibold rounded-full px-2.5 py-1.5 border border-pine text-pine hover:bg-mint-soft"
+      >
+        ✏️ Редактировать / уволить
+      </button>
 
       <button
         onClick={() => onSetActive(worker.id, !worker.is_active)}
         className={[
-          "mt-4 w-full text-xs font-semibold rounded-full px-2.5 py-1.5 border transition-colors",
+          "mt-2 w-full text-xs font-semibold rounded-full px-2.5 py-1.5 border transition-colors",
           worker.is_active
             ? "border-pine text-pine bg-mint-soft hover:bg-mint"
             : "border-error text-error bg-error-soft hover:bg-error-soft/70",
         ].join(" ")}
       >
-        {worker.is_active ? "Активен" : "Отключён"}
+        {worker.is_active ? "Активен" : uvolen ? "Уволен" : "Отключён"}
       </button>
       <button
         onClick={() => onResetPin(worker)}
@@ -96,6 +113,59 @@ export default function Sotrudniki() {
     uchastok: "",
   });
   const [creating, setCreating] = useState(false);
+
+  // Правка карточки: должность/участок/ФИО, увольнение с даты.
+  const [editWorker, setEditWorker] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [showUvolennye, setShowUvolennye] = useState(false);
+
+  const openEdit = (w) => {
+    setEditWorker(w);
+    setEditForm({
+      fio: w.fio || "",
+      dolzhnost: w.dolzhnost || "",
+      uchastok: w.uchastok || "",
+      primechanie: w.primechanie || "",
+      uvolit: Boolean(w.data_uvolneniya),
+      data_uvolneniya: w.data_uvolneniya || todayIso(),
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editForm.fio.trim()) {
+      toast.show({ tone: "warning", title: "ФИО не может быть пустым" });
+      return;
+    }
+    if (editForm.uvolit && !editForm.data_uvolneniya) {
+      toast.show({ tone: "warning", title: "Укажите дату увольнения" });
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.patch(`/auth/workers/${editWorker.id}`, {
+        fio: editForm.fio.trim(),
+        // должность шлём только если поменяли (старые могут быть не из списка)
+        ...(editForm.dolzhnost && editForm.dolzhnost !== editWorker.dolzhnost ? { dolzhnost: editForm.dolzhnost } : {}),
+        uchastok: editForm.uchastok,
+        primechanie: editForm.primechanie,
+        data_uvolneniya: editForm.uvolit ? editForm.data_uvolneniya : "",
+      });
+      toast.show({
+        tone: "success",
+        title: "Сотрудник сохранён",
+        description: editForm.uvolit
+          ? `С ${fmtDate(editForm.data_uvolneniya)} не входит в приложение и не попадает в выборы.`
+          : undefined,
+      });
+      setEditWorker(null);
+      loadWorkers();
+    } catch (err) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить", description: err instanceof ApiError ? err.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const loadWorkers = () =>
     api
@@ -162,9 +232,10 @@ export default function Sotrudniki() {
   const visibleWorkers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (workers ?? [])
+      .filter((w) => showUvolennye || !(w.data_uvolneniya && w.data_uvolneniya <= todayIso()))
       .filter((w) => !dolzhnostFilter || w.dolzhnost === dolzhnostFilter)
       .filter((w) => !q || (w.fio || "").toLowerCase().includes(q));
-  }, [workers, search, dolzhnostFilter]);
+  }, [workers, search, dolzhnostFilter, showUvolennye]);
 
   return (
     <div className="p-[18px] flex flex-col gap-[14px]">
@@ -189,6 +260,15 @@ export default function Sotrudniki() {
                 </option>
               ))}
             </select>
+            <label className="flex items-center gap-1.5 text-sm text-muted cursor-pointer">
+              <input
+                type="checkbox"
+                className="w-4 h-4 accent-pine"
+                checked={showUvolennye}
+                onChange={(e) => setShowUvolennye(e.target.checked)}
+              />
+              Показать уволенных
+            </label>
           </div>
           <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
             + Новый сотрудник
@@ -220,7 +300,7 @@ export default function Sotrudniki() {
       ) : (
         <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
           {visibleWorkers.map((w) => (
-            <WorkerCard key={w.id} worker={w} onSetActive={handleSetActive} onResetPin={handleResetPin} />
+            <WorkerCard key={w.id} worker={w} onSetActive={handleSetActive} onResetPin={handleResetPin} onEdit={openEdit} />
           ))}
         </div>
       )}
@@ -272,6 +352,74 @@ export default function Sotrudniki() {
           </Button>
           <Button variant="primary" loading={creating} onClick={handleCreate}>
             Создать
+          </Button>
+        </div>
+      </Modal>
+      <Modal open={Boolean(editWorker)} onClose={() => setEditWorker(null)} title={editWorker ? `Сотрудник: ${editWorker.fio}` : ""}>
+        {editForm && (
+          <div className="flex flex-col gap-4">
+            <TextField
+              label="ФИО"
+              value={editForm.fio}
+              onChange={(e) => setEditForm((s) => ({ ...s, fio: e.target.value }))}
+            />
+            <div>
+              <label className="block text-[11.5px] font-semibold text-muted mb-1">Должность</label>
+              <select
+                value={editForm.dolzhnost}
+                onChange={(e) => setEditForm((s) => ({ ...s, dolzhnost: e.target.value }))}
+                className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none"
+              >
+                {!DOLZHNOST_OPTIONS.includes(editForm.dolzhnost) && (
+                  <option value={editForm.dolzhnost}>{editForm.dolzhnost || "— не указана —"}</option>
+                )}
+                {DOLZHNOST_OPTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <TextField
+              label="Участок"
+              value={editForm.uchastok}
+              onChange={(e) => setEditForm((s) => ({ ...s, uchastok: e.target.value }))}
+            />
+            <TextField
+              label="Примечание"
+              hint="Например: переведён из вальщиков в трактористы с 01.10.2026"
+              value={editForm.primechanie}
+              onChange={(e) => setEditForm((s) => ({ ...s, primechanie: e.target.value }))}
+            />
+            <div className="rounded-md border border-border p-3">
+              <label className="flex items-center gap-2 text-sm font-semibold text-ink cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 accent-pine"
+                  checked={editForm.uvolit}
+                  onChange={(e) => setEditForm((s) => ({ ...s, uvolit: e.target.checked }))}
+                />
+                Уволен / увольняется
+              </label>
+              {editForm.uvolit && (
+                <TextField
+                  className="mt-3"
+                  label="Дата увольнения"
+                  type="date"
+                  hint="С этого дня не входит в приложение и не попадает в выборы (исполнители, план работ, бригады, табель). История остаётся."
+                  value={editForm.data_uvolneniya}
+                  onChange={(e) => setEditForm((s) => ({ ...s, data_uvolneniya: e.target.value }))}
+                />
+              )}
+            </div>
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-2 mt-6">
+          <Button variant="secondary" onClick={() => setEditWorker(null)}>
+            Отмена
+          </Button>
+          <Button variant="primary" loading={saving} onClick={handleSaveEdit}>
+            Сохранить
           </Button>
         </div>
       </Modal>

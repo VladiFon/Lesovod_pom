@@ -146,7 +146,11 @@ class KomissiyaPresetRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 @router.get("/porody")
 def get_porody() -> dict:
-    return {"porody": legacy_uhody.DEFAULT_PORODY, "vidy_rubki": legacy_uhody.VIDY_RUBKI}
+    return {
+        "porody": legacy_uhody.DEFAULT_PORODY,
+        "vidy_rubki": legacy_uhody.VIDY_RUBKI,
+        "vidy_polzovaniya": legacy_uhody.VIDY_POLZOVANIYA,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -459,7 +463,10 @@ def lesokultury_dannye(
 
 
 class CompleteProbaRequest(BaseModel):
-    sotrudnik_ids: list[int] = Field(min_length=1)
+    sotrudnik_ids: list[int] = Field(default_factory=list)
+    # Исполнители не из справочника (сторонняя бригада, наёмные) — ФИО
+    # вручную; в «Выполненные работы» идут так же, как наши.
+    storonnie: list[str] = Field(default_factory=list)
 
 
 @router.post("/proby/{proba_id}/complete")
@@ -470,7 +477,9 @@ def complete_proba(
     conn=Depends(get_conn),
 ) -> dict:
     try:
-        return legacy_db.mark_uhody_proba_completed(conn, proba_id, payload.sotrudnik_ids)
+        return legacy_db.mark_uhody_proba_completed(
+            conn, proba_id, payload.sotrudnik_ids, storonnie=payload.storonnie,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

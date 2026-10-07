@@ -14,6 +14,7 @@ from typing import Dict, Iterable, List, Optional
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import config
 import config as legacy_config
+import webext
 
 
 # --------------------------------------------------------------------------- #
@@ -478,6 +479,7 @@ def _accepted_shares(conn, sotrudnik_id: int, own: Optional[str] = None):
 
 def coworkers(conn, except_sotrudnik_id: Optional[int] = None) -> List[dict]:
     """Кому можно отправить метку: все активные сотрудники с входом в приложение."""
+    webext.apply_uvolneniya(conn)
     return [
         {"id": r[0], "fio": r[1], "dolzhnost": r[2], "uchastok": r[3]}
         for r in conn.execute(
