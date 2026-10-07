@@ -1,0 +1,8 @@
+pywinauto>=0.6.8
+pyautogui>=0.9.54
+opencv-python-headless>=4.8
+pillow>=10.0
+requests>=2.31
+keyring>=24.0
+openpyxl>=3.1
+pywin32>=306
