@@ -402,12 +402,31 @@ def otkryt_reestr(gl):
 
     # 1) настоящее дерево Windows (TTreeView)
     for c in gl.descendants():
+        # В ЕГАИС 1.0.43 меню — TdxDBTreeView: это обычный SysTreeView32
+        # внутри, поэтому оборачиваем его в TreeViewWrapper вручную.
         if "treeview" in c.class_name().lower():
             try:
-                el = c.get_item(["Склад", OTCHET], exact=False)
-                el.select()
-                el.click_input(double=True)
+                from pywinauto.controls.common_controls import TreeViewWrapper
+                tv = TreeViewWrapper(c.handle)
+                punkt = None
+                for koren in tv.roots():
+                    if koren.text().strip() != "Склад":
+                        continue
+                    koren.expand()
+                    for el in koren.children():
+                        if el.text().strip() == OTCHET:
+                            punkt = el
+                            break
+                if punkt is None:
+                    log.info("В дереве меню не нашёл «Склад → %s».", OTCHET)
+                    continue
+                punkt.ensure_visible()
+                punkt.select()
+                punkt.click_input(double=True)
                 time.sleep(3)
+                if not _vkladka_otkryta(gl):
+                    send_keys("{ENTER}")  # на случай, если открывается по Enter
+                    time.sleep(3)
                 if _vkladka_otkryta(gl):
                     log.info("Открыл отчёт через дерево меню.")
                     return
