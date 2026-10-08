@@ -646,7 +646,10 @@ def proverit_tipy(gl, tipy):
         клик по полю уже открывал список, а Alt+Down следом закрывал его —
         отсюда «не встал первый пункт».)"""
         do = okna_processa()
-        mouse.click(coords=(r.right - 10, (r.top + r.bottom) // 2))
+        # Внутри поля справа две кнопки: ▼ (≈33 px от края) и ластик (≈12 px)
+        # — раньше робот попадал в ластик и стирал галочки (ПК Влада 08.10).
+        # Кликаем в текстовую часть: она сама открывает список.
+        mouse.click(coords=(r.left + 60, (r.top + r.bottom) // 2))
         time.sleep(0.8)
         novye = [w for h, w in okna_processa().items() if h not in do]
         if not novye:
@@ -661,7 +664,7 @@ def proverit_tipy(gl, tipy):
     est, neznakomye = _indeksy_tipov(t)
     if neznakomye:
         log.info("В поле незнакомые пункты %s — очищаю ластиком.", neznakomye)
-        mouse.click(coords=(r.right + 13, (r.top + r.bottom) // 2))
+        mouse.click(coords=(r.right - 12, (r.top + r.bottom) // 2))  # ластик внутри поля
         time.sleep(0.5)
         est = set()
 
@@ -683,7 +686,9 @@ def proverit_tipy(gl, tipy):
                 pass
         return None, []
 
-    for prohod, sposob in enumerate(("список", "клавиатура", "мышь", "мышь")):
+    # мышь первой: по логу 08.10 клики по строкам (верх списка + 9 + 15·i)
+    # попадают точно, а список DevExpress не настоящий LISTBOX
+    for prohod, sposob in enumerate(("мышь", "мышь", "клавиатура")):
         t = tekst()
         est, neznakomye = _indeksy_tipov(t)
         perekl = sorted(est ^ nuzhno)
