@@ -260,6 +260,23 @@ def import_egais(background_tasks: BackgroundTasks, file: UploadFile = File(...)
     return {"task_id": task_id}
 
 
+class RobotOtchetIn(BaseModel):
+    ok: bool
+    text: str
+
+
+@router.post("/egais/robot-otchet")
+def egais_robot_otchet(body: RobotOtchetIn, user=Depends(require_permission("raskhod.edit")),
+                       conn=Depends(get_conn)):
+    """Итог вечерней автовыгрузки ЕГАИС (робот deploy/egais_avto на ПК с
+    программой ЕГАИС) — в колокольчик руководителям и офису: и успех
+    (сколько строк, сколько новых), и ошибка (на каком шаге споткнулся).
+    Сам импорт идёт обычным POST /egais/import, здесь только сообщение."""
+    prefiks = "✅ " if body.ok else "❌ "
+    nid = webext.notify(conn, "egais_robot", prefiks + body.text.strip())
+    return {"id": nid}
+
+
 @router.get("/delyanki/{delyanka_id}/osvoenie")
 def get_delyanka_osvoenie(delyanka_id: int, conn=Depends(get_conn)):
     """Освоение лимита по ВСЕЙ делянке (все выделы, все породы,
