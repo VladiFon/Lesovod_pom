@@ -325,6 +325,23 @@ def zakryt_vsplyvashki(pid, zhdat_sek=0):
         time.sleep(1)
 
 
+def ustoychivoe_okno():
+    """Окно входа (или сразу главное), которое живёт хотя бы 2 секунды. При
+    запуске ЕГАИС иногда мелькает промежуточное окошко с тем же заголовком
+    (обновление/заставка) — если схватить его, через миг «недопустимый
+    дескриптор окна» (WinError 1400, ПК Влада 08.10)."""
+    w = okno_vhoda() or glavnoe_okno()
+    if w is None:
+        return None
+    time.sleep(2)
+    try:
+        if w.exists() and w.is_visible():
+            return w
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def zapustit_i_voyti(cfg):
     from pywinauto.keyboard import send_keys
 
@@ -342,12 +359,17 @@ def zapustit_i_voyti(cfg):
             raise Oshibka(f"Не нашёл ярлык/программу ЕГАИС: {put} (поправь yarlyk в nastroyki.ini)")
         log.info("Запускаю ЕГАИС: %s", put)
         os.startfile(put)  # noqa: S606 — .lnk тоже открывается
-        vh = zhdat(lambda: okno_vhoda() or glavnoe_okno(), 120, chto="окно входа ЕГАИС")
+        vh = zhdat(ustoychivoe_okno, 180, chto="окно входа ЕГАИС")
         if "Пользователь" in vh.window_text():
             zakryt_vsplyvashki(vh.process_id(), zhdat_sek=15)
             return vh, True
 
     pw = parol(KEYRING_SERVIS_EGAIS, egais_klyuch(cfg))
+    if not vh.exists():  # пока ждали, окно сменилось — берём актуальное
+        vh = zhdat(ustoychivoe_okno, 60, chto="окно входа ЕГАИС")
+        if "Пользователь" in vh.window_text():
+            zakryt_vsplyvashki(vh.process_id(), zhdat_sek=15)
+            return vh, True
     vh.set_focus()
     time.sleep(0.5)
 
