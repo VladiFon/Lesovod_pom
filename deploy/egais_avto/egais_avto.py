@@ -273,12 +273,65 @@ def soobshcheniya_oshibok(pid):
     return teksty
 
 
+# Кнопки, которыми закрываются информационные окошки ЕГАИС при запуске
+# («ВНИМАНИЕ! … заканчивается срок вывозки» → «Ознакомлен» и т.п.).
+KNOPKI_OK = ("ознакомлен", "ok", "ок", "закрыть", "продолжить", "понятно")
+
+
+def zakryt_vsplyvashki(pid, zhdat_sek=0):
+    """Закрывает всплывающие окна-предупреждения ЕГАИС, чтобы они не
+    перекрывали работу. Перед закрытием снимает скрин — там бывает полезное
+    (например, у какого разрешительного документа кончается срок вывозки),
+    и пишет текст окна в лог. zhdat_sek — сколько ещё секунд ловить
+    окошки, которые вылезают с задержкой (после входа)."""
+    from pywinauto import Desktop
+
+    zakryto = 0
+    konec = time.time() + zhdat_sek
+    while True:
+        gl = glavnoe_okno()
+        for w in Desktop(backend="win32").windows(visible_only=True):
+            try:
+                if w.process_id() != pid or (gl is not None and w.handle == gl.handle):
+                    continue
+                if w.window_text().startswith("ЕГАИС"):
+                    continue  # окно входа/главное — не трогаем
+                knopka = None
+                for c in w.descendants():
+                    if c.window_text().strip().lower() in KNOPKI_OK and "button" in c.class_name().lower():
+                        knopka = c
+                        break
+                if knopka is None:
+                    continue
+                tekst = " | ".join(t for t in (c.window_text().strip() for c in w.descendants()) if t)
+                log.warning("ЕГАИС показал окно «%s»: %s", w.window_text(), tekst[:500])
+                w.set_focus()
+                skrin("preduprezhdenie_egais")
+                try:
+                    knopka.click()
+                except Exception:  # noqa: BLE001
+                    knopka.click_input()
+                time.sleep(1)
+                if w.exists() and w.is_visible():
+                    from pywinauto.keyboard import send_keys
+                    w.set_focus()
+                    send_keys("{ENTER}")  # кнопка и так в фокусе
+                    time.sleep(1)
+                zakryto += 1
+            except Exception:  # noqa: BLE001
+                pass
+        if time.time() >= konec:
+            return zakryto
+        time.sleep(1)
+
+
 def zapustit_i_voyti(cfg):
     from pywinauto.keyboard import send_keys
 
     gl = glavnoe_okno()
     if gl:
         log.info("ЕГАИС уже открыт и вход выполнен — беру готовое окно.")
+        zakryt_vsplyvashki(gl.process_id())
         return gl, False
 
     vh = okno_vhoda()
@@ -291,6 +344,7 @@ def zapustit_i_voyti(cfg):
         os.startfile(put)  # noqa: S606 — .lnk тоже открывается
         vh = zhdat(lambda: okno_vhoda() or glavnoe_okno(), 120, chto="окно входа ЕГАИС")
         if "Пользователь" in vh.window_text():
+            zakryt_vsplyvashki(vh.process_id(), zhdat_sek=15)
             return vh, True
 
     pw = parol(KEYRING_SERVIS_EGAIS, egais_klyuch(cfg))
@@ -327,6 +381,8 @@ def zapustit_i_voyti(cfg):
         oshibki = soobshcheniya_oshibok(pid)
         skrin("vhod")
         raise Oshibka("Вход в ЕГАИС не удался. " + ("; ".join(oshibki) or "Окно не появилось."))
+    # предупреждения вылезают через пару секунд после входа — ловим их
+    zakryt_vsplyvashki(pid, zhdat_sek=15)
     return gl, True
 
 
@@ -334,6 +390,7 @@ def otkryt_reestr(gl):
     """Открывает вкладку «Реестр движения по складам» (если ещё не открыта)."""
     from pywinauto.keyboard import send_keys
 
+    zakryt_vsplyvashki(gl.process_id())
     gl.set_focus()
     if gl.get_show_state() != 3:  # 3 = развёрнуто
         gl.maximize()
@@ -476,6 +533,7 @@ def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
     from pywinauto.keyboard import send_keys
     from pywinauto import Application
 
+    zakryt_vsplyvashki(app_pid)
     gl.set_focus()
     send_keys("{F7}")
     log.info("Нажал «Получить» (F7), жду данные…")
@@ -488,6 +546,7 @@ def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
     except Exception as e:  # noqa: BLE001
         log.info("Не дождался тишины по процессору (%s) — иду дальше.", e)
     time.sleep(2)
+    zakryt_vsplyvashki(app_pid)
 
 
 def najat_excel(gl):
