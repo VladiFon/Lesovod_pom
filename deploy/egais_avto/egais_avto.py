@@ -312,7 +312,7 @@ def zakryt_vsplyvashki(pid, zhdat_sek=0):
                 except Exception:  # noqa: BLE001
                     knopka.click_input()
                 time.sleep(1)
-                if w.exists() and w.is_visible():
+                if okno_zhivo(w):
                     from pywinauto.keyboard import send_keys
                     w.set_focus()
                     send_keys("{ENTER}")  # кнопка и так в фокусе
@@ -325,6 +325,16 @@ def zakryt_vsplyvashki(pid, zhdat_sek=0):
         time.sleep(1)
 
 
+def okno_zhivo(w):
+    """Окно ещё существует и видно. У обёрток pywinauto нет .exists() (он
+    есть только у WindowSpecification) — спрашиваем Windows напрямую."""
+    try:
+        return bool(ctypes.windll.user32.IsWindow(w.handle)) and \
+            bool(ctypes.windll.user32.IsWindowVisible(w.handle))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def ustoychivoe_okno():
     """Окно входа (или сразу главное), которое живёт хотя бы 2 секунды. При
     запуске ЕГАИС иногда мелькает промежуточное окошко с тем же заголовком
@@ -335,7 +345,7 @@ def ustoychivoe_okno():
         return None
     time.sleep(2)
     try:
-        if w.exists() and w.is_visible():
+        if okno_zhivo(w):
             return w
     except Exception:  # noqa: BLE001
         pass
@@ -365,7 +375,7 @@ def zapustit_i_voyti(cfg):
             return vh, True
 
     pw = parol(KEYRING_SERVIS_EGAIS, egais_klyuch(cfg))
-    if not vh.exists():  # пока ждали, окно сменилось — берём актуальное
+    if not okno_zhivo(vh):  # пока ждали, окно сменилось — берём актуальное
         vh = zhdat(ustoychivoe_okno, 60, chto="окно входа ЕГАИС")
         if "Пользователь" in vh.window_text():
             zakryt_vsplyvashki(vh.process_id(), zhdat_sek=15)
@@ -387,7 +397,8 @@ def zapustit_i_voyti(cfg):
 
     if pole_parol is not None:
         pole_parol.set_focus()
-        pole_parol.set_edit_text("")
+        if hasattr(pole_parol, "set_edit_text"):  # у cx-полей Delphi этого метода нет
+            pole_parol.set_edit_text("")
         pole_parol.type_keys(ekranirovat(pw), with_spaces=True, set_foreground=True)
     else:
         # как на скрине: курсор после запуска сразу стоит в поле «Пароль»
@@ -523,7 +534,11 @@ def vvesti_datu(pole, nado):
     for imya, sdelat in sposoby:
         vnutr.click_input()
         time.sleep(0.2)
-        sdelat()
+        try:
+            sdelat()
+        except Exception as e:  # noqa: BLE001
+            log.info("Способ «%s» не применим: %s", imya, e)
+            continue
         time.sleep(0.2)
         send_keys("{TAB}")
         time.sleep(0.6)
