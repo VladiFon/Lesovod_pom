@@ -29,6 +29,7 @@ const EVENT_META = {
   srok: { icon: "⏰", label: "Срок", screen: "inspection", param: "d" },
   otvet_na_zametku: { icon: "💬", label: "Ответ на заметку", screen: "worker_notes" },
   metka: { icon: "📍", label: "Метка от коллеги", screen: null },
+  egais_robot: { icon: "🤖", label: "Выгрузка ЕГАИС", screen: "raskhod" },
 };
 
 function formatDateTime(s) {

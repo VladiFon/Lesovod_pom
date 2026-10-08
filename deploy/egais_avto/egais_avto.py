@@ -63,6 +63,9 @@ OTCHET = "Реестр движения по складам"
 
 log = logging.getLogger("egais_avto")
 
+# Что стоит упомянуть в колокольчике Лесовода, кроме цифр (заполняется по ходу прогона).
+ZAMETKI = []
+
 
 class Oshibka(Exception):
     """Понятная человеку ошибка — пишется в лог без трейсбэка."""
@@ -305,6 +308,7 @@ def zakryt_vsplyvashki(pid, zhdat_sek=0):
                     continue
                 tekst = " | ".join(t for t in (c.window_text().strip() for c in w.descendants()) if t)
                 log.warning("ЕГАИС показал окно «%s»: %s", w.window_text(), tekst[:500])
+                ZAMETKI.append(f"ЕГАИС показал «{w.window_text().strip()}» (скрин в logi на ПК робота)")
                 w.set_focus()
                 skrin("preduprezhdenie_egais")
                 try:
@@ -744,6 +748,7 @@ def proverit_tipy(gl, tipy):
     if set(nehvataet) - {"Перевод в сортимент"}:
         raise Oshibka(f"Не удалось отметить в «Тип документа»: {nehvataet} (стоит «{t}»).")
     log.warning("Тип документа: не удалось отметить %s, еду с тем, что есть: «%s».", nehvataet, t)
+    ZAMETKI.append(f"без типа «{', '.join(nehvataet)}»")
 
 
 def _otvechaet(hwnd, ms=1000):
@@ -1114,6 +1119,8 @@ def progon(cfg, bez_zagruzki=False):
 
     SOSTOYANIE.write_text(json.dumps({"data": segodnya.isoformat(), "god": s.year, "strok": strok,
                                       "lesovod": itog}, ensure_ascii=False, indent=1), encoding="utf-8")
+    if vchera and st.get("god") == s.year and strok < vchera * 0.8:
+        ZAMETKI.append(f"строк заметно меньше, чем в прошлый раз ({vchera} → {strok})")
 
     # прибрать старые выгрузки
     hranit = cfg.getint("obshchee", "hranit_dney", fallback=30)
@@ -1126,6 +1133,33 @@ def progon(cfg, bez_zagruzki=False):
             gl.close()
         except Exception:  # noqa: BLE001
             pass
+    return {"strok": strok, **itog}
+
+
+def soobshchit_v_lesovod(cfg, ok, tekst):
+    """Итог прогона — в колокольчик Лесовода (POST /api/raskhod/egais/robot-otchet).
+    Best effort: если Лесовод недоступен (или старая версия сервера без
+    этого адреса), просто пишем в лог — выгрузка от этого не ломается."""
+    if cfg is None or not cfg.get("lesovod", "login", fallback="").strip():
+        return
+    try:
+        url = cfg.get("lesovod", "url").rstrip("/")
+        ses = _http(cfg)
+        h = {"Authorization": f"Bearer {lesovod_login(cfg)}"}
+        r = ses.post(f"{url}/api/raskhod/egais/robot-otchet", headers=h, timeout=30,
+                     json={"ok": ok, "text": tekst})
+        if r.status_code == 404:
+            log.info("Сервер Лесовода ещё без колокольчика для робота (нужно обновление сервера).")
+        elif r.status_code != 200:
+            log.warning("Колокольчик Лесовода не принял итог (%s): %s", r.status_code, r.text[:200])
+        else:
+            log.info("Итог отправлен в колокольчик Лесовода.")
+        try:
+            ses.post(f"{url}/api/auth/logout", headers=h, timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception as e:  # noqa: BLE001
+        log.warning("Не смог отправить итог в Лесовод: %s", e)
 
 
 def main():
@@ -1149,8 +1183,15 @@ def main():
             nastroit(cfg)
             return 0
         log.info("=== Выгрузка ЕГАИС: старт ===")
-        progon(cfg, bez_zagruzki=a.bez_zagruzki)
+        itog = progon(cfg, bez_zagruzki=a.bez_zagruzki)
         log.info("=== Выгрузка ЕГАИС: готово ===")
+        if not a.bez_zagruzki:
+            tekst = (f"Выгрузка ЕГАИС {dt.date.today():%d.%m}: {itog.get('strok')} строк, "
+                     f"новых в журнале {itog.get('journal_rows_added', 0)}, "
+                     f"обновлено {itog.get('journal_rows_replaced', 0)}.")
+            if ZAMETKI:
+                tekst += " " + "; ".join(dict.fromkeys(ZAMETKI)) + "."
+            soobshchit_v_lesovod(cfg, True, tekst)
         (PAPKA / "posledniy_rezultat.txt").write_text(
             f"{dt.datetime.now():%d.%m.%Y %H:%M} — OK\n", encoding="utf-8")
         return 0
@@ -1162,6 +1203,9 @@ def main():
         tekst = "непредвиденная ошибка, см. лог"
     (PAPKA / "posledniy_rezultat.txt").write_text(
         f"{dt.datetime.now():%d.%m.%Y %H:%M} — ОШИБКА: {tekst}\n", encoding="utf-8")
+    if not a.bez_zagruzki and not a.nastroit and not a.razvedka:
+        soobshchit_v_lesovod(cfg if "cfg" in locals() else None, False,
+                             f"Выгрузка ЕГАИС {dt.date.today():%d.%m} не удалась: {tekst}")
     return 1
 
 
