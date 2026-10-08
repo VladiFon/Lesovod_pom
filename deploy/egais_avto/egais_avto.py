@@ -665,7 +665,25 @@ def proverit_tipy(gl, tipy):
         time.sleep(0.5)
         est = set()
 
-    for prohod, sposob in enumerate(("клавиатура", "мышь", "мышь")):
+    def spisok_lb(sp):
+        """Внутри выпадашки DevExpress обычно настоящий LISTBOX Windows —
+        тогда точные координаты строк и их тексты берём у самого списка."""
+        from pywinauto.controls.win32_controls import ListBoxWrapper
+        if sp is None:
+            return None, []
+        kandidaty = [sp] + list(sp.descendants())
+        log.info("Окна выпадашки: %s", [(c.class_name(), str(c.rectangle())) for c in kandidaty][:10])
+        for c in kandidaty:
+            try:
+                lb = ListBoxWrapper(c.handle)
+                teksty = lb.item_texts()
+                if any("Приход" in t for t in teksty):
+                    return lb, teksty
+            except Exception:  # noqa: BLE001
+                pass
+        return None, []
+
+    for prohod, sposob in enumerate(("список", "клавиатура", "мышь", "мышь")):
         t = tekst()
         est, neznakomye = _indeksy_tipov(t)
         perekl = sorted(est ^ nuzhno)
@@ -674,7 +692,24 @@ def proverit_tipy(gl, tipy):
             return
         log.info("Тип документа «%s» — переключаю пункты %s (%s).", t, perekl, sposob)
         sp = otkryt()
-        if sposob == "клавиатура":
+        if sposob == "список":
+            lb, teksty = spisok_lb(sp)
+            if lb is None:
+                log.info("Внутри выпадашки нет обычного списка Windows — пробую клавиатурой.")
+                send_keys("{ESC}")
+                time.sleep(0.5)
+                continue
+            log.info("Пункты списка: %s", teksty)
+            for i in perekl:
+                nomer = next((n for n, t in enumerate(teksty) if t.strip() == VSE_TIPY[i]), None)
+                if nomer is None:
+                    log.info("В списке нет пункта «%s».", VSE_TIPY[i])
+                    continue
+                rr = lb.item_rect(nomer)
+                # клик по квадратику-галочке слева в строке
+                lb.click_input(coords=(rr.left + 8, (rr.top + rr.bottom) // 2))
+                time.sleep(0.3)
+        elif sposob == "клавиатура":
             send_keys("{HOME}")
             time.sleep(0.2)
             tek = 0
@@ -699,12 +734,43 @@ def proverit_tipy(gl, tipy):
         raise Oshibka(f"В «Тип документа» стоят лишние пункты: «{t}» — выгрузка была бы неверной.")
     nehvataet = [VSE_TIPY[i] for i in sorted(nuzhno - est)]
     skrin("tip_dokumenta")
+    # Без «Перевода в сортимент» Влад разрешил ехать (08.10), без остальных —
+    # нет: выгрузка вышла бы почти пустой (как с одним «Переводом» — 42 строки).
+    if set(nehvataet) - {"Перевод в сортимент"}:
+        raise Oshibka(f"Не удалось отметить в «Тип документа»: {nehvataet} (стоит «{t}»).")
     log.warning("Тип документа: не удалось отметить %s, еду с тем, что есть: «%s».", nehvataet, t)
 
 
+def _otvechaet(hwnd, ms=1000):
+    """Окно обрабатывает сообщения (не «Не отвечает»)."""
+    rez = ctypes.c_ulong()
+    return bool(ctypes.windll.user32.SendMessageTimeoutW(
+        hwnd, 0, 0, 0, 0x0002, ms, ctypes.byref(rez)))  # WM_NULL, SMTO_ABORTIFHUNG
+
+
+def _kursor_zanyat():
+    """Курсор «песочные часы» / «стрелка с часиками» над окном ЕГАИС."""
+    class CURSORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("flags", ctypes.c_uint),
+                    ("hCursor", ctypes.c_void_p), ("x", ctypes.c_long), ("y", ctypes.c_long)]
+    ci = CURSORINFO()
+    ci.cbSize = ctypes.sizeof(CURSORINFO)
+    if not ctypes.windll.user32.GetCursorInfo(ctypes.byref(ci)):
+        return False
+    user32 = ctypes.windll.user32
+    user32.LoadCursorW.restype = ctypes.c_void_p
+    zanyatye = {user32.LoadCursorW(None, 32514), user32.LoadCursorW(None, 32650)}  # IDC_WAIT, IDC_APPSTARTING
+    return ci.hCursor in zanyatye
+
+
 def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
+    """Жмём «Получить» и ждём, пока ЕГАИС реально загрузит документы. На
+    ПК Влада загрузка 10+ тыс. строк идёт долго, и робот жал Excel раньше —
+    выходил пустой файл. Считаем, что загрузка закончилась, когда несколько
+    проверок подряд (≈15 с): окно отвечает, кнопка «Получить» снова
+    доступна и курсор над таблицей — не «песочные часы»."""
     from pywinauto.keyboard import send_keys
-    from pywinauto import Application
+    import pywinauto.mouse as mouse
 
     zakryt_vsplyvashki(app_pid)
     gl.set_focus()
@@ -714,15 +780,30 @@ def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
         knopka.click_input()
     else:
         send_keys("{F7}")
-    log.info("Нажал «Получить», жду данные…")
-    time.sleep(minimum_sek)
-    # Пока ЕГАИС тянет 10+ тысяч строк, он грузит процессор — ждём, когда
-    # успокоится. Сверху всё равно страхует проверка самого файла.
-    try:
-        app = Application(backend="win32").connect(process=app_pid)
-        app.wait_cpu_usage_lower(threshold=3, timeout=maksimum_sek, usage_interval=2)
-    except Exception as e:  # noqa: BLE001
-        log.info("Не дождался тишины по процессору (%s) — иду дальше.", e)
+    log.info("Нажал «Получить», жду данные (не меньше %d с)…", minimum_sek)
+    start = time.time()
+
+    # мышь над таблицей — чтобы по курсору было видно, что ЕГАИС занят
+    tabl = next((c for c in gl.descendants() if c.class_name() == "TcxGridSite" and _na_ekrane(c)), None)
+    if tabl is not None:
+        r = tabl.rectangle()
+        mouse.move(coords=((r.left + r.right) // 2, (r.top + r.bottom) // 2))
+
+    stabilno = 0
+    while time.time() - start < maksimum_sek:
+        time.sleep(3)
+        try:
+            gotov = (_otvechaet(gl.handle)
+                     and (knopka is None or knopka.is_enabled())
+                     and not _kursor_zanyat())
+        except Exception:  # noqa: BLE001
+            gotov = False
+        stabilno = stabilno + 1 if gotov else 0
+        if time.time() - start >= minimum_sek and stabilno >= 5:
+            log.info("Данные загрузились за %d с.", time.time() - start)
+            break
+    else:
+        log.warning("ЕГАИС грузит дольше %d с — пробую выгружать что есть.", maksimum_sek)
     time.sleep(2)
     zakryt_vsplyvashki(app_pid)
 
@@ -994,16 +1075,20 @@ def progon(cfg, bez_zagruzki=False):
         fallback=r"%USERPROFILE%\Downloads;%USERPROFILE%\Documents;%USERPROFILE%\Desktop;%TEMP%").split(";")]
 
     strok = 0
+    st = sostoyanie()
+    proshlyy = st.get("strok") if st.get("god") == s.year else None
+    zhdat_min = cfg.getint("egais", "zhdat_dannye_sek", fallback=45)
     for popytka in (1, 2):
-        poluchit_dannye(gl, pid, minimum_sek=15 * popytka, maksimum_sek=600)
+        poluchit_dannye(gl, pid, minimum_sek=zhdat_min * popytka, maksimum_sek=1200)
         start = time.time()
         najat_excel(gl)
         zabrat_fayl(pid, kuda, start, papki_poiska, sekund=600)
         strok = proverit_fayl(kuda)
         log.info("Файл %s: %d строк.", kuda.name, strok)
-        if strok > 0:
+        if strok > 0 and not (proshlyy and strok < proshlyy * 0.5):
             break
-        log.warning("Файл пустой — видимо, данные не успели загрузиться. Пробую ещё раз подольше.")
+        log.warning("В файле %d строк (в прошлый раз %s) — видимо, ЕГАИС не успел загрузить "
+                    "документы. Пробую ещё раз и жду подольше.", strok, proshlyy)
     if strok == 0:
         raise Oshibka("ЕГАИС дважды отдал пустой реестр.")
 
