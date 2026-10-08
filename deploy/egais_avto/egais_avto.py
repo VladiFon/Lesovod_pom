@@ -89,22 +89,89 @@ def parol(servis, login):
     return p
 
 
+def okno_paroley(egais_login, les_login, oshibka=""):
+    """Окошко для паролей. В чёрном окне getpass ничего не показывает при
+    вводе (даже звёздочек), и кажется, что печатать нельзя — поэтому
+    нормальное окно с полями и точками."""
+    import tkinter as tk
+    from tkinter import ttk
+
+    rez = {}
+    root = tk.Tk()
+    root.title("Робот ЕГАИС — пароли")
+    root.attributes("-topmost", True)
+    root.resizable(False, False)
+    fr = ttk.Frame(root, padding=16)
+    fr.grid()
+    ttk.Label(fr, text="Пароли сохранятся в «Диспетчер учётных данных» Windows,\n"
+                       "в файлах их не будет.").grid(columnspan=2, sticky="w", pady=(0, 10))
+    if oshibka:
+        ttk.Label(fr, text=oshibka, foreground="red", wraplength=380).grid(
+            columnspan=2, sticky="w", pady=(0, 10))
+    polya = {}
+    for nazv, login in (("egais", egais_login), ("lesovod", les_login)):
+        if not login:
+            continue
+        ttk.Label(fr, text=f"Пароль {'ЕГАИС' if nazv == 'egais' else 'Лесовода'} "
+                           f"для «{login}»:").grid(columnspan=2, sticky="w")
+        e = ttk.Entry(fr, show="●", width=40)
+        e.grid(columnspan=2, sticky="we", pady=(2, 10))
+        polya[nazv] = e
+    pokaz = tk.BooleanVar()
+
+    def pereklyuchit():
+        for e in polya.values():
+            e.config(show="" if pokaz.get() else "●")
+
+    ttk.Checkbutton(fr, text="Показать пароли", variable=pokaz,
+                    command=pereklyuchit).grid(columnspan=2, sticky="w")
+    oshibka_lbl = ttk.Label(fr, text="", foreground="red")
+    oshibka_lbl.grid(columnspan=2, sticky="w")
+
+    def sohranit(_=None):
+        znach = {k: e.get() for k, e in polya.items()}
+        if any(not v for v in znach.values()):
+            oshibka_lbl.config(text="Заполни все поля.")
+            return
+        rez.update(znach)
+        root.destroy()
+
+    ttk.Button(fr, text="Сохранить", command=sohranit).grid(columnspan=2, pady=(10, 0))
+    root.bind("<Return>", sohranit)
+    next(iter(polya.values())).focus_force()
+    root.mainloop()
+    return rez
+
+
 def nastroit(cfg):
     import keyring
-    print("Пароли сохраняются в «Диспетчер учётных данных» Windows, "
-          "в файлах их не будет.\n")
     egais_login = cfg.get("egais", "login", fallback="").strip()
     if not egais_login:
         raise Oshibka("Впиши login в раздел [egais] файла nastroyki.ini")
-    keyring.set_password(KEYRING_SERVIS_EGAIS, egais_login,
-                         getpass.getpass(f"Пароль ЕГАИС для «{egais_login}»: "))
     les_login = cfg.get("lesovod", "login", fallback="").strip()
-    if les_login:
-        keyring.set_password(KEYRING_SERVIS_LESOVOD, les_login,
-                             getpass.getpass(f"Пароль Лесовода для «{les_login}»: "))
-        # сразу проверим, что пускает
-        token = lesovod_login(cfg)
-        print("Лесовод: вход проверен, всё ок." if token else "")
+    oshibka = ""
+    while True:
+        try:
+            p = okno_paroley(egais_login, les_login, oshibka)
+        except Exception:  # noqa: BLE001 — нет tkinter: по-старому, в консоли
+            print("(Пароль при вводе не отображается — это нормально, просто печатай и жми Enter)")
+            p = {"egais": getpass.getpass(f"Пароль ЕГАИС для «{egais_login}»: ")}
+            if les_login:
+                p["lesovod"] = getpass.getpass(f"Пароль Лесовода для «{les_login}»: ")
+        if not p:
+            raise Oshibka("Окно закрыли без сохранения — пароли не записаны.")
+        keyring.set_password(KEYRING_SERVIS_EGAIS, egais_login, p["egais"])
+        print(f"Пароль ЕГАИС для «{egais_login}» сохранён.")
+        if not les_login:
+            break
+        keyring.set_password(KEYRING_SERVIS_LESOVOD, les_login, p["lesovod"])
+        try:
+            lesovod_login(cfg)  # сразу проверим, что пускает
+            print("Лесовод: вход проверен, всё ок.")
+            break
+        except Exception as e:  # noqa: BLE001
+            oshibka = f"Лесовод не пустил: {e}. Проверь пароль и адрес url в nastroyki.ini."
+            print(oshibka)
     print("\nГотово. Теперь можно запускать zapustit_seychas.bat для пробы.")
 
 
