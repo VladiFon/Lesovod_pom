@@ -629,11 +629,33 @@ def proverit_tipy(gl, tipy):
             t = t or ch.window_text()
         return (t or "").strip()
 
+    def okna_processa():
+        from pywinauto import Desktop
+        out = {}
+        for w in Desktop(backend="win32").windows(visible_only=True):
+            try:
+                if w.process_id() == gl.process_id():
+                    out[w.handle] = w
+            except Exception:  # noqa: BLE001
+                pass
+        return out
+
     def otkryt():
-        pole.click_input()
-        time.sleep(0.4)
-        send_keys("%{DOWN}")
+        """Открыть выпадающий список. Список — отдельное окно ЕГАИС, поэтому
+        узнаём его как новое окно процесса после клика по стрелке ▼. (Раньше
+        клик по полю уже открывал список, а Alt+Down следом закрывал его —
+        отсюда «не встал первый пункт».)"""
+        do = okna_processa()
+        mouse.click(coords=(r.right - 10, (r.top + r.bottom) // 2))
         time.sleep(0.8)
+        novye = [w for h, w in okna_processa().items() if h not in do]
+        if not novye:
+            send_keys("%{DOWN}")
+            time.sleep(0.8)
+            novye = [w for h, w in okna_processa().items() if h not in do]
+        sp = novye[0] if novye else None
+        log.info("Список типов %s.", f"открыт ({sp.class_name()} {sp.rectangle()})" if sp else "не виден")
+        return sp
 
     t = tekst()
     est, neznakomye = _indeksy_tipov(t)
@@ -651,7 +673,7 @@ def proverit_tipy(gl, tipy):
             log.info("Тип документа как надо: %s", t)
             return
         log.info("Тип документа «%s» — переключаю пункты %s (%s).", t, perekl, sposob)
-        otkryt()
+        sp = otkryt()
         if sposob == "клавиатура":
             send_keys("{HOME}")
             time.sleep(0.2)
@@ -663,7 +685,8 @@ def proverit_tipy(gl, tipy):
                 tek = i
         else:
             for i in perekl:
-                mouse.click(coords=(r.left + 9, r.bottom + 9 + 15 * i))
+                verh = sp.rectangle().top if sp is not None else r.bottom
+                mouse.click(coords=(r.left + 9, verh + 9 + 15 * i))
                 time.sleep(0.3)
         send_keys("{ENTER}")
         time.sleep(0.8)
@@ -736,6 +759,37 @@ def najat_excel(gl):
     raise Oshibka("Не нашёл кнопку «Сформировать Excel» на экране.")
 
 
+def dozhdatsya_excel(xl, wb, maks_sek=1200):
+    """ЕГАИС заполняет книгу Excel построчно (10+ тысяч строк — это минуты),
+    и если сохранить сразу, выходит пустая шапка (ПК Влада 08.10). Ждём,
+    пока число строк перестанет расти три проверки подряд и Excel скажет,
+    что свободен. Пока ЕГАИС пишет, Excel может отклонять наши запросы
+    («вызов отклонён») — это нормально, просто пробуем ещё раз."""
+    konec = time.time() + maks_sek
+    proshloe, stabilno = -1, 0
+    while time.time() < konec:
+        time.sleep(3)
+        try:
+            ws = wb.Worksheets(1)
+            strok = ws.UsedRange.Rows.Count
+            shapka = str(ws.Cells(1, 1).Value or "")
+            gotov = bool(xl.Ready)
+        except Exception:  # noqa: BLE001 — Excel занят записью
+            stabilno = 0
+            continue
+        if strok == proshloe and strok > 1 and shapka and gotov:
+            stabilno += 1
+            if stabilno >= 3:
+                log.info("Excel: %d строк, запись закончилась.", strok)
+                return
+        else:
+            stabilno = 0
+            if strok != proshloe:
+                log.info("Excel: уже %d строк…", strok)
+        proshloe = strok
+    raise Oshibka("ЕГАИС так и не дописал книгу Excel за 20 минут.")
+
+
 def zabrat_fayl(pid, kuda, start, papki_poiska, sekund):
     """Ждём, что сделает ЕГАИС после кнопки Excel, и забираем файл:
     а) диалог «Сохранить как» — вписываем наш путь;
@@ -775,8 +829,8 @@ def zabrat_fayl(pid, kuda, start, papki_poiska, sekund):
             xl = win32com.client.GetActiveObject("Excel.Application")
             for wb in xl.Workbooks:
                 if not wb.Path:  # несохранённая книга = только что выгруженная
-                    log.info("ЕГАИС открыл выгрузку прямо в Excel — сохраняю её.")
-                    time.sleep(3)
+                    log.info("ЕГАИС открыл выгрузку прямо в Excel — жду, пока допишет строки…")
+                    dozhdatsya_excel(xl, wb)
                     xl.DisplayAlerts = False
                     wb.SaveAs(str(kuda), 51)  # 51 = .xlsx
                     wb.Close(False)
