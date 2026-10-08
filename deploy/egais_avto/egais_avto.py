@@ -1077,7 +1077,7 @@ def progon(cfg, bez_zagruzki=False):
     kuda = papka_vyg / f"egais_reestr_{segodnya:%Y-%m-%d}.xlsx"
     papki_poiska = [os.path.expandvars(p.strip()) for p in cfg.get(
         "obshchee", "papki_poiska",
-        fallback=r"%USERPROFILE%\Downloads;%USERPROFILE%\Documents;%USERPROFILE%\Desktop;%TEMP%").split(";")]
+        fallback=r"C:\EGAIS\Temp;%USERPROFILE%\Downloads;%USERPROFILE%\Documents;%USERPROFILE%\Desktop;%TEMP%").split(";")]
 
     strok = 0
     st = sostoyanie()
