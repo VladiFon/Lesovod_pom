@@ -471,24 +471,43 @@ def _sortirovat_po_mestu(kontroly):
     return sorted(kontroly, key=lambda c: (c.rectangle().top // 10, c.rectangle().left))
 
 
+def _na_ekrane(c):
+    """ЕГАИС держит часть полей формы за краем экрана (координаты 1491+ и
+    даже 10293+) — нам нужны только реально видимые."""
+    r = c.rectangle()
+    shir = ctypes.windll.user32.GetSystemMetrics(0)
+    return c.is_visible() and 0 <= r.left < shir and r.width() > 0
+
+
 def postavit_period(gl, s, po):
+    """«Операции за период с … по …» — два TcxDateEdit в одной строке,
+    самой верхней среди видимых полей дат (по разведке: L497 и L673, T127)."""
     from pywinauto.keyboard import send_keys
 
     daty = [c for c in gl.descendants()
-            if "dateedit" in c.class_name().lower() and c.is_visible()]
-    daty = _sortirovat_po_mestu(daty)
+            if c.class_name() == "TcxDateEdit" and _na_ekrane(c)]
     if len(daty) >= 2:
-        for pole, data in ((daty[0], s), (daty[1], po)):
-            pole.click_input()
-            send_keys("^a")
-            send_keys(data.strftime("%d.%m.%Y"))
-            send_keys("{TAB}")
-            time.sleep(0.3)
-        log.info("Период: %s — %s", s.strftime("%d.%m.%Y"), po.strftime("%d.%m.%Y"))
-        return
-    # Запасной путь, как на скрине: после открытия вкладки курсор стоит в «с»
-    # и дата выделена — просто печатаем поверх. «по» по умолчанию = сегодня.
-    log.info("Поля дат не нашлись по классу — печатаю в активное поле «с».")
+        verh = min(c.rectangle().top for c in daty)
+        stroka = sorted((c for c in daty if abs(c.rectangle().top - verh) < 8),
+                        key=lambda c: c.rectangle().left)
+        if len(stroka) >= 2:
+            for pole, data in ((stroka[0], s), (stroka[1], po)):
+                nado = data.strftime("%d.%m.%Y")
+                vnutr = pole.children()
+                (vnutr[0] if vnutr else pole).click_input()
+                send_keys("^a")
+                send_keys(nado)
+                send_keys("{TAB}")
+                time.sleep(0.5)
+                stalo = pole.window_text().strip()
+                if stalo and stalo != nado:
+                    skrin("data")
+                    raise Oshibka(f"Дата не встала: нужно {nado}, в поле «{stalo}».")
+            log.info("Период: %s — %s", s.strftime("%d.%m.%Y"), po.strftime("%d.%m.%Y"))
+            return
+    # Запасной путь: после открытия вкладки курсор стоит в «с» и дата
+    # выделена — печатаем поверх. «по» по умолчанию = сегодня.
+    log.info("Поля дат не нашлись — печатаю в активное поле «с».")
     send_keys("^a" + s.strftime("%d.%m.%Y") + "{TAB}")
 
 
@@ -554,8 +573,13 @@ def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
 
     zakryt_vsplyvashki(app_pid)
     gl.set_focus()
-    send_keys("{F7}")
-    log.info("Нажал «Получить» (F7), жду данные…")
+    knopka = next((c for c in gl.descendants() if c.class_name() == "TButton"
+                   and c.window_text().startswith("Получить") and _na_ekrane(c)), None)
+    if knopka is not None:
+        knopka.click_input()
+    else:
+        send_keys("{F7}")
+    log.info("Нажал «Получить», жду данные…")
     time.sleep(minimum_sek)
     # Пока ЕГАИС тянет 10+ тысяч строк, он грузит процессор — ждём, когда
     # успокоится. Сверху всё равно страхует проверка самого файла.
@@ -569,34 +593,35 @@ def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
 
 
 def najat_excel(gl):
-    """Кнопка «Сформировать Excel» на панели вкладки (иконка с зелёным X).
-    Сначала как кнопку панели инструментов Windows, если не вышло — ищем
-    иконку на экране по картинке ikonka_excel.png."""
-    for c in gl.descendants():
-        try:
-            if "toolbar" not in c.class_name().lower():
-                continue
-            from pywinauto.controls.common_controls import ToolbarWrapper
-            tb = ToolbarWrapper(c.handle)
-            for i in range(tb.button_count()):
-                b = tb.button(i)
-                if "excel" in (b.info.text or "").lower() or "excel" in (tb.get_tool_tips_control().get_tip_text(i) or "").lower():
-                    b.click_input()
-                    log.info("Нажал Excel как кнопку панели (№%d).", i)
-                    return
-        except Exception:  # noqa: BLE001
-            pass
-
+    """Кнопка «Сформировать Excel» — последняя иконка на панели вкладки
+    (TdxBarControl «MainBar», по разведке L292–R451, T75–B99). Это панель
+    DevExpress, у её кнопок нет своих окон, поэтому: сначала ищем иконку
+    на экране по картинке ikonka_excel.png, не нашли — жмём в последнюю
+    кнопку панели по её координатам."""
     import pyautogui
-    try:
-        poz = pyautogui.locateCenterOnScreen(str(PAPKA / "ikonka_excel.png"), confidence=0.8)
-    except Exception:  # noqa: BLE001 — без opencv confidence не работает
-        poz = pyautogui.locateCenterOnScreen(str(PAPKA / "ikonka_excel.png"))
-    if not poz:
-        skrin("net_knopki_excel")
-        raise Oshibka("Не нашёл кнопку «Сформировать Excel» на экране.")
-    pyautogui.click(poz)
-    log.info("Нажал Excel по картинке в точке %s.", poz)
+    poz = None
+    for kwargs in ({"confidence": 0.8}, {}):
+        try:
+            poz = pyautogui.locateCenterOnScreen(str(PAPKA / "ikonka_excel.png"), **kwargs)
+        except Exception:  # noqa: BLE001 — не нашёл / нет opencv
+            poz = None
+        if poz:
+            break
+    if poz:
+        pyautogui.click(poz)
+        log.info("Нажал Excel по картинке в точке %s.", poz)
+        return
+
+    paneli = [c for c in gl.descendants() if c.class_name() == "TdxBarControl"
+              and c.window_text() == "MainBar" and _na_ekrane(c)]
+    if paneli:
+        r = paneli[0].rectangle()
+        x, y = r.right - 13, (r.top + r.bottom) // 2
+        pyautogui.click(x, y)
+        log.info("Нажал Excel как последнюю кнопку панели (%d, %d).", x, y)
+        return
+    skrin("net_knopki_excel")
+    raise Oshibka("Не нашёл кнопку «Сформировать Excel» на экране.")
 
 
 def zabrat_fayl(pid, kuda, start, papki_poiska, sekund):
