@@ -479,6 +479,41 @@ def _na_ekrane(c):
     return c.is_visible() and 0 <= r.left < shir and r.width() > 0
 
 
+def vvesti_datu(pole, nado):
+    """Ввод даты в TcxDateEdit (поле с маской __.__.____). Ctrl+A там не
+    выделяет всё (на ПК Влада после Ctrl+A+ввода вышло «08.09.2010»), поэтому
+    пробуем по очереди несколько способов и после каждого читаем, что
+    реально встало в поле."""
+    from pywinauto.keyboard import send_keys
+
+    if pole.window_text().strip() == nado:
+        return
+    vnutr = (pole.children() or [pole])[0]
+    cifry = nado.replace(".", "")
+    sposoby = [
+        ("Home+Shift+End и ввод", lambda: send_keys("{HOME}+{END}" + nado)),
+        ("Home и цифры поверх маски", lambda: send_keys("{HOME}" + cifry)),
+        ("Home и дата поверх маски", lambda: send_keys("{HOME}" + nado)),
+        ("текст напрямую в поле", lambda: vnutr.set_edit_text(nado)),
+        ("Delete по символам и цифры", lambda: send_keys("{HOME}" + "{DELETE}" * 10 + "{HOME}" + cifry)),
+    ]
+    stalo = ""
+    for imya, sdelat in sposoby:
+        vnutr.click_input()
+        time.sleep(0.2)
+        sdelat()
+        time.sleep(0.2)
+        send_keys("{TAB}")
+        time.sleep(0.6)
+        stalo = pole.window_text().strip()
+        if stalo == nado:
+            log.info("Дата %s введена (способ: %s).", nado, imya)
+            return
+        log.info("Способ «%s» не сработал: в поле «%s».", imya, stalo)
+    skrin("data")
+    raise Oshibka(f"Дата не встала: нужно {nado}, в поле «{stalo}».")
+
+
 def postavit_period(gl, s, po):
     """«Операции за период с … по …» — два TcxDateEdit в одной строке,
     самой верхней среди видимых полей дат (по разведке: L497 и L673, T127)."""
@@ -492,17 +527,7 @@ def postavit_period(gl, s, po):
                         key=lambda c: c.rectangle().left)
         if len(stroka) >= 2:
             for pole, data in ((stroka[0], s), (stroka[1], po)):
-                nado = data.strftime("%d.%m.%Y")
-                vnutr = pole.children()
-                (vnutr[0] if vnutr else pole).click_input()
-                send_keys("^a")
-                send_keys(nado)
-                send_keys("{TAB}")
-                time.sleep(0.5)
-                stalo = pole.window_text().strip()
-                if stalo and stalo != nado:
-                    skrin("data")
-                    raise Oshibka(f"Дата не встала: нужно {nado}, в поле «{stalo}».")
+                vvesti_datu(pole, data.strftime("%d.%m.%Y"))
             log.info("Период: %s — %s", s.strftime("%d.%m.%Y"), po.strftime("%d.%m.%Y"))
             return
     # Запасной путь: после открытия вкладки курсор стоит в «с» и дата
