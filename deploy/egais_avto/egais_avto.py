@@ -536,60 +536,110 @@ def postavit_period(gl, s, po):
     send_keys("^a" + s.strftime("%d.%m.%Y") + "{TAB}")
 
 
+# Пункты выпадающего списка «Тип документа» сверху вниз (по скрину Влада).
+VSE_TIPY = [
+    "Перевод в сортимент",
+    "Расход при реализации потребителю",
+    "Приход",
+    "Расход при внутреннем перемещении",
+    "Расход для собственного потребления",
+    "Расход для переработки",
+    "Расход при реализации на экспорт",
+    "Замена бирки",
+    "Корректировка остатков",
+    "Расход для автоматизированной переработки",
+]
+
+
+def _indeksy_tipov(t):
+    """Текст поля («Перевод;Приход;…») → номера пунктов списка и то, что не
+    узнали. ЕГАИС в поле сокращает «Перевод в сортимент» до «Перевод»."""
+    est, neznakomye = set(), []
+    for ch in (x.strip() for x in t.split(";")):
+        if not ch:
+            continue
+        if ch in VSE_TIPY:
+            est.add(VSE_TIPY.index(ch))
+            continue
+        kandidaty = [i for i, v in enumerate(VSE_TIPY) if v.startswith(ch)]
+        if len(kandidaty) == 1 or (kandidaty and ch == "Перевод"):
+            est.add(kandidaty[0])
+        else:
+            neznakomye.append(ch)
+    return est, neznakomye
+
+
 def proverit_tipy(gl, tipy):
-    """Фильтр «Тип документа». Если текст в поле уже ровно наш набор — не
-    трогаем. Иначе: ластик (очистить) → открыть список → галочки на первые
-    N пунктов по порядку (наши четыре идут подряд сверху) → закрыть."""
+    """Фильтр «Тип документа». ЕГАИС не помнит галочки между запусками,
+    поэтому каждый раз сверяем текст поля с нужным набором и переключаем
+    только расходящиеся пункты: сначала клавиатурой (стрелки + пробел), не
+    вышло — мышкой по строкам списка (строка ~15 px, по скрину)."""
     from pywinauto.keyboard import send_keys
+    import pywinauto.mouse as mouse
 
     kombo = [c for c in gl.descendants()
-             if "checkcombo" in c.class_name().lower() and c.is_visible()]
+             if c.class_name() == "TcxCheckComboBox" and _na_ekrane(c)]
     if not kombo:
-        log.info("Поле «Тип документа» не нашлось по классу — оставляю как есть "
-                 "(ЕГАИС обычно помнит галочки).")
+        log.info("Поле «Тип документа» не нашлось — оставляю как есть.")
         return
     pole = _sortirovat_po_mestu(kombo)[0]
+    r = pole.rectangle()
+    nuzhno = {VSE_TIPY.index(t) for t in tipy if t in VSE_TIPY}
 
     def tekst():
         t = pole.window_text()
-        if not t:
-            for ch in pole.children():
-                t = t or ch.window_text()
-        return t or ""
+        for ch in pole.children():
+            t = t or ch.window_text()
+        return (t or "").strip()
 
-    def nash_nabor(t):
-        chasti = [x.strip() for x in t.split(";") if x.strip()]
-        # ЕГАИС сокращает «Перевод в сортимент» до «Перевод» в поле
-        return len(chasti) == len(tipy) and all(
-            any(tip.startswith(ch) or ch.startswith(tip) for ch in chasti) for tip in tipy)
+    def otkryt():
+        pole.click_input()
+        time.sleep(0.4)
+        send_keys("%{DOWN}")
+        time.sleep(0.8)
 
     t = tekst()
-    if nash_nabor(t):
-        log.info("Тип документа уже как надо: %s", t)
-        return
-    log.info("Тип документа сейчас «%s» — выставляю заново.", t)
+    est, neznakomye = _indeksy_tipov(t)
+    if neznakomye:
+        log.info("В поле незнакомые пункты %s — очищаю ластиком.", neznakomye)
+        mouse.click(coords=(r.right + 13, (r.top + r.bottom) // 2))
+        time.sleep(0.5)
+        est = set()
 
-    r = pole.rectangle()
-    # ластик — отдельная кнопочка сразу справа от поля
-    import pywinauto.mouse as mouse
-    mouse.click(coords=(r.right + 13, (r.top + r.bottom) // 2))
-    time.sleep(0.5)
-    pole.click_input()
-    send_keys("%{DOWN}")
-    time.sleep(0.8)
-    send_keys("{HOME}")
-    for i in range(len(tipy)):
-        send_keys("{SPACE}")
-        if i < len(tipy) - 1:
-            send_keys("{DOWN}")
-    send_keys("{ENTER}")
-    time.sleep(0.8)
+    for prohod, sposob in enumerate(("клавиатура", "мышь", "мышь")):
+        t = tekst()
+        est, neznakomye = _indeksy_tipov(t)
+        perekl = sorted(est ^ nuzhno)
+        if not perekl and not neznakomye:
+            log.info("Тип документа как надо: %s", t)
+            return
+        log.info("Тип документа «%s» — переключаю пункты %s (%s).", t, perekl, sposob)
+        otkryt()
+        if sposob == "клавиатура":
+            send_keys("{HOME}")
+            time.sleep(0.2)
+            tek = 0
+            for i in perekl:
+                send_keys("{DOWN}" * (i - tek))
+                send_keys("{SPACE}")
+                time.sleep(0.2)
+                tek = i
+        else:
+            for i in perekl:
+                mouse.click(coords=(r.left + 9, r.bottom + 9 + 15 * i))
+                time.sleep(0.3)
+        send_keys("{ENTER}")
+        time.sleep(0.8)
+
     t = tekst()
-    if t and not nash_nabor(t):
+    est, neznakomye = _indeksy_tipov(t)
+    lishnie = est - nuzhno
+    if lishnie or neznakomye:
         skrin("tip_dokumenta")
-        raise Oshibka(f"Не получилось выставить «Тип документа» (стало «{t}»). "
-                      f"Поставь галочки руками один раз и не закрывай вкладку.")
-    log.info("Тип документа выставлен: %s", t or "(текст поля не читается, верю на слово)")
+        raise Oshibka(f"В «Тип документа» стоят лишние пункты: «{t}» — выгрузка была бы неверной.")
+    nehvataet = [VSE_TIPY[i] for i in sorted(nuzhno - est)]
+    skrin("tip_dokumenta")
+    log.warning("Тип документа: не удалось отметить %s, еду с тем, что есть: «%s».", nehvataet, t)
 
 
 def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
