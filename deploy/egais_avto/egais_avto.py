@@ -143,25 +143,33 @@ def okno_paroley(egais_login, les_login, oshibka=""):
     return rez
 
 
+def egais_klyuch(cfg):
+    """Имя, под которым пароль ЕГАИС лежит в Диспетчере учётных данных.
+    Логин в окне ЕГАИС подставляется сам, поэтому в настройках он не обязателен."""
+    return cfg.get("egais", "login", fallback="").strip() or "egais"
+
+
 def nastroit(cfg):
     import keyring
-    egais_login = cfg.get("egais", "login", fallback="").strip()
-    if not egais_login:
-        raise Oshibka("Впиши login в раздел [egais] файла nastroyki.ini")
+    egais_login = egais_klyuch(cfg)
     les_login = cfg.get("lesovod", "login", fallback="").strip()
     oshibka = ""
+    egais_gotov = False
     while True:
         try:
-            p = okno_paroley(egais_login, les_login, oshibka)
+            # при повторе (Лесовод не пустил) пароль ЕГАИС уже сохранён — не спрашиваем
+            p = okno_paroley("" if egais_gotov else egais_login, les_login, oshibka)
         except Exception:  # noqa: BLE001 — нет tkinter: по-старому, в консоли
             print("(Пароль при вводе не отображается — это нормально, просто печатай и жми Enter)")
-            p = {"egais": getpass.getpass(f"Пароль ЕГАИС для «{egais_login}»: ")}
+            p = {} if egais_gotov else {"egais": getpass.getpass(f"Пароль ЕГАИС для «{egais_login}»: ")}
             if les_login:
                 p["lesovod"] = getpass.getpass(f"Пароль Лесовода для «{les_login}»: ")
-        if not p:
+        if not p and not (egais_gotov and not les_login):
             raise Oshibka("Окно закрыли без сохранения — пароли не записаны.")
-        keyring.set_password(KEYRING_SERVIS_EGAIS, egais_login, p["egais"])
-        print(f"Пароль ЕГАИС для «{egais_login}» сохранён.")
+        if not egais_gotov:
+            keyring.set_password(KEYRING_SERVIS_EGAIS, egais_login, p["egais"])
+            print(f"Пароль ЕГАИС для «{egais_login}» сохранён.")
+            egais_gotov = True
         if not les_login:
             break
         keyring.set_password(KEYRING_SERVIS_LESOVOD, les_login, p["lesovod"])
@@ -170,7 +178,16 @@ def nastroit(cfg):
             print("Лесовод: вход проверен, всё ок.")
             break
         except Exception as e:  # noqa: BLE001
-            oshibka = f"Лесовод не пустил: {e}. Проверь пароль и адрес url в nastroyki.ini."
+            import requests
+            if isinstance(e, requests.exceptions.SSLError):
+                oshibka = ("Лесовод работает по https с собственным сертификатом Caddy, робот ему пока "
+                           "не доверяет. Положи root.crt с сервера Лесовода в папку робота под именем "
+                           "lesovod_root.crt (где его взять — в README) и нажми «Сохранить» ещё раз.")
+            elif isinstance(e, requests.exceptions.ConnectionError):
+                oshibka = (f"Не достучался до Лесовода по адресу {cfg.get('lesovod', 'url')}. "
+                           f"Проверь url в nastroyki.ini и что сервер включён.")
+            else:
+                oshibka = f"Лесовод не пустил: {e}"
             print(oshibka)
     print("\nГотово. Теперь можно запускать zapustit_seychas.bat для пробы.")
 
@@ -276,26 +293,22 @@ def zapustit_i_voyti(cfg):
         if "Пользователь" in vh.window_text():
             return vh, True
 
-    login = cfg.get("egais", "login").strip()
-    pw = parol(KEYRING_SERVIS_EGAIS, login)
+    pw = parol(KEYRING_SERVIS_EGAIS, egais_klyuch(cfg))
     vh.set_focus()
     time.sleep(0.5)
 
-    # Поля ищем по-честному: поле с ES_PASSWORD — пароль, первое обычное — логин.
-    pole_parol = pole_login = None
+    # Логин ЕГАИС подставляет сам, а курсор сразу стоит в поле «Пароль» —
+    # логин не трогаем. Поле пароля ищем по стилю ES_PASSWORD, чтобы точно
+    # печатать туда, даже если фокус куда-то сбежал.
+    pole_parol = None
     for c in vh.descendants():
         try:
-            if "edit" not in c.class_name().lower():
-                continue
-            if c.has_style(0x20):  # ES_PASSWORD
-                pole_parol = pole_parol or c
-            elif pole_login is None and c.is_visible():
-                pole_login = c
+            if "edit" in c.class_name().lower() and c.has_style(0x20):  # ES_PASSWORD
+                pole_parol = c
+                break
         except Exception:  # noqa: BLE001
             pass
 
-    if pole_login is not None and pole_login.window_text().strip() != login:
-        pole_login.set_edit_text(login)
     if pole_parol is not None:
         pole_parol.set_focus()
         pole_parol.set_edit_text("")
@@ -592,11 +605,32 @@ def proverit_fayl(put):
 # --------------------------------------------------------------------------- #
 #   Лесовод
 # --------------------------------------------------------------------------- #
-def lesovod_login(cfg):
+def _http(cfg):
+    """Сессия requests к Лесоводу. Caddy в локалке отдаёт https со своим
+    внутренним сертификатом (tls internal), которого Python не знает. Чтобы
+    не выключать проверку, доверяем ровно корневому сертификату Caddy:
+    файл lesovod_root.crt рядом со скриптом (или путь в sertifikat_ca в
+    [lesovod]). Без файла — сертификаты из хранилища Windows (truststore)."""
     import requests
+    ses = requests.Session()
+    put = cfg.get("lesovod", "sertifikat_ca", fallback="").strip()
+    put = Path(os.path.expandvars(put)) if put else PAPKA / "lesovod_root.crt"
+    if put.exists():
+        ses.verify = str(put)
+    else:
+        try:
+            import truststore
+            truststore.inject_into_ssl()
+        except Exception:  # noqa: BLE001
+            pass
+    return ses
+
+
+def lesovod_login(cfg):
+    ses = _http(cfg)
     url = cfg.get("lesovod", "url").rstrip("/")
     login = cfg.get("lesovod", "login").strip()
-    r = requests.post(f"{url}/api/auth/login",
+    r = ses.post(f"{url}/api/auth/login",
                       json={"login": login, "password": parol(KEYRING_SERVIS_LESOVOD, login)},
                       timeout=30)
     if r.status_code != 200:
@@ -608,9 +642,10 @@ def zalit_v_lesovod(cfg, put):
     import requests
     url = cfg.get("lesovod", "url").rstrip("/")
     token = lesovod_login(cfg)
+    ses = _http(cfg)
     h = {"Authorization": f"Bearer {token}"}
     with open(put, "rb") as f:
-        r = requests.post(f"{url}/api/raskhod/egais/import", headers=h, timeout=300,
+        r = ses.post(f"{url}/api/raskhod/egais/import", headers=h, timeout=300,
                           files={"file": (put.name, f,
                                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     if r.status_code != 200:
@@ -619,10 +654,10 @@ def zalit_v_lesovod(cfg, put):
     log.info("Файл принят Лесоводом, разбирается (задача %s)…", task_id)
     konec = time.time() + 1800
     while time.time() < konec:
-        t = requests.get(f"{url}/api/tasks/{task_id}", headers=h, timeout=30).json()
+        t = ses.get(f"{url}/api/tasks/{task_id}", headers=h, timeout=30).json()
         if t.get("status") == "done":
             try:
-                requests.post(f"{url}/api/auth/logout", headers=h, timeout=10)
+                ses.post(f"{url}/api/auth/logout", headers=h, timeout=10)
             except Exception:  # noqa: BLE001
                 pass
             return t.get("result") or {}

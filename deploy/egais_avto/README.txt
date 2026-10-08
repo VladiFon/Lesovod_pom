@@ -27,6 +27,19 @@
   3. Пробный прогон: zapustit_seychas.bat — смотреть, руками ничего не трогать.
      Можно сначала без заливки: zapustit_seychas.bat --bez-zagruzki
 
+ЕСЛИ ЛЕСОВОД ОТКРЫВАЕТСЯ ПО https (адрес https://192.168.…)
+  Caddy на сервере Лесовода сам выпускает себе сертификат, и робот ему
+  «не верит» (ошибка CERTIFICATE_VERIFY_FAILED). Проверку не выключаем —
+  просто даём роботу корневой сертификат Caddy:
+    1. На СЕРВЕРЕ Лесовода найти файл root.crt:
+         C:\Windows\System32\config\systemprofile\AppData\Roaming\Caddy\pki\authorities\local\root.crt
+       (так, если Caddy запущен службой через nssm), или
+         %APPDATA%\Caddy\pki\authorities\local\root.crt
+       (если Caddy запускали вручную от пользователя).
+    2. Скопировать его на ПК с роботом в папку робота и назвать
+       lesovod_root.crt.
+    3. Ещё раз запустить nastroit.bat.
+
 ВАЖНО ПРО ЭКРАН
   Робот нажимает кнопки по-настоящему, поэтому в 20:00 Windows должна быть
   залогинена и НЕ заблокирована:
