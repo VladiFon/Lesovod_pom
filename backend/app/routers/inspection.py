@@ -73,16 +73,18 @@ def list_inspection(conn=Depends(get_conn)):
     ids = [d["id"] for d in delyanki]
     checklists = legacy_db.get_checklists_batch(conn, ids)
     acts = legacy_db.list_osvidetelstvovanie_acts_batch(conn, ids)
-    # Тот же % освоения, что в карточке «Освоение делянки» (большее из
-    # наряда и ЕГАИС), а не «только наряды» — иначе одна делянка на разных
-    # экранах показывала 12% и 94%.
+    # Инспекция работает по НАРЯДАМ (решение Влада, 2026-10-09): акт
+    # освидетельствования и справка берут «Фактически вырублено» из нарядов
+    # (compute_sortiment_limit_fakt_totals / compute_sortiment_totals_multi),
+    # поэтому и % освоения в списке — по нарядам, чтобы цифра в списке
+    # совпадала с цифрой в акте. % по ЕГАИС отдаём рядом для сверки.
     osvoenie = raskhod_v2.compute_osvoenie_batch(conn, ids)
 
     result = []
     for d in delyanki:
         srok_zagotovki, srok_vyvozki = legacy_db.get_delyanka_sroki(conn, d["id"])
         osv = osvoenie.get(d["id"]) or {}
-        pct_osvoeniya = osv.get("pct")
+        pct_osvoeniya = osv.get("pct_naryad")
 
         deadline = None
         vyvozka_dt = _parse_date(srok_vyvozki)
@@ -97,7 +99,7 @@ def list_inspection(conn=Depends(get_conn)):
             "pct_osvoeniya_limita": pct_osvoeniya,
             "pct_osvoeniya_naryad": osv.get("pct_naryad"),
             "pct_osvoeniya_egais": osv.get("pct_egais"),
-            "osvoenie_level": osv.get("level"),
+            "osvoenie_level": raskhod_v2._osvoenie_level(pct_osvoeniya),
             "checklist": checklists.get(d["id"], []),
             "acts": acts.get(d["id"], []),
         })
