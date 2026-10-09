@@ -109,19 +109,91 @@ function parseRuDate(value) {
 
 const URGENT_SOON_DAYS = 7;
 
+/** Какой срок акта сейчас главный. Площадь по нарядам закрыта, а акта
+ * после закрытия нет — месяц на акт с даты закрытия (akt_po_ploshadi_do).
+ * Акт после закрытия уже есть — делянка «готова». Иначе — старый срок от
+ * окончания вывозки (srok_osvidetelstvovaniya). */
+function srokAkta(row) {
+  if (row.akt_po_ploshadi_sostavlen) return { date: null, prichina: "sostavlen" };
+  if (row.akt_po_ploshadi_do) return { date: row.akt_po_ploshadi_do, prichina: "ploshad" };
+  return { date: row.srok_osvidetelstvovaniya, prichina: "vyvozka" };
+}
+
 function inspectionUrgency(row) {
-  const date = parseRuDate(row.srok_osvidetelstvovaniya);
-  if (!date) return { days: null, level: "none" };
+  const { date: srok, prichina } = srokAkta(row);
+  if (prichina === "sostavlen") return { days: null, level: "done", prichina };
+  const date = parseRuDate(srok);
+  if (!date) return { days: null, level: "none", prichina };
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   date.setHours(0, 0, 0, 0);
   const days = Math.round((date - today) / (1000 * 60 * 60 * 24));
-  if (days < 0) return { days, level: "overdue" };
-  if (days <= URGENT_SOON_DAYS) return { days, level: "soon" };
-  return { days, level: "ok" };
+  if (days < 0) return { days, level: "overdue", prichina, srok };
+  if (days <= URGENT_SOON_DAYS) return { days, level: "soon", prichina, srok };
+  return { days, level: "ok", prichina, srok };
 }
 
-const URGENCY_RANK = { overdue: 0, soon: 1, ok: 2, none: 3 };
+const URGENCY_RANK = { overdue: 0, soon: 1, ok: 2, none: 3, done: 4 };
+
+const FILTRY = [
+  { key: "vse", label: "Все" },
+  { key: "nuzhen_akt", label: "Нужен акт", title: "Площадь по нарядам закрыта, акта после закрытия ещё нет" },
+  { key: "prosrocheno", label: "Просрочено" },
+  { key: "skoro", label: `≤ ${URGENT_SOON_DAYS} дн.` },
+  { key: "v_rabote", label: "В работе", title: "По нарядам ещё есть остаток площади" },
+  { key: "gotovo", label: "Акт составлен" },
+];
+
+function podhoditPodFiltr(r, u, filtr) {
+  switch (filtr) {
+    case "nuzhen_akt": return u.prichina === "ploshad";
+    case "prosrocheno": return u.level === "overdue";
+    case "skoro": return u.level === "soon";
+    case "v_rabote": return r.ploshad_ostatok == null || r.ploshad_ostatok > 0;
+    case "gotovo": return u.level === "done";
+    default: return true;
+  }
+}
+
+const SORTIROVKI = [
+  { key: "srok", label: "По сроку акта" },
+  { key: "ostatok", label: "По остатку площади (меньше — выше)" },
+  { key: "osvoenie", label: "По % освоения (больше — выше)" },
+  { key: "nazvanie", label: "По названию" },
+];
+
+const nazvanieOf = (r) => r.nazvanie || `Делянка №${r.id}`;
+const numOr = (v, fallback) => (v == null ? fallback : v);
+
+function sravnit(sortKey) {
+  return (a, b) => {
+    if (sortKey === "ostatok") return numOr(a.row.ploshad_ostatok, Infinity) - numOr(b.row.ploshad_ostatok, Infinity);
+    if (sortKey === "osvoenie") return numOr(b.row.pct_osvoeniya_limita, -1) - numOr(a.row.pct_osvoeniya_limita, -1);
+    if (sortKey === "nazvanie") return nazvanieOf(a.row).localeCompare(nazvanieOf(b.row), "ru", { numeric: true });
+    const rankDiff = URGENCY_RANK[a.urgency.level] - URGENCY_RANK[b.urgency.level];
+    if (rankDiff !== 0) return rankDiff;
+    if (a.urgency.days == null || b.urgency.days == null) return 0;
+    return a.urgency.days - b.urgency.days;
+  };
+}
+
+// Выбранные фильтр/сортировка — удобство одного браузера, не данные.
+function zapomnennoe(key, fallback) {
+  try {
+    return window.localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+function zapomnit(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* приватный режим — просто не запоминаем */
+  }
+}
+
+const fmtGa = (v) => (v == null ? "—" : `${Math.round(v * 100) / 100}`);
 
 function Section({ title, children }) {
   return (
@@ -685,6 +757,10 @@ export default function Inspection() {
   const setSelectedId = (id) => setSelectedParam(id ?? "");
   const [blankLoading, setBlankLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [filtr, setFiltrState] = useState(() => zapomnennoe("inspection.filtr", "vse"));
+  const [sortKey, setSortKeyState] = useState(() => zapomnennoe("inspection.sort", "srok"));
+  const setFiltr = (v) => { setFiltrState(v); zapomnit("inspection.filtr", v); };
+  const setSortKey = (v) => { setSortKeyState(v); zapomnit("inspection.sort", v); };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -718,24 +794,24 @@ export default function Inspection() {
 
   const selected = rows.find((r) => r.id === selectedId) || null;
 
-  // Ближе к верху — те, у кого срок освидетельствования уже прошёл или
-  // подходит в течение URGENT_SOON_DAYS (см. inspectionUrgency выше),
-  // дальше — остальные по возрастанию срока, в конце — те, у кого срока
-  // вообще нет. Поиск — по названию делянки (единственное текстовое поле,
-  // по которому лесничий вообще может искать в этом списке).
-  const visibleRows = useMemo(() => {
+  // По умолчанию ближе к верху — просроченные и те, у кого срок акта
+  // подходит в течение URGENT_SOON_DAYS (см. srokAkta/inspectionUrgency),
+  // дальше по сроку, потом без срока, в конце — где акт уже составлен.
+  const { visibleRows, schetchiki } = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows
-      .filter((r) => !q || (r.nazvanie || `Делянка №${r.id}`).toLowerCase().includes(q))
-      .map((r) => ({ row: r, urgency: inspectionUrgency(r) }))
-      .sort((a, b) => {
-        const rankDiff = URGENCY_RANK[a.urgency.level] - URGENCY_RANK[b.urgency.level];
-        if (rankDiff !== 0) return rankDiff;
-        if (a.urgency.days == null || b.urgency.days == null) return 0;
-        return a.urgency.days - b.urgency.days;
-      })
-      .map(({ row }) => row);
-  }, [rows, search]);
+    const withU = rows
+      .filter((r) => !q || nazvanieOf(r).toLowerCase().includes(q))
+      .map((r) => ({ row: r, urgency: inspectionUrgency(r) }));
+    const counts = {};
+    for (const f of FILTRY) counts[f.key] = withU.filter(({ row, urgency }) => podhoditPodFiltr(row, urgency, f.key)).length;
+    return {
+      schetchiki: counts,
+      visibleRows: withU
+        .filter(({ row, urgency }) => podhoditPodFiltr(row, urgency, filtr))
+        .sort(sravnit(sortKey))
+        .map(({ row }) => row),
+    };
+  }, [rows, search, filtr, sortKey]);
 
   return (
     <div className="p-[18px] flex flex-wrap gap-[14px] items-start">
@@ -745,7 +821,30 @@ export default function Inspection() {
             ↓ Пустой бланк акта
           </Button>
           <TextField placeholder="Поиск по названию делянки…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <span className="font-mono text-[10.5px] text-faint">{visibleRows.length} · сначала просроченные</span>
+          <div className="flex flex-wrap gap-1.5">
+            {FILTRY.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                title={f.title}
+                onClick={() => setFiltr(f.key)}
+                className={[
+                  "px-2.5 h-7 rounded-full border text-[12px] font-semibold transition-colors",
+                  filtr === f.key ? "bg-pine text-white border-pine" : "bg-surface text-ink border-border hover:bg-hover",
+                ].join(" ")}
+              >
+                {f.label} <span className="opacity-70">{schetchiki[f.key] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value)}
+            className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none"
+          >
+            {SORTIROVKI.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+          <span className="font-mono text-[10.5px] text-faint">{visibleRows.length} в списке</span>
         </div>
         <div className="p-2.5 flex flex-col gap-1.5">
           {loading ? (
@@ -753,18 +852,25 @@ export default function Inspection() {
               <div className="h-5 w-5 rounded-full border-2 border-pine border-t-transparent animate-spin" />
             </div>
           ) : visibleRows.length === 0 ? (
-            <EmptyState title="Делянок нет" description="Создайте делянки на экране «Делянки» — сюда они попадут автоматически." />
+            rows.length > 0 ? (
+              <EmptyState title="Ничего не подходит" description="Смените фильтр или поиск." />
+            ) : (
+              <EmptyState title="Делянок нет" description="Создайте делянки на экране «Делянки» — сюда они попадут автоматически." />
+            )
           ) : (
             visibleRows.map((r) => {
-              const u = r.srok_osvidetelstvovaniya ? inspectionUrgency(r) : null;
-              const srokLabel = !r.srok_osvidetelstvovaniya
-                ? "срок не задан"
-                : u?.level === "overdue"
-                  ? `просрочен на ${-u.days} дн.`
-                  : u?.level === "soon"
-                    ? `через ${u.days} дн.`
-                    : `освид. до ${r.srok_osvidetelstvovaniya}`;
-              const tone = u?.level === "overdue" ? "danger" : u?.level === "soon" ? "warning" : "neutral";
+              const u = inspectionUrgency(r);
+              const kogo = u.prichina === "ploshad" ? "акт" : "освид.";
+              const srokLabel = u.level === "done"
+                ? "акт составлен"
+                : u.level === "none"
+                  ? "срок не задан"
+                  : u.level === "overdue"
+                    ? `${kogo}: просрочен на ${-u.days} дн.`
+                    : u.level === "soon"
+                      ? `${kogo} через ${u.days} дн.`
+                      : `${kogo} до ${u.srok}`;
+              const tone = u.level === "done" ? "success" : u.level === "overdue" ? "danger" : u.level === "soon" ? "warning" : "neutral";
               const done = r.checklist?.filter((c) => c.is_done).length ?? 0;
               return (
                 <button
@@ -782,6 +888,20 @@ export default function Inspection() {
                   </div>
                   <span className="font-mono text-[10.5px] text-faint">
                     заготовка {r.srok_okonchaniya_zagotovki || "—"} · вывозка {r.srok_okonchaniya_vyvozki || "—"}
+                  </span>
+                  <span className="font-mono text-[10.5px] text-muted-2" title="Площадь делянки (МДО) и сумма площадей нарядов">
+                    {r.ploshad_vsego == null ? (
+                      "площадь делянки не задана"
+                    ) : (
+                      <>
+                        площадь {fmtGa(r.ploshad_vsego)} га · освоено {fmtGa(r.ploshad_osvoeno)} ·{" "}
+                        <span className={r.ploshad_ostatok < 0 ? "text-error font-semibold" : r.ploshad_zakryta ? "text-green font-semibold" : ""}>
+                          остаток {fmtGa(r.ploshad_ostatok)} га
+                        </span>
+                        {r.pct_ploshadi != null && ` (${r.pct_ploshadi}%)`}
+                      </>
+                    )}
+                    {r.ploshad_zakryta && <span> · закрыта {r.ploshad_zakryta}</span>}
                   </span>
                   <span className="font-mono text-[10.5px] text-muted-2">
                     <span className={r.osvoenie_level === "pererub" ? "text-error font-semibold" : r.osvoenie_level === "vnimanie" || r.osvoenie_level === "preduprezhdenie" ? "text-oak font-semibold" : ""}>
