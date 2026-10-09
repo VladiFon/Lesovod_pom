@@ -63,6 +63,78 @@ def _parse_date(value: Optional[str]):
     return None
 
 
+# Площадь считается закрытой, когда по нарядам осталось меньше этого
+# (га) — копейки от округления площадей нарядов не держат делянку «открытой».
+PLOSHAD_ZAKRYTA_DOPUSK = 0.01
+
+
+def _plus_mesyats(dt: datetime) -> datetime:
+    """Та же дата через календарный месяц (31.01 → 28/29.02)."""
+    year, month = (dt.year + 1, 1) if dt.month == 12 else (dt.year, dt.month + 1)
+    for day in (dt.day, 30, 29, 28):
+        try:
+            return dt.replace(year=year, month=month, day=day)
+        except ValueError:
+            continue
+    return dt
+
+
+def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
+    """Освоенная площадь делянки по нарядам и срок акта по площади.
+
+    Площадь делянки — сумма delyanka_item.ploshad (из МДО), освоено — сумма
+    raskhod_naryad.ploshad по всем выделам делянки. Площадь «закрыта» в
+    дату наряда, на котором нарастающий итог дошёл до площади делянки; с
+    этой даты есть месяц, чтобы составить акт освидетельствования. Акт,
+    датированный не раньше закрытия, этот срок снимает."""
+    ids = [d["id"] for d in delyanki]
+    naryady = {}
+    if ids:
+        ph = ",".join("?" * len(ids))
+        for delyanka_id, data, ploshad in conn.execute(
+            f"SELECT delyanka_id, data, ploshad FROM raskhod_naryad WHERE delyanka_id IN ({ph})", ids
+        ).fetchall():
+            naryady.setdefault(delyanka_id, []).append(
+                (_parse_date((data or "").strip()), raskhod_v2._parse_ploshad_value(ploshad))
+            )
+    out = {}
+    for d in delyanki:
+        vsego = sum(raskhod_v2._parse_ploshad_value(it.get("ploshad")) for it in items_by_d.get(d["id"], []))
+        rows = naryady.get(d["id"], [])
+        osvoeno = sum(p for _dt, p in rows)
+        res = {
+            "ploshad_vsego": round(vsego, 2) if vsego else None,
+            "ploshad_osvoeno": round(osvoeno, 2),
+            "ploshad_ostatok": round(vsego - osvoeno, 2) if vsego else None,
+            "pct_ploshadi": round(osvoeno / vsego * 100, 1) if vsego else None,
+            "ploshad_zakryta": None,
+            "akt_po_ploshadi_do": None,
+            "akt_po_ploshadi_sostavlen": False,
+        }
+        if vsego and vsego - osvoeno < PLOSHAD_ZAKRYTA_DOPUSK:
+            # Наряды без даты в конец — дата закрытия тогда по последнему
+            # датированному, а если дат нет вовсе, срок не считаем.
+            itogo = 0.0
+            zakryta = None
+            for dt, p in sorted(rows, key=lambda r: (r[0] is None, r[0] or datetime.min)):
+                itogo += p
+                if dt:
+                    zakryta = dt
+                if vsego - itogo < PLOSHAD_ZAKRYTA_DOPUSK:
+                    break
+            if zakryta:
+                res["ploshad_zakryta"] = zakryta.strftime("%d.%m.%Y")
+                res["akt_po_ploshadi_do"] = _plus_mesyats(zakryta).strftime("%d.%m.%Y")
+                for a in acts_by_d.get(d["id"], []):
+                    adt = _parse_date((a.get("act_date") or "").strip()) or _parse_date(
+                        str(a.get("created_at") or "")[:10])
+                    if adt and adt >= zakryta:
+                        res["akt_po_ploshadi_sostavlen"] = True
+                        break
+        out[d["id"]] = res
+    return out
+
+
 @router.get("/")
 def list_inspection(conn=Depends(get_conn)):
     """Батч-эквивалент InspectionLoadWorker: список делянок с бейджами
@@ -79,6 +151,7 @@ def list_inspection(conn=Depends(get_conn)):
     # поэтому и % освоения в списке — по нарядам, чтобы цифра в списке
     # совпадала с цифрой в акте. % по ЕГАИС отдаём рядом для сверки.
     osvoenie = raskhod_v2.compute_osvoenie_batch(conn, ids)
+    ploshadi = _ploshad_po_naryadam(conn, delyanki, raskhod_v2.get_delyanka_items_batch(conn, ids), acts)
 
     result = []
     for d in delyanki:
@@ -100,6 +173,7 @@ def list_inspection(conn=Depends(get_conn)):
             "pct_osvoeniya_naryad": osv.get("pct_naryad"),
             "pct_osvoeniya_egais": osv.get("pct_egais"),
             "osvoenie_level": raskhod_v2._osvoenie_level(pct_osvoeniya),
+            **ploshadi.get(d["id"], {}),
             "checklist": checklists.get(d["id"], []),
             "acts": acts.get(d["id"], []),
         })
