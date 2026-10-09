@@ -785,8 +785,11 @@ export default function Inspection() {
                   </span>
                   <span className="font-mono text-[10.5px] text-muted-2">
                     <span className={r.osvoenie_level === "pererub" ? "text-error font-semibold" : r.osvoenie_level === "vnimanie" || r.osvoenie_level === "preduprezhdenie" ? "text-oak font-semibold" : ""}>
-                      {r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% освоено` : "— % освоено"}
-                    </span>{" "}· чек-лист{" "}
+                      {r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% по нарядам` : "— % по нарядам"}
+                    </span>
+                    {r.pct_osvoeniya_egais != null && (
+                      <span title="Для сверки: в акт идут данные нарядов"> (ЕГАИС {r.pct_osvoeniya_egais}%)</span>
+                    )}{" "}· чек-лист{" "}
                     {r.checklist?.length ? `${done}/${r.checklist.length}` : "—"} · актов {r.acts?.length ?? 0}
                   </span>
                 </button>
