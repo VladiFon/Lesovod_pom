@@ -55,6 +55,9 @@ def init_db() -> None:
         # geo_notes.kategoriya и mobile_tracks — карта приложения (28.09.2026)
         from app import map_features
         map_features.ensure_schema(conn)
+        # пробные площади на карте (26.10.2026)
+        from app import proby_karta
+        proby_karta.ensure_schema(conn)
         from app import korzina
         korzina.ensure_schema(conn)
     finally:

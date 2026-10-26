@@ -10,6 +10,7 @@ import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
 import KonturBlock from "../components/KonturBlock.jsx";
+import ProbyBlock from "../components/ProbyBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
 
 /**
@@ -587,6 +588,8 @@ function UchastokDetail({ uchastokId, onListChanged }) {
           title="Схема-чертёж (контур участка) — на карте участок будет показан им, а не всем выделом"
         />
 
+        <ProbyBlock uchastokId={uchastokId} />
+
         <div>
           <h3 className="font-ui font-extrabold text-pine text-[14px] mb-3">Журнал мероприятий</h3>
           <AddMeropriyatieForm
@@ -666,7 +669,7 @@ function FieldCardProby({ dannye, proby, rezultaty }) {
           <div>
             <div className="text-muted mb-0.5">Пробы{dannye.god ? ` · ${dannye.god}-й год` : ""}</div>
             {proby.map((p, i) => (
-              <div key={i}>№{p.nomer} — {p.razmer}</div>
+              <div key={i}>№{p.nomer} — {p.razmer}{p.karta_proba_id ? " · 📍 проба с карты" : ""}</div>
             ))}
           </div>
         )}

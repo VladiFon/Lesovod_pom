@@ -371,6 +371,9 @@ class ProbaRowIn(BaseModel):
 
     nomer: str = Field(min_length=1, max_length=50)
     razmer: float = Field(gt=0)
+    # проба с карты (app/proby_karta.py): учёт на той же пробе, что и
+    # прошлый раз — из неё у пробы складывается история
+    karta_proba_id: Optional[int] = None
 
     @field_validator("nomer")
     @classmethod
@@ -518,7 +521,7 @@ def _record_field_card(conn, uchastok_id: int, user: dict, body: FieldCardBase, 
     data = body.data or datetime.now().strftime("%d.%m.%Y")
     dannye = {
         "god": body.god,
-        "proby": [p.model_dump() for p in body.proby],
+        "proby": [p.model_dump(exclude_none=True) for p in body.proby],
         "rezultaty": [r.model_dump() for r in body.rezultaty],
         "itogo": {k: calc[k] for k in ("vysazheno", "prizhilos", "prizhivaemost_pct")},
         "reshenie": reshenie,
@@ -534,6 +537,16 @@ def _record_field_card(conn, uchastok_id: int, user: dict, body: FieldCardBase, 
         primechaniya=_summary_text(body, calc, reshenie),
         dannye=dannye, sotrudnik_id=sotrudnik_id,
     )
+
+    # пробы с карты, ещё не привязанные к участку, — теперь его (учёт на них
+    # был по этому участку)
+    karta_ids = [p.karta_proba_id for p in body.proby if p.karta_proba_id]
+    if karta_ids:
+        conn.execute(
+            f"UPDATE karta_proby SET uchastok_id = ? WHERE uchastok_id IS NULL AND id IN ({','.join('?' * len(karta_ids))})",
+            (uchastok_id, *karta_ids),
+        )
+        conn.commit()
 
     status = uchastok["status"]
     perevod_id = None
