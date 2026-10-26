@@ -765,6 +765,15 @@ def get_tracks_geojson_for_qgis(token: str, conn=Depends(get_conn)):
     return {"type": "FeatureCollection", "features": features}
 
 
+@router.get("/qgis/proby.geojson")
+def get_proby_geojson_for_qgis(token: str, conn=Depends(get_conn)):
+    """Пробные площади (границы), поставленные с телефона, — см. app/proby_karta.py."""
+    _check_service_token(token)
+    from app import proby_karta
+
+    return proby_karta.geojson(conn)
+
+
 @router.delete("/import-layers/{batch_id}")
 def delete_import_layer(
     batch_id: str,
