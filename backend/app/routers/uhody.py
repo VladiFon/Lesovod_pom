@@ -430,12 +430,15 @@ def list_sotrudniki_for_picker(
 @router.get("/lesokultury-uchastki")
 def list_lesokultury_uchastki_for_picker(
     search: Optional[str] = None,
+    vse: bool = False,
     user=Depends(require_permission("uhody.edit")), conn=Depends(get_conn)
 ) -> list[dict]:
-    """Лёгкий список активных участков лесных культур для выбора при
-    сохранении пробы (мульти-select «на каких участках проведена проба») —
-    тот же принцип, что и /sotrudniki выше."""
-    return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=False, search=search)
+    """Лёгкий список участков лесных культур для выбора при сохранении
+    пробы (мульти-select «на каких участках проведена проба») — тот же
+    принцип, что и /sotrudniki выше. По умолчанию только активные;
+    vse=true — ещё переведённые и списанные (уход бывает и на уже
+    переведённых культурах, переключатель на экране)."""
+    return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=vse, search=search)
 
 
 @router.get("/lesokultury-dannye")
@@ -445,6 +448,7 @@ def lesokultury_dannye(
     lesnichestvo: str = "",
     ids: str = "",
     data_zamera: str = "",
+    vse: bool = False,
     user=Depends(get_current_user), conn=Depends(get_conn),
 ) -> list[dict]:
     """Участки лесных культур на квартале/выделе пробы (или по ids через
@@ -452,13 +456,13 @@ def lesokultury_dannye(
     возраст, площадь на выделе, последняя инвентаризация/уход — и
     podskazka, что подставить в шапку ведомости. У каждого значения в
     istochniki — откуда оно взято. Читать может любой вошедший (рабочий с
-    телефона тоже)."""
+    телефона тоже). vse=true — по выделу и списанные участки тоже."""
     id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
     if not id_list and not kvartal.strip():
         raise HTTPException(status_code=400, detail="Укажите квартал (и выдел) или ids участков.")
     return uhody_lesokultury.naiti(
         conn, kvartal, vydel, lesnichestvo=lesnichestvo, ids=id_list or None,
-        god=_god_zamera(data_zamera),
+        god=_god_zamera(data_zamera), vse=vse,
     )
 
 

@@ -31,8 +31,9 @@ export const updateProba = (id, payload) => api.patch(`/uhody/proby/${id}`, payl
 export const deleteProba = (id) => api.delete(`/uhody/proby/${id}`);
 
 // --- Участки лесных культур (для мульти-select "на каких проведена проба") ---
-export const listLesokulturyUchastkiForPicker = (search) =>
-  api.get("/uhody/lesokultury-uchastki", search ? { search } : undefined);
+// vse=true — ещё переведённые и списанные (по умолчанию только активные).
+export const listLesokulturyUchastkiForPicker = (search, vse = false) =>
+  api.get("/uhody/lesokultury-uchastki", { ...(search ? { search } : {}), ...(vse ? { vse: true } : {}) });
 
 // --- Пресеты комиссии ---
 export const listKomissiyaPresets = () => api.get("/uhody/komissiya-presets");
