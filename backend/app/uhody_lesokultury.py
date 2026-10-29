@@ -9,7 +9,8 @@
 
 Выдел участка культур сравнивается по всем местам, где он может быть
 записан: vydel (в книге бывает «19,20,23»), старый выдел, подвыдел и части
-участка по выделам (chasti_json). Списанные участки не предлагаются.
+участка по выделам (chasti_json). Списанные участки не предлагаются,
+если не попросили все (переключатель на экране).
 """
 from __future__ import annotations
 
@@ -197,10 +198,11 @@ def podskazka(s: dict) -> Dict[str, Any]:
 
 
 def naiti(conn, kvartal: str, vydel: str = "", lesnichestvo: str = "",
-          ids: Optional[List[int]] = None, god: Optional[int] = None) -> List[dict]:
+          ids: Optional[List[int]] = None, god: Optional[int] = None,
+          vse: bool = False) -> List[dict]:
     """Участки культур на квартале/выделе (или по списку id) со сводкой и
     подсказкой для формы. Сначала активные, потом переведённые;
-    списанные — только если запрошены по id."""
+    списанные — только если запрошены по id или vse=True."""
     kvartal, vydel = _s(kvartal), _norm_vydel(vydel)
     try:
         uchastki = _uchastki(conn)
@@ -215,7 +217,7 @@ def naiti(conn, kvartal: str, vydel: str = "", lesnichestvo: str = "",
         found = [
             u for u in uchastki
             if _s(u.get("kvartal")) == kvartal
-            and _s(u.get("status")) != STATUS_SPISAN
+            and (vse or _s(u.get("status")) != STATUS_SPISAN)
             and (not vydel or vydel in vydely_uchastka(u))
             and (not lesnichestvo or _lesn_match(lesnichestvo, u.get("lesnichestvo")))
         ]

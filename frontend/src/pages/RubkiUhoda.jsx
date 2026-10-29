@@ -323,6 +323,15 @@ export default function RubkiUhoda() {
   const [lesokulturyOptions, setLesokulturyOptions] = useState([]);
   const [lesokulturySearch, setLesokulturySearch] = useState("");
   const [lesokulturyLoading, setLesokulturyLoading] = useState(false);
+  // Показывать ли переведённые и списанные участки культур (по умолчанию —
+  // только активные). Запоминается в браузере.
+  const [lkVse, setLkVse] = useState(() => {
+    try {
+      return localStorage.getItem("uhody.lkVse") === "1";
+    } catch {
+      return false;
+    }
+  });
   // Участки культур на выделе пробы (и уже привязанные к ней) — сводка с сервера.
   const [lkDannye, setLkDannye] = useState([]);
   const [lkLoading, setLkLoading] = useState(false);
@@ -330,13 +339,13 @@ export default function RubkiUhoda() {
   useEffect(() => {
     setLesokulturyLoading(true);
     const t = setTimeout(() => {
-      listLesokulturyUchastkiForPicker(lesokulturySearch.trim() || undefined)
+      listLesokulturyUchastkiForPicker(lesokulturySearch.trim() || undefined, lkVse)
         .then(setLesokulturyOptions)
         .catch(() => {})
         .finally(() => setLesokulturyLoading(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [lesokulturySearch]);
+  }, [lesokulturySearch, lkVse]);
 
   const toggleLesokulturyPick = (u) => {
     setLesokulturyUchastokIds((ids) =>
@@ -354,10 +363,12 @@ export default function RubkiUhoda() {
   const isEditing = selectedId !== null;
 
   /** Участки культур по кварталу/выделу + уже привязанные к пробе (ids). */
-  const loadLkDannye = async ({ kv, vd, lesnichestvo, ids = [], dataZ }) => {
+  const loadLkDannye = async ({ kv, vd, lesnichestvo, ids = [], dataZ, vse = lkVse }) => {
     setLkLoading(true);
     try {
-      const byVydel = kv ? await getLesokulturyDannye({ kvartal: kv, vydel: vd, lesnichestvo, data_zamera: dataZ }) : [];
+      const byVydel = kv
+        ? await getLesokulturyDannye({ kvartal: kv, vydel: vd, lesnichestvo, data_zamera: dataZ, ...(vse ? { vse: true } : {}) })
+        : [];
       const missing = ids.filter((id) => !byVydel.some((s) => s.id === id));
       const byIds = missing.length ? await getLesokulturyDannye({ ids: missing.join(","), data_zamera: dataZ }) : [];
       const all = [...byVydel, ...byIds];
@@ -368,6 +379,27 @@ export default function RubkiUhoda() {
       return [];
     } finally {
       setLkLoading(false);
+    }
+  };
+
+  /** Переключатель «переведённые и списанные»: список выбора обновится
+   *  сам (эффект выше), блок «на выделе» — перезапросим, если выдел задан. */
+  const changeLkVse = (vse) => {
+    setLkVse(vse);
+    try {
+      localStorage.setItem("uhody.lkVse", vse ? "1" : "0");
+    } catch {
+      /* приватный режим — просто не запомним */
+    }
+    if (kvartal.trim()) {
+      loadLkDannye({
+        kv: kvartal.trim(),
+        vd: vydel.trim(),
+        lesnichestvo: form.lesnichestvo,
+        ids: lesokulturyUchastokIds,
+        dataZ: dataZamera,
+        vse,
+      });
     }
   };
 
@@ -1227,6 +1259,16 @@ export default function RubkiUhoda() {
             value={lesokulturySearch}
             onChange={(e) => setLesokulturySearch(e.target.value)}
           />
+          <label className="mt-2 flex items-center gap-2 text-sm text-ink cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={lkVse}
+              onChange={(e) => changeLkVse(e.target.checked)}
+              className="w-4 h-4 accent-pine"
+            />
+            Показывать переведённые и списанные
+            <span className="text-xs text-muted">(по умолчанию — только активные)</span>
+          </label>
           <div className="mt-2 max-h-56 overflow-y-auto border border-border rounded-md">
             {lesokulturyLoading ? (
               <div className="p-4 flex justify-center">
@@ -1247,7 +1289,12 @@ export default function RubkiUhoda() {
                     className="w-4 h-4 accent-pine"
                   />
                   <div>
-                    <div className="text-sm text-ink">Кв. {u.kvartal || "—"} / Выд. {u.vydel || "—"}</div>
+                    <div className="text-sm text-ink">
+                      Кв. {u.kvartal || "—"} / Выд. {u.vydel || "—"}
+                      {u.status && u.status !== "активен" && (
+                        <span className="ml-2 text-xs font-medium bg-hover text-muted rounded-full px-2 py-0.5">{u.status}</span>
+                      )}
+                    </div>
                     <div className="text-xs text-muted">
                       {u.lesnichestvo || "—"}{u.glavnaya_poroda ? ` · ${u.glavnaya_poroda}` : ""}{u.god_sozdaniya ? ` · ${u.god_sozdaniya} г.` : ""}
                     </div>
