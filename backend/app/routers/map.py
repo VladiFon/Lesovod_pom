@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Optional
 import hmac
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -772,6 +773,24 @@ def get_proby_geojson_for_qgis(token: str, conn=Depends(get_conn)):
     from app import proby_karta
 
     return proby_karta.geojson(conn)
+
+
+@router.post("/qgis/granicy")
+async def post_granicy_from_qgis(request: Request, token: str, sloy: str, background_tasks: BackgroundTasks):
+    """Кварталы / выделы из QGIS (плагин «Лесовод-мост») — заменяют границы
+    пришедших лесничеств в map_kvartala.geojson / map_vydela.geojson, см.
+    app/granicy.py. Тело — GeoJSON в EPSG:32635, можно gzip."""
+    _check_service_token(token)
+    from app import granicy
+
+    data = await request.body()
+    try:
+        features = await run_in_threadpool(granicy.razobrat, sloy, data)
+        result = await run_in_threadpool(granicy.sohranit, sloy, features)
+    except granicy.GranicyError as exc:
+        raise HTTPException(400, str(exc))
+    background_tasks.add_task(granicy.progret, list(result["lesnichestva"]))
+    return result
 
 
 @router.delete("/import-layers/{batch_id}")
