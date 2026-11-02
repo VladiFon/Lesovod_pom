@@ -109,19 +109,20 @@ function parseRuDate(value) {
 
 const URGENT_SOON_DAYS = 7;
 
-/** Какой срок акта сейчас главный. Площадь по нарядам закрыта, а акта
- * после закрытия нет — месяц на акт с даты закрытия (akt_po_ploshadi_do).
- * Акт после закрытия уже есть — делянка «готова». Иначе — старый срок от
- * окончания вывозки (srok_osvidetelstvovaniya). */
+/** Какой срок акта сейчас главный. Площадь по нарядам закрыта — месяц на
+ * акт с даты закрытия (akt_po_ploshadi_do). Иначе — старый срок от
+ * окончания вывозки (srok_osvidetelstvovaniya). Если акт уже есть (любой,
+ * см. osvidetelstvovana в inspection.py), срок не важен — делянка
+ * освидетельствована, а закрытая — вообще в архиве. */
 function srokAkta(row) {
-  if (row.akt_po_ploshadi_sostavlen) return { date: null, prichina: "sostavlen" };
   if (row.akt_po_ploshadi_do) return { date: row.akt_po_ploshadi_do, prichina: "ploshad" };
   return { date: row.srok_osvidetelstvovaniya, prichina: "vyvozka" };
 }
 
 function inspectionUrgency(row) {
+  if (row.zakryta) return { days: null, level: "closed", prichina: "zakryta" };
+  if (row.osvidetelstvovana) return { days: null, level: "done", prichina: "sostavlen" };
   const { date: srok, prichina } = srokAkta(row);
-  if (prichina === "sostavlen") return { days: null, level: "done", prichina };
   const date = parseRuDate(srok);
   if (!date) return { days: null, level: "none", prichina };
   const today = new Date();
@@ -133,27 +134,36 @@ function inspectionUrgency(row) {
   return { days, level: "ok", prichina, srok };
 }
 
-const URGENCY_RANK = { overdue: 0, soon: 1, ok: 2, none: 3, done: 4 };
+const URGENCY_RANK = { overdue: 0, soon: 1, ok: 2, none: 3, done: 4, closed: 5 };
 
+// key "vse" оставлен прежним, чтобы запомненный в браузере фильтр не
+// сломался, но теперь это «Активные»: закрытые делянки — отдельной кнопкой.
 const FILTRY = [
-  { key: "vse", label: "Все" },
-  { key: "nuzhen_akt", label: "Нужен акт", title: "Площадь по нарядам закрыта, акта после закрытия ещё нет" },
+  { key: "vse", label: "Активные", title: "Все незакрытые делянки" },
+  { key: "nuzhen_akt", label: "Нужен акт", title: "Площадь по нарядам закрыта, акта ещё нет" },
   { key: "prosrocheno", label: "Просрочено" },
   { key: "skoro", label: `≤ ${URGENT_SOON_DAYS} дн.` },
-  { key: "v_rabote", label: "В работе", title: "По нарядам ещё есть остаток площади" },
-  { key: "gotovo", label: "Акт составлен" },
+  { key: "v_rabote", label: "В работе", title: "По нарядам ещё есть остаток площади, акта нет" },
+  { key: "gotovo", label: "Освидетельствованы", title: "Акт есть, делянка ещё не закрыта" },
+  { key: "zakryty", label: "Закрыты", title: "Акт есть, делянка закрыта (в архиве)" },
 ];
 
 function podhoditPodFiltr(r, u, filtr) {
   switch (filtr) {
-    case "nuzhen_akt": return u.prichina === "ploshad";
+    case "nuzhen_akt": return !r.osvidetelstvovana && !r.zakryta && u.prichina === "ploshad";
     case "prosrocheno": return u.level === "overdue";
     case "skoro": return u.level === "soon";
-    case "v_rabote": return r.ploshad_ostatok == null || r.ploshad_ostatok > 0;
+    case "v_rabote": return !r.osvidetelstvovana && !r.zakryta && (r.ploshad_ostatok == null || r.ploshad_ostatok > 0);
     case "gotovo": return u.level === "done";
-    default: return true;
+    case "zakryty": return u.level === "closed";
+    default: return !r.zakryta;
   }
 }
+
+const segodnya = () => {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+};
 
 const SORTIROVKI = [
   { key: "srok", label: "По сроку акта" },
@@ -207,6 +217,7 @@ function Section({ title, children }) {
 function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsChanged }) {
   const toast = useToast();
   const [form, setForm] = useState(emptyActForm());
+  const [zakrytPosle, setZakrytPosle] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [draftPresetName, setDraftPresetName] = useState(null);
@@ -215,6 +226,7 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
   useEffect(() => {
     if (open) {
       setForm(emptyActForm());
+      setZakrytPosle(true);
       setSelectedPreset("");
       setDraftPresetName(null);
       // Всё, что уже известно (билет, площадь, вид рубки, комиссия
@@ -314,10 +326,15 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      const { task_id } = await api.post(`/inspection/${delyankaId}/documents/akt-osvidetelstvovaniya`, actFormToPayload(form));
+      const { task_id } = await api.post(`/inspection/${delyankaId}/documents/akt-osvidetelstvovaniya`,
+        { ...actFormToPayload(form), zakryt_delyanku: zakrytPosle });
       const result = await pollTask(task_id, { timeoutMs: 5 * 60 * 1000 });
       const docId = result?.document_ids?.[0];
-      toast.show({ tone: "success", title: "Акт освидетельствования готов" });
+      toast.show({
+        tone: "success",
+        title: "Акт освидетельствования готов",
+        description: result?.zakryta ? "Делянка закрыта и убрана в архив — найти её можно в фильтре «Закрыты»." : undefined,
+      });
       if (docId) window.open(`${API_BASE_URL}/documents/${docId}/download`, "_blank");
       onClose();
       onGenerated();
@@ -336,6 +353,10 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
       size="lg"
       footer={
         <>
+          <label className="mr-auto flex items-center gap-2 text-sm text-ink cursor-pointer" title="Делянка уйдёт в архив: из расхода, с телефона и из напоминаний о сроках. Вернуть — кнопкой «Вернуть в работу».">
+            <input type="checkbox" checked={zakrytPosle} onChange={(e) => setZakrytPosle(e.target.checked)} className="h-4 w-4 accent-pine" />
+            Закрыть делянку после акта
+          </label>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>Отмена</Button>
           <Button variant="primary" onClick={handleSubmit} loading={submitting}>Сформировать акт</Button>
         </>
@@ -514,13 +535,25 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
   );
 }
 
-function SpravkaModal({ open, onClose, delyankaId, onGenerated }) {
+function SpravkaModal({ open, onClose, delyankaId, row, onGenerated }) {
   const toast = useToast();
   const [form, setForm] = useState({
     ploshad_proydennaya: "", likvid_such_krony: "0",
     lesopolzovatel: "", rukovoditel_fio: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  // Подставляем, что уже знаем: пройденная площадь — по нарядам, а
+  // лесопользователь и руководитель — из последнего акта по делянке.
+  useEffect(() => {
+    if (!open) return;
+    const last = (row?.acts || []).find((a) => a.data && !a.data.vruchnuyu)?.data || {};
+    setForm((f) => ({
+      ...f,
+      ploshad_proydennaya: row?.ploshad_osvoeno ? String(row.ploshad_osvoeno) : f.ploshad_proydennaya,
+      lesopolzovatel: f.lesopolzovatel || last.predstavitel_lesopolz_organizatsiya || "",
+      rukovoditel_fio: f.rukovoditel_fio || last.rukovoditel_fio || "",
+    }));
+  }, [open, row]);
   const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const handleSubmit = async () => {
@@ -567,7 +600,71 @@ function SpravkaModal({ open, onClose, delyankaId, onGenerated }) {
   );
 }
 
-function InspectionDetail({ row, onSrokiSaved }) {
+/** Акт, составленный не в программе (бумажный, Word, скан) — чтобы делянка
+ * тоже считалась освидетельствованной и закрылась. */
+function ManualActModal({ open, onClose, delyankaId, onSaved }) {
+  const toast = useToast();
+  const [actDate, setActDate] = useState(segodnya());
+  const [primechanie, setPrimechanie] = useState("");
+  const [file, setFile] = useState(null);
+  const [zakryt, setZakryt] = useState(true);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setActDate(segodnya());
+      setPrimechanie("");
+      setFile(null);
+      setZakryt(true);
+    }
+  }, [open]);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("act_date", actDate.trim());
+      fd.append("primechanie", primechanie);
+      fd.append("zakryt", zakryt ? "true" : "false");
+      if (file) fd.append("file", file);
+      const r = await api.upload(`/inspection/${delyankaId}/acts/vruchnuyu`, fd);
+      toast.show({ tone: "success", title: "Акт отмечен", description: r?.zakryta ? "Делянка закрыта (в архиве)." : undefined });
+      onClose();
+      onSaved();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось отметить акт", description: e.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Отметить акт, составленный вне программы"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Отмена</Button>
+          <Button variant="primary" onClick={handleSave} loading={saving} disabled={!actDate.trim()}>Отметить</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <TextField label="Дата акта" placeholder="ДД.ММ.ГГГГ" value={actDate} onChange={(e) => setActDate(e.target.value)} />
+        <div>
+          <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Файл акта (необязательно)</label>
+          <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-sm" />
+          <p className="text-xs text-muted-2 mt-1">Скан или Word — попадёт в историю актов и в «Документы».</p>
+        </div>
+        <TextAreaField label="Примечание" rows={2} value={primechanie} onChange={(e) => setPrimechanie(e.target.value)} />
+        <label className="flex items-center gap-2 text-sm text-ink cursor-pointer">
+          <input type="checkbox" checked={zakryt} onChange={(e) => setZakryt(e.target.checked)} className="h-4 w-4 accent-pine" />
+          Закрыть делянку (в архив)
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+function InspectionDetail({ row, onChanged }) {
   const toast = useToast();
   const [srokZagotovki, setSrokZagotovki] = useState(row.srok_okonchaniya_zagotovki || "");
   const [srokVyvozki, setSrokVyvozki] = useState(row.srok_okonchaniya_vyvozki || "");
@@ -579,6 +676,8 @@ function InspectionDetail({ row, onSrokiSaved }) {
   const [acts, setActs] = useState(row.acts || []);
   const [actModalOpen, setActModalOpen] = useState(false);
   const [spravkaModalOpen, setSpravkaModalOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
 
   useEffect(() => {
     setSrokZagotovki(row.srok_okonchaniya_zagotovki || "");
@@ -595,8 +694,36 @@ function InspectionDetail({ row, onSrokiSaved }) {
     reloadPresets();
   }, [reloadPresets]);
 
+  // После акта меняется не только история, но и статус делянки в списке
+  // (освидетельствована / закрыта) — перечитываем весь список, раньше
+  // обновлялась только история актов и бейдж в списке врал до F5.
   const reloadActs = () => {
     api.get(`/inspection/${row.id}/acts`).then(setActs).catch(() => {});
+    onChanged();
+  };
+
+  const smenitStatus = async (kuda) => {
+    if (kuda === "zakryt" && !window.confirm("Закрыть делянку? Она уйдёт в архив: из расхода, с телефона и из напоминаний. Вернуть можно здесь же.")) return;
+    setStatusBusy(true);
+    try {
+      await api.post(`/inspection/${row.id}/${kuda}`);
+      toast.show({ tone: "success", title: kuda === "zakryt" ? "Делянка закрыта" : "Делянка снова в работе" });
+      onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не получилось", description: e.message });
+    } finally {
+      setStatusBusy(false);
+    }
+  };
+
+  const deleteAct = async (a) => {
+    if (!window.confirm(`Убрать акт от ${a.act_date || a.created_at} из истории? Файл останется в «Документах».`)) return;
+    try {
+      await api.delete(`/inspection/acts/${a.id}`);
+      reloadActs();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось убрать акт", description: e.message });
+    }
   };
 
   const handleSaveSroki = async () => {
@@ -604,7 +731,7 @@ function InspectionDetail({ row, onSrokiSaved }) {
     try {
       await api.patch(`/inspection/${row.id}/sroki`, { srok_zagotovki: srokZagotovki, srok_vyvozki: srokVyvozki });
       toast.show({ tone: "success", title: "Сроки сохранены" });
-      onSrokiSaved();
+      onChanged();
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось сохранить сроки", description: e.message });
     } finally {
@@ -662,11 +789,33 @@ function InspectionDetail({ row, onSrokiSaved }) {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h2 className="font-ui font-extrabold text-pine" style={{ fontSize: 16 }}>{row.nazvanie || `Делянка №${row.id}`}</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button variant="secondary" size="sm" onClick={() => setSpravkaModalOpen(true)}>Справка об объёмах</Button>
+            <Button variant="ghost" size="sm" onClick={() => setManualOpen(true)} title="Акт составлен на бумаге или в Word — отметить его здесь">Отметить акт вручную</Button>
             <Button variant="primary" size="sm" onClick={() => setActModalOpen(true)}>Акт освидетельствования</Button>
           </div>
         </div>
+
+        {row.zakryta ? (
+          <div className="rounded-[10px] border border-border bg-hover px-3.5 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-sm text-ink">
+              🔒 <b>Делянка закрыта</b> (в архиве){row.posledniy_akt_data && <> · акт от {row.posledniy_akt_data}</>}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => smenitStatus("vernut")} loading={statusBusy}>Вернуть в работу</Button>
+          </div>
+        ) : row.osvidetelstvovana ? (
+          <div className="rounded-[10px] border border-pine bg-mint-soft px-3.5 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-sm text-ink">
+              ✅ <b>Освидетельствована</b>{row.posledniy_akt_data && <> {row.posledniy_akt_data}</>}
+              {row.ploshad_ostatok != null && row.ploshad_ostatok > 0.01 && (
+                <span className="block text-xs text-oak font-semibold mt-0.5">
+                  По нарядам ещё остаток {fmtGa(row.ploshad_ostatok)} га — если делянка пройдена вся, проверьте наряды.
+                </span>
+              )}
+            </span>
+            <Button variant="primary" size="sm" onClick={() => smenitStatus("zakryt")} loading={statusBusy}>Закрыть делянку</Button>
+          </div>
+        ) : null}
 
         <div className="grid gap-3.5 items-end grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
           <TextField label="Срок окончания заготовки" placeholder="ДД.ММ.ГГГГ" value={srokZagotovki} onChange={(e) => setSrokZagotovki(e.target.value)} />
@@ -711,20 +860,31 @@ function InspectionDetail({ row, onSrokiSaved }) {
           <h3 className="font-mono text-[10.5px] uppercase tracking-[.1em] text-muted-2 mb-2">история актов</h3>
           <DataTable
             columns={[
-              { key: "act_date", header: "Дата" },
+              { key: "act_date", header: "Дата", render: (a) => a.act_date || "—" },
+              {
+                key: "kak", header: "Как",
+                render: (a) => a.data?.vruchnuyu
+                  ? <span title={a.data.primechanie || ""}>внесён вручную{a.data.primechanie ? ` · ${a.data.primechanie}` : ""}</span>
+                  : <span>сформирован{a.data?.zaklyuchenie ? ` · ${a.data.zaklyuchenie}` : ""}</span>,
+              },
               { key: "created_at", header: "Создан" },
               {
                 key: "actions", header: "",
-                render: (a) => a.file_path ? (
-                  <a
-                    href={`${API_BASE_URL}/inspection/acts/${a.id}/download`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-pine text-sm font-semibold hover:text-pine-hover hover:underline"
-                  >
-                    Файл: {a.file_path.split("/").pop()}
-                  </a>
-                ) : null,
+                render: (a) => (
+                  <span className="flex items-center gap-3">
+                    {a.file_path ? (
+                      <a
+                        href={`${API_BASE_URL}/inspection/acts/${a.id}/download`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-pine text-sm font-semibold hover:text-pine-hover hover:underline"
+                      >
+                        Скачать
+                      </a>
+                    ) : null}
+                    <button type="button" title="Убрать ошибочный акт из истории" onClick={() => deleteAct(a)} className="text-error text-sm font-semibold">✕</button>
+                  </span>
+                ),
               },
             ]}
             rows={acts}
@@ -742,7 +902,8 @@ function InspectionDetail({ row, onSrokiSaved }) {
         onGenerated={reloadActs}
         onPresetsChanged={reloadPresets}
       />
-      <SpravkaModal open={spravkaModalOpen} onClose={() => setSpravkaModalOpen(false)} delyankaId={row.id} onGenerated={() => {}} />
+      <SpravkaModal open={spravkaModalOpen} onClose={() => setSpravkaModalOpen(false)} delyankaId={row.id} row={row} onGenerated={() => {}} />
+      <ManualActModal open={manualOpen} onClose={() => setManualOpen(false)} delyankaId={row.id} onSaved={reloadActs} />
     </Card>
   );
 }
@@ -777,6 +938,22 @@ export default function Inspection() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const [zakryvaem, setZakryvaem] = useState(false);
+  const osvNezakrytyh = rows.filter((r) => r.osvidetelstvovana && !r.zakryta).length;
+  const zakrytVse = async () => {
+    if (!window.confirm(`Закрыть все освидетельствованные делянки (${osvNezakrytyh})? Они уйдут в архив; вернуть любую можно в фильтре «Закрыты».`)) return;
+    setZakryvaem(true);
+    try {
+      const r = await api.post("/inspection/zakryt-osvidetelstvovannye");
+      toast.show({ tone: "success", title: `Закрыто делянок: ${r?.zakryto ?? 0}` });
+      load();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось закрыть", description: e.message });
+    } finally {
+      setZakryvaem(false);
+    }
+  };
 
   const handleBlankTemplate = async () => {
     setBlankLoading(true);
@@ -817,9 +994,16 @@ export default function Inspection() {
     <div className="p-[18px] flex flex-wrap gap-[14px] items-start">
       <Card padding={false} className="flex flex-col" style={{ flex: "1 1 280px", maxWidth: 420 }}>
         <div className="p-3.5 flex flex-col gap-2.5 border-b border-border">
-          <Button variant="secondary" size="sm" onClick={handleBlankTemplate} loading={blankLoading} className="self-start">
-            ↓ Пустой бланк акта
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={handleBlankTemplate} loading={blankLoading}>
+              ↓ Пустой бланк акта
+            </Button>
+            {osvNezakrytyh > 0 && (
+              <Button variant="primary" size="sm" onClick={zakrytVse} loading={zakryvaem} title="Акт есть, а делянка всё ещё активна">
+                Закрыть освидетельствованные ({osvNezakrytyh})
+              </Button>
+            )}
+          </div>
           <TextField placeholder="Поиск по названию делянки…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="flex flex-wrap gap-1.5">
             {FILTRY.map((f) => (
@@ -861,8 +1045,10 @@ export default function Inspection() {
             visibleRows.map((r) => {
               const u = inspectionUrgency(r);
               const kogo = u.prichina === "ploshad" ? "акт" : "освид.";
-              const srokLabel = u.level === "done"
-                ? "акт составлен"
+              const srokLabel = u.level === "closed"
+                ? "закрыта"
+                : u.level === "done"
+                ? `освид. ${r.posledniy_akt_data || ""}`.trim()
                 : u.level === "none"
                   ? "срок не задан"
                   : u.level === "overdue"
@@ -880,6 +1066,7 @@ export default function Inspection() {
                   className={[
                     "w-full text-left px-3 py-2.5 rounded-[10px] border flex flex-col gap-1 transition-colors",
                     selectedId === r.id ? "bg-mint-soft border-pine" : "border-border bg-surface hover:bg-hover",
+                    r.zakryta ? "opacity-70" : "",
                   ].join(" ")}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -921,7 +1108,7 @@ export default function Inspection() {
 
       <div className="min-w-0" style={{ flex: "2 1 420px" }}>
       {selected ? (
-        <InspectionDetail row={selected} onSrokiSaved={load} />
+        <InspectionDetail row={selected} onChanged={load} />
       ) : (
         <Card>
           <EmptyState icon="✅" title="Выберите делянку из списка" description="Сроки, чек-лист подготовки и акты освидетельствования — здесь." />

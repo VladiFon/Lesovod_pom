@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -31,6 +31,7 @@ import raskhod_v2
 import spravka_generator
 
 from app.database import get_conn, get_connection
+from app.paths import UPLOADS_DIR
 from app.doc_tasks import new_task_dir, register_document
 from app.auth import require_permission
 import webext
@@ -135,16 +136,43 @@ def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
     return out
 
 
+def _akt_data(a) -> Optional[datetime]:
+    """Дата акта: введённая в форме, иначе — когда акт сохранили."""
+    return _parse_date((a.get("act_date") or "").strip()) or _parse_date(str(a.get("created_at") or "")[:10])
+
+
+def _osvidetelstvovanie(acts) -> Dict[str, Any]:
+    """Есть ли на делянке акт освидетельствования и какой последний.
+
+    Раньше «акт составлен» в списке ставился только когда площадь по нарядам
+    закрыта И акт датирован не раньше закрытия — если наряды не добили
+    площадь до копейки (МДО 5.3 га, наряды 5.2), акт просто не замечался и
+    делянка висела «освид. до …». Теперь любой акт = делянка
+    освидетельствована (2026-11-02, жалоба Влада)."""
+    if not acts:
+        return {"osvidetelstvovana": False, "posledniy_akt_data": None}
+    dated = [(dt, a) for a in acts if (dt := _akt_data(a))]
+    if dated:
+        dt, _a = max(dated, key=lambda x: x[0])
+        return {"osvidetelstvovana": True, "posledniy_akt_data": dt.strftime("%d.%m.%Y")}
+    return {"osvidetelstvovana": True, "posledniy_akt_data": None}
+
+
 @router.get("/")
 def list_inspection(conn=Depends(get_conn)):
     """Батч-эквивалент InspectionLoadWorker: список делянок с бейджами
     срочности, % освоения лимита и состоянием чек-листа за один проход.
-    Только 'активна' — черновики (сразу после импорта МДО, без номера/даты
+    'активна' + закрытые ('архив'), на которые есть акт освидетельствования,
+    — чтобы закрытую делянку можно было найти, перескачать акт или вернуть в
+    работу. Черновики (сразу после импорта МДО, без номера/даты
     лесорубочного билета) освидетельствовать рано, см. activate_delyanka."""
-    delyanki = delyanka.list_delyanki(conn, status="активна")
+    vse = delyanka.list_delyanki(conn)
+    acts = legacy_db.list_osvidetelstvovanie_acts_batch(
+        conn, [d["id"] for d in vse if d.get("status") in ("активна", "архив")])
+    delyanki = [d for d in vse if d.get("status") == "активна"
+                or (d.get("status") == "архив" and acts.get(d["id"]))]
     ids = [d["id"] for d in delyanki]
     checklists = legacy_db.get_checklists_batch(conn, ids)
-    acts = legacy_db.list_osvidetelstvovanie_acts_batch(conn, ids)
     # Инспекция работает по НАРЯДАМ (решение Влада, 2026-10-09): акт
     # освидетельствования и справка берут «Фактически вырублено» из нарядов
     # (compute_sortiment_limit_fakt_totals / compute_sortiment_totals_multi),
@@ -166,6 +194,7 @@ def list_inspection(conn=Depends(get_conn)):
 
         result.append({
             **d,
+            "zakryta": d.get("status") == "архив",
             "srok_okonchaniya_zagotovki": srok_zagotovki,
             "srok_okonchaniya_vyvozki": srok_vyvozki,
             "srok_osvidetelstvovaniya": deadline,
@@ -174,10 +203,61 @@ def list_inspection(conn=Depends(get_conn)):
             "pct_osvoeniya_egais": osv.get("pct_egais"),
             "osvoenie_level": raskhod_v2._osvoenie_level(pct_osvoeniya),
             **ploshadi.get(d["id"], {}),
+            **_osvidetelstvovanie(acts.get(d["id"], [])),
             "checklist": checklists.get(d["id"], []),
             "acts": acts.get(d["id"], []),
         })
     return result
+
+
+# --------------------------------------------------------------------------- #
+#   Закрытие делянки после освидетельствования
+# --------------------------------------------------------------------------- #
+# «Закрыта» = тот же статус 'архив', что и кнопка «В архив» на экране
+# «Делянки»: делянка уходит из расхода, телефона, оповещений о сроках, но
+# все данные и акты остаются. Вернуть — «Вернуть в работу» здесь же.
+def _zakryt(conn, delyanka_id: int, login: str) -> bool:
+    row = conn.execute("SELECT status FROM delyanka WHERE id=?", (delyanka_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Делянка не найдена")
+    if row[0] == "архив":
+        return False
+    delyanka.archive_delyanka(conn, delyanka_id)
+    webext.touch_updated_by(conn, "delyanka", delyanka_id, login)
+    return True
+
+
+@router.post("/{delyanka_id}/zakryt")
+def zakryt_delyanku(delyanka_id: int, user=Depends(require_permission("delyanka.edit")),
+                    conn=Depends(get_conn)):
+    if not legacy_db.list_osvidetelstvovanie_acts(conn, delyanka_id):
+        raise HTTPException(409, "На делянке нет акта освидетельствования — закрывать рано")
+    _zakryt(conn, delyanka_id, user["login"])
+    return {"ok": True}
+
+
+@router.post("/{delyanka_id}/vernut")
+def vernut_v_rabotu(delyanka_id: int, user=Depends(require_permission("delyanka.edit")),
+                    conn=Depends(get_conn)):
+    row = conn.execute("SELECT status FROM delyanka WHERE id=?", (delyanka_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Делянка не найдена")
+    conn.execute("UPDATE delyanka SET status='активна' WHERE id=?", (delyanka_id,))
+    conn.commit()
+    webext.touch_updated_by(conn, "delyanka", delyanka_id, user["login"])
+    return {"ok": True}
+
+
+@router.post("/zakryt-osvidetelstvovannye")
+def zakryt_vse_osvidetelstvovannye(user=Depends(require_permission("delyanka.edit")),
+                                   conn=Depends(get_conn)):
+    """Разом закрыть все активные делянки, на которые уже есть акт, —
+    чтобы разгрести те, что накопились до автозакрытия."""
+    ids = [r[0] for r in conn.execute(
+        "SELECT DISTINCT d.id FROM delyanka d JOIN osvidetelstvovanie_acts a ON a.delyanka_id = d.id "
+        "WHERE d.status = 'активна'").fetchall()]
+    zakryto = sum(1 for did in ids if _zakryt(conn, did, user["login"]))
+    return {"ok": True, "zakryto": zakryto}
 
 
 class SrokiIn(BaseModel):
@@ -286,6 +366,14 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
     ploshad = sum(float(it.get("ploshad") or 0) for it in items)
     if ploshad:
         out["ploshad_razresheno"] = str(round(ploshad, 2))
+    # Фактически пройдено — сумма площадей нарядов (та же, что «освоено» в
+    # списке Инспекции); дата акта — сегодня (без даты акт раньше вставал в
+    # историю с пустой датой).
+    fakt = sum(raskhod_v2._parse_ploshad_value(r[0]) for r in conn.execute(
+        "SELECT ploshad FROM raskhod_naryad WHERE delyanka_id=?", (delyanka_id,)).fetchall())
+    if fakt:
+        out["ploshad_fakt"] = str(round(fakt, 2))
+    out["act_date"] = datetime.now().strftime("%d.%m.%Y")
     from app.vidy import vid_rubki_info
 
     vidy = []
@@ -334,6 +422,45 @@ def delete_preset(nazvanie: str, user=Depends(require_permission("inspection.edi
 @router.get("/{delyanka_id}/acts")
 def list_acts(delyanka_id: int, conn=Depends(get_conn)):
     return legacy_db.list_osvidetelstvovanie_acts(conn, delyanka_id)
+
+
+@router.post("/{delyanka_id}/acts/vruchnuyu")
+async def add_act_vruchnuyu(delyanka_id: int, act_date: str = Form(...), primechanie: str = Form(""),
+                            zakryt: bool = Form(True), file: Optional[UploadFile] = File(None),
+                            user=Depends(require_permission("inspection.edit")), conn=Depends(get_conn)):
+    """Акт, составленный НЕ в программе (бумажный, в Word, скан): дата +
+    необязательно файл. Делянка после этого считается освидетельствованной
+    так же, как после «Сформировать акт»."""
+    d, _ = delyanka.get_delyanka_full(conn, delyanka_id)
+    if d is None:
+        raise HTTPException(404, "Делянка не найдена")
+    dt = _parse_date(act_date.strip())
+    if dt is None:
+        raise HTTPException(400, "Дата акта — в виде ДД.ММ.ГГГГ")
+    path = ""
+    if file is not None and file.filename:
+        papka = UPLOADS_DIR / "akty_osvidetelstvovaniya"
+        papka.mkdir(parents=True, exist_ok=True)
+        name = Path(file.filename).name
+        target = papka / f"{delyanka_id}_{datetime.now():%Y%m%d%H%M%S}_{name}"
+        target.write_bytes(await file.read())
+        path = str(target)
+        register_document(conn, "akt_osvidetelstvovaniya", delyanka_id, path, created_by=user["login"])
+    data = {"act_date": dt.strftime("%d.%m.%Y"), "vruchnuyu": True, "primechanie": primechanie.strip()}
+    act_id = legacy_db.save_osvidetelstvovanie_act(conn, delyanka_id, data["act_date"], data, path)
+    zakryta = _zakryt(conn, delyanka_id, user["login"]) if zakryt else False
+    return {"id": act_id, "zakryta": zakryta}
+
+
+@router.delete("/acts/{act_id}")
+def delete_act(act_id: int, user=Depends(require_permission("inspection.edit")), conn=Depends(get_conn)):
+    """Убрать ошибочный акт из истории (файл на диске не трогаем — он
+    остаётся в «Документах», если был туда записан)."""
+    if legacy_db.get_osvidetelstvovanie_act(conn, act_id) is None:
+        raise HTTPException(404, "Акт не найден")
+    conn.execute("DELETE FROM osvidetelstvovanie_acts WHERE id=?", (act_id,))
+    conn.commit()
+    return {"ok": True}
 
 
 @router.get("/acts/{act_id}/download")
@@ -393,7 +520,8 @@ def generate_spravka(delyanka_id: int, body: SpravkaIn, background_tasks: Backgr
     return {"task_id": task_id}
 
 
-def _run_generate_akt_osv(task_id: str, delyanka_id: int, act_data: dict, created_by: Optional[str]):
+def _run_generate_akt_osv(task_id: str, delyanka_id: int, act_data: dict, created_by: Optional[str],
+                          zakryt: bool = False):
     conn = get_connection()
     task_dir = new_task_dir(task_id)
     try:
@@ -410,7 +538,10 @@ def _run_generate_akt_osv(task_id: str, delyanka_id: int, act_data: dict, create
         legacy_db.save_osvidetelstvovanie_act(
             conn, delyanka_id, act_data.get("act_date", ""), act_data, path
         )
-        webext.set_task_done(conn, task_id, result={"document_ids": [doc_id]})
+        # Акт есть — делянку закрываем сразу (галочка в форме акта, по
+        # умолчанию включена), а не руками через «В архив».
+        zakryta = _zakryt(conn, delyanka_id, created_by or "") if zakryt else False
+        webext.set_task_done(conn, task_id, result={"document_ids": [doc_id], "zakryta": zakryta})
     except Exception as e:  # noqa: BLE001
         register_document(conn, "akt_osvidetelstvovaniya", delyanka_id, "", created_by=created_by,
                            status="ошибка", error_text=str(e))
@@ -427,8 +558,9 @@ def generate_akt_osvidetelstvovaniya(delyanka_id: int, act_data: Dict[str, Any],
     d, _ = delyanka.get_delyanka_full(conn, delyanka_id)
     if d is None:
         raise HTTPException(404, "Делянка не найдена")
+    zakryt = bool(act_data.pop("zakryt_delyanku", False))
     task_id = webext.create_task(conn, "generate_akt_osvidetelstvovaniya")
-    background_tasks.add_task(_run_generate_akt_osv, task_id, delyanka_id, act_data, user["login"])
+    background_tasks.add_task(_run_generate_akt_osv, task_id, delyanka_id, act_data, user["login"], zakryt)
     return {"task_id": task_id}
 
 
