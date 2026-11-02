@@ -75,7 +75,66 @@ PLOSHAD_ZAKRYTA_DOPUSK = 0.01
 SROK_AKTA_DNEY = 30
 
 
-def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
+# --------------------------------------------------------------------------- #
+#   Сторонняя заготовка
+# --------------------------------------------------------------------------- #
+# Делянка, документы на которую оформляет наш лесхоз, а рубит другой
+# (лесхоз, лесопункт): нарядов у нас нет, объёмы приходят справкой
+# заготовителя. Флаг и данные справки — на самой делянке (столбцы
+# добавляются здесь, чтобы не трогать схему legacy db.py). Для такой
+# делянки «Фактически» в акте и «освоено» в списке берутся из справки,
+# а не из нарядов.
+SORTIMENTY = ("KR", "SR", "ML", "DROVA", "HVOROST")
+
+
+def _ensure_storonnyaya(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(delyanka)").fetchall()}
+    for c in ("zagotovka_storonnyaya", "storonnyaya_json"):
+        if c not in cols:
+            conn.execute(f"ALTER TABLE delyanka ADD COLUMN {c} {'INTEGER DEFAULT 0' if c == 'zagotovka_storonnyaya' else 'TEXT'}")
+    conn.commit()
+
+
+def _num(v) -> float:
+    try:
+        return float(str(v).replace(",", ".").strip()) if v not in (None, "") else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _storonnie(conn, ids) -> Dict[int, dict]:
+    """{delyanka_id: данные справки заготовителя} — только для делянок со
+    сторонней заготовкой."""
+    _ensure_storonnyaya(conn)
+    ids = list(ids)
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    out = {}
+    for did, js in conn.execute(
+        f"SELECT id, storonnyaya_json FROM delyanka WHERE id IN ({ph}) AND zagotovka_storonnyaya = 1", ids
+    ).fetchall():
+        try:
+            data = json.loads(js or "{}")
+        except ValueError:
+            data = {}
+        out[did] = data if isinstance(data, dict) else {}
+    return out
+
+
+def _sortiment_totals_dlya_akta(conn, delyanka_id, items):
+    """Лимит — как всегда (из МДО), факт — из нарядов, а при сторонней
+    заготовке — из справки заготовителя."""
+    totals = compute_sortiment_limit_fakt_totals(conn, items)
+    st = _storonnie(conn, [delyanka_id]).get(delyanka_id)
+    if st is not None:
+        fakt = st.get("fakt") or {}
+        for k in SORTIMENTY:
+            totals.setdefault(k, {"limit": 0.0, "fakt": 0.0})["fakt"] = _num(fakt.get(k))
+    return totals
+
+
+def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d, zamena=None):
     """Освоенная площадь делянки по нарядам и срок акта по площади.
 
     Площадь делянки — сумма delyanka_item.ploshad (из МДО), освоено — сумма
@@ -93,6 +152,9 @@ def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
             naryady.setdefault(delyanka_id, []).append(
                 (_parse_date((data or "").strip()), raskhod_v2._parse_ploshad_value(ploshad))
             )
+    # Сторонняя заготовка: вместо нарядов — одна «запись» из справки.
+    for did, rows in (zamena or {}).items():
+        naryady[did] = rows
     out = {}
     for d in delyanki:
         vsego = sum(raskhod_v2._parse_ploshad_value(it.get("ploshad")) for it in items_by_d.get(d["id"], []))
@@ -185,13 +247,22 @@ def list_inspection(conn=Depends(get_conn)):
                 "nomer_lesorubochnogo_bileta": nomer,
                 "data_lesorubochnogo_bileta": f"{dt[8:10]}.{dt[5:7]}.{dt[:4]}" if len(dt) == 10 and dt[4] == "-" else dt or None,
             }
-    ploshadi = _ploshad_po_naryadam(conn, delyanki, raskhod_v2.get_delyanka_items_batch(conn, ids), acts)
+    storonnie = _storonnie(conn, ids)
+    zamena = {did: [(_parse_date((st.get("spravka_data") or "").strip()), _num(st.get("ploshad_fakt")))]
+              for did, st in storonnie.items()}
+    ploshadi = _ploshad_po_naryadam(conn, delyanki, raskhod_v2.get_delyanka_items_batch(conn, ids), acts, zamena)
 
     result = []
     for d in delyanki:
         srok_zagotovki, srok_vyvozki = legacy_db.get_delyanka_sroki(conn, d["id"])
         osv = osvoenie.get(d["id"]) or {}
         pct_osvoeniya = osv.get("pct_naryad")
+        st = storonnie.get(d["id"])
+        if st is not None:
+            # % освоения по справке заготовителя: факт / лимит по всем сортиментам.
+            fakt = sum(_num((st.get("fakt") or {}).get(k)) for k in SORTIMENTY)
+            limit = _num(osv.get("limit")) or _num(st.get("limit_vsego"))
+            pct_osvoeniya = round(fakt / limit * 100, 1) if limit and fakt else None
 
         deadline = None
         vyvozka_dt = _parse_date(srok_vyvozki)
@@ -201,13 +272,14 @@ def list_inspection(conn=Depends(get_conn)):
         result.append({
             **d,
             "zakryta": d.get("status") == "архив",
+            "storonnyaya": st,
             **bilety.get(d["id"], {}),
             "srok_okonchaniya_zagotovki": srok_zagotovki,
             "srok_okonchaniya_vyvozki": srok_vyvozki,
             "srok_osvidetelstvovaniya": deadline,
             "pct_osvoeniya_limita": pct_osvoeniya,
-            "pct_osvoeniya_naryad": osv.get("pct_naryad"),
-            "pct_osvoeniya_egais": osv.get("pct_egais"),
+            "pct_osvoeniya_naryad": osv.get("pct_naryad") if st is None else None,
+            "pct_osvoeniya_egais": osv.get("pct_egais") if st is None else None,
             "osvoenie_level": raskhod_v2._osvoenie_level(pct_osvoeniya),
             **ploshadi.get(d["id"], {}),
             **_osvidetelstvovanie(acts.get(d["id"], [])),
@@ -215,6 +287,53 @@ def list_inspection(conn=Depends(get_conn)):
             "acts": acts.get(d["id"], []),
         })
     return result
+
+
+class StoronnyayaIn(BaseModel):
+    storonnyaya: bool
+    zagotovitel: str = ""
+    spravka_nomer: str = ""
+    spravka_data: str = ""
+    ploshad_fakt: Optional[float] = None
+    fakt: Dict[str, Optional[float]] = {}
+
+
+@router.get("/{delyanka_id}/storonnyaya")
+def get_storonnyaya(delyanka_id: int, conn=Depends(get_conn)):
+    """Данные справки заготовителя + лимиты делянки по сортиментам (чтобы
+    вводить факт рядом с «разрешено»)."""
+    d, items = delyanka.get_delyanka_full(conn, delyanka_id)
+    if d is None:
+        raise HTTPException(404, "Делянка не найдена")
+    st = _storonnie(conn, [delyanka_id]).get(delyanka_id)
+    limity = compute_sortiment_limit_fakt_totals(conn, items)
+    return {"storonnyaya": st is not None, **(st or {}),
+            "limity": {k: round((limity.get(k) or {}).get("limit", 0.0), 2) for k in SORTIMENTY}}
+
+
+@router.put("/{delyanka_id}/storonnyaya")
+def set_storonnyaya(delyanka_id: int, body: StoronnyayaIn, user=Depends(require_permission("inspection.edit")),
+                    conn=Depends(get_conn)):
+    d, items = delyanka.get_delyanka_full(conn, delyanka_id)
+    if d is None:
+        raise HTTPException(404, "Делянка не найдена")
+    _ensure_storonnyaya(conn)
+    if body.spravka_data.strip() and _parse_date(body.spravka_data.strip()) is None:
+        raise HTTPException(400, "Дата справки — в виде ДД.ММ.ГГГГ")
+    limity = compute_sortiment_limit_fakt_totals(conn, items)
+    data = {
+        "zagotovitel": body.zagotovitel.strip(),
+        "spravka_nomer": body.spravka_nomer.strip(),
+        "spravka_data": body.spravka_data.strip(),
+        "ploshad_fakt": body.ploshad_fakt,
+        "fakt": {k: body.fakt.get(k) for k in SORTIMENTY if body.fakt.get(k) is not None},
+        "limit_vsego": round(sum((limity.get(k) or {}).get("limit", 0.0) for k in SORTIMENTY), 2),
+    }
+    conn.execute("UPDATE delyanka SET zagotovka_storonnyaya=?, storonnyaya_json=? WHERE id=?",
+                 (1 if body.storonnyaya else 0, json.dumps(data, ensure_ascii=False), delyanka_id))
+    conn.commit()
+    webext.touch_updated_by(conn, "delyanka", delyanka_id, user["login"])
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -407,6 +526,14 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
         "SELECT ploshad FROM raskhod_naryad WHERE delyanka_id=?", (delyanka_id,)).fetchall())
     if fakt:
         out["ploshad_fakt"] = str(round(fakt, 2))
+    st = _storonnie(conn, [delyanka_id]).get(delyanka_id)
+    if st is not None:
+        # Сторонняя заготовка: площадь — из справки заготовителя, а
+        # заготовитель — это и есть лесопользователь в акте.
+        if st.get("ploshad_fakt") is not None:
+            out["ploshad_fakt"] = str(st["ploshad_fakt"])
+        if st.get("zagotovitel"):
+            out["predstavitel_lesopolz_organizatsiya"] = st["zagotovitel"]
     out["act_date"] = datetime.now().strftime("%d.%m.%Y")
     from app.vidy import vid_rubki_info
 
@@ -574,7 +701,7 @@ def _run_generate_akt_osv(task_id: str, delyanka_id: int, act_data: dict, create
         d, items = delyanka.get_delyanka_full(conn, delyanka_id)
         if d is None:
             raise ValueError(f"Делянка {delyanka_id} не найдена")
-        sortiment_totals = compute_sortiment_limit_fakt_totals(conn, items)
+        sortiment_totals = _sortiment_totals_dlya_akta(conn, delyanka_id, items)
         output_path = task_dir / f"Akt_osvidetelstvovaniya_{delyanka_id}.docx"
         path = osvidetelstvovanie_generator.generate_akt_osvidetelstvovaniya(
             d, items, sortiment_totals, act_data, str(output_path)

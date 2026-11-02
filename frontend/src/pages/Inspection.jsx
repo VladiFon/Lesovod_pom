@@ -711,6 +711,98 @@ function ManualActModal({ open, onClose, delyankaId, onSaved }) {
   );
 }
 
+const SORTIMENTY = [
+  ["KR", "крупная"], ["SR", "средняя"], ["ML", "мелкая"], ["DROVA", "дрова"], ["HVOROST", "хворост"],
+];
+
+/** Сторонняя заготовка: документы оформляем мы, рубит другой лесхоз /
+ * лесопункт. Нарядов нет — «Фактически» в акт идёт из справки, которую
+ * прислал заготовитель. */
+function StoronnyayaBlock({ row, onChanged }) {
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.get(`/inspection/${row.id}/storonnyaya`).then((d) => setData({
+      ...d,
+      ploshad_fakt: d.ploshad_fakt ?? "",
+      fakt: Object.fromEntries(SORTIMENTY.map(([k]) => [k, d.fakt?.[k] ?? ""])),
+    })).catch(() => setData(null));
+  }, [row.id]);
+  if (!data) return null;
+  const set = (k) => (v) => setData((d) => ({ ...d, [k]: v }));
+  const save = async (next = data) => {
+    setSaving(true);
+    try {
+      const num = (v) => (v === "" || v == null ? null : Number(String(v).replace(",", ".")));
+      await api.put(`/inspection/${row.id}/storonnyaya`, {
+        storonnyaya: next.storonnyaya,
+        zagotovitel: next.zagotovitel || "",
+        spravka_nomer: next.spravka_nomer || "",
+        spravka_data: next.spravka_data || "",
+        ploshad_fakt: num(next.ploshad_fakt),
+        fakt: Object.fromEntries(SORTIMENTY.map(([k]) => [k, num(next.fakt[k])])),
+      });
+      toast.show({ tone: "success", title: next.storonnyaya ? "Справка заготовителя сохранена" : "Заготовка снова по нашим нарядам" });
+      onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const vsego = SORTIMENTY.reduce((s, [k]) => s + (Number(String(data.fakt[k]).replace(",", ".")) || 0), 0);
+  const limitVsego = SORTIMENTY.reduce((s, [k]) => s + (data.limity?.[k] || 0), 0);
+  return (
+    <div className="rounded-[10px] border border-border px-3.5 py-3 flex flex-col gap-3">
+      <label className="flex items-center gap-2 text-sm text-ink cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!data.storonnyaya}
+          onChange={(e) => {
+            const next = { ...data, storonnyaya: e.target.checked };
+            setData(next);
+            if (!e.target.checked) save(next);
+          }}
+          className="h-4 w-4 accent-pine"
+        />
+        <b>Заготовку ведёт сторонняя организация</b>
+        <span className="text-muted-2">— объёмы для акта из справки заготовителя, а не из наших нарядов</span>
+      </label>
+      {data.storonnyaya && (
+        <>
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(170px,1fr))]">
+            <TextField label="Заготовитель" value={data.zagotovitel || ""} onChange={(e) => set("zagotovitel")(e.target.value)} hint="пойдёт в акт как лесопользователь" />
+            <TextField label="Справка №" value={data.spravka_nomer || ""} onChange={(e) => set("spravka_nomer")(e.target.value)} />
+            <DateField label="Справка от" value={data.spravka_data || ""} onChange={set("spravka_data")} />
+            <TextField label="Площадь пройдена, га" type="number" step="0.01" value={data.ploshad_fakt} onChange={(e) => set("ploshad_fakt")(e.target.value)} />
+          </div>
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(120px,1fr))]">
+            {SORTIMENTY.map(([k, label]) => (
+              <TextField
+                key={k}
+                label={`${label}, м³`}
+                type="number"
+                step="0.01"
+                value={data.fakt[k]}
+                onChange={(e) => setData((d) => ({ ...d, fakt: { ...d.fakt, [k]: e.target.value } }))}
+                hint={`по билету ${data.limity?.[k] ?? 0}`}
+              />
+            ))}
+          </div>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-[12.5px] text-muted-2">
+              Всего по справке <b className="text-ink">{Math.round(vsego * 100) / 100} м³</b> из {Math.round(limitVsego * 100) / 100} по билету
+              {limitVsego ? ` (${Math.round((vsego / limitVsego) * 1000) / 10}%)` : ""}
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => save()} loading={saving}>Сохранить справку</Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function InspectionDetail({ row, onChanged }) {
   const toast = useToast();
   const [srokZagotovki, setSrokZagotovki] = useState(row.srok_okonchaniya_zagotovki || "");
@@ -837,7 +929,9 @@ function InspectionDetail({ row, onChanged }) {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h2 className="font-ui font-extrabold text-pine" style={{ fontSize: 16 }}>{row.nazvanie || `Делянка №${row.id}`}</h2>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="secondary" size="sm" onClick={() => setSpravkaModalOpen(true)}>Справка об объёмах</Button>
+            {!row.storonnyaya && (
+              <Button variant="secondary" size="sm" onClick={() => setSpravkaModalOpen(true)}>Справка об объёмах</Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => setManualOpen(true)} title="Акт составлен на бумаге или в Word — отметить его здесь">Отметить акт вручную</Button>
             <Button variant="primary" size="sm" onClick={() => setActModalOpen(true)}>Акт освидетельствования</Button>
           </div>
@@ -863,6 +957,8 @@ function InspectionDetail({ row, onChanged }) {
             <Button variant="primary" size="sm" onClick={() => smenitStatus("zakryt")} loading={statusBusy}>Закрыть делянку</Button>
           </div>
         ) : null}
+
+        <StoronnyayaBlock row={row} onChanged={onChanged} />
 
         <div>
           <div className="text-[12.5px] text-muted-2 mb-1.5">
@@ -1130,6 +1226,7 @@ export default function Inspection() {
                     <StatusBadge tone={tone} label={srokLabel} />
                   </div>
                   <span className="font-mono text-[10.5px] text-faint">
+                    {r.storonnyaya && <span className="text-oak font-semibold">рубит {r.storonnyaya.zagotovitel || "сторонний"} · </span>}
                     заготовка {r.srok_okonchaniya_zagotovki || "—"} · вывозка {r.srok_okonchaniya_vyvozki || "—"}
                   </span>
                   <span className="font-mono text-[10.5px] text-muted-2" title="Площадь делянки (МДО) и сумма площадей нарядов">
@@ -1148,7 +1245,9 @@ export default function Inspection() {
                   </span>
                   <span className="font-mono text-[10.5px] text-muted-2">
                     <span className={r.osvoenie_level === "pererub" ? "text-error font-semibold" : r.osvoenie_level === "vnimanie" || r.osvoenie_level === "preduprezhdenie" ? "text-oak font-semibold" : ""}>
-                      {r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% по нарядам` : "— % по нарядам"}
+                      {r.storonnyaya
+                        ? (r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% по справке` : "справки заготовителя нет")
+                        : r.pct_osvoeniya_limita != null ? `${r.pct_osvoeniya_limita}% по нарядам` : "— % по нарядам"}
                     </span>
                     {r.pct_osvoeniya_egais != null && (
                       <span title="Для сверки: в акт идут данные нарядов"> (ЕГАИС {r.pct_osvoeniya_egais}%)</span>
