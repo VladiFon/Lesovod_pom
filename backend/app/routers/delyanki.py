@@ -202,6 +202,11 @@ def archive_delyanka(delyanka_id: int, user=Depends(require_permission("delyanka
 class ActivateDelyankaIn(BaseModel):
     nomer_lesorubochnogo_bileta: str
     data_lesorubochnogo_bileta: str
+    # Сроки окончания заготовки/вывозки — переписываются из того же
+    # лесорубочного билета прямо при активации (2026-11-02), чтобы не
+    # вбивать их потом отдельно в Инспекции. Пустые — не трогаем.
+    srok_zagotovki: Optional[str] = None
+    srok_vyvozki: Optional[str] = None
 
 
 @router.post("/{delyanka_id}/activate")
@@ -219,6 +224,11 @@ def activate_delyanka(delyanka_id: int, body: ActivateDelyankaIn,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
+    if (body.srok_zagotovki or "").strip() or (body.srok_vyvozki or "").strip():
+        old_zag, old_vyv = legacy_db.get_delyanka_sroki(conn, delyanka_id)
+        legacy_db.set_delyanka_sroki(conn, delyanka_id,
+                                     (body.srok_zagotovki or "").strip() or old_zag,
+                                     (body.srok_vyvozki or "").strip() or old_vyv)
     webext.touch_updated_by(conn, "delyanka", delyanka_id, user["login"])
     return {"ok": True}
 

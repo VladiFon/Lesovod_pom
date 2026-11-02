@@ -3,6 +3,7 @@ import { api, API_BASE_URL } from "../api/client.js";
 import { pollTask } from "../hooks/useTaskPolling.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
+import DateField from "../components/DateField.jsx";
 import TextField from "../components/TextField.jsx";
 import TextAreaField from "../components/TextAreaField.jsx";
 import DataTable from "../components/DataTable.jsx";
@@ -452,18 +453,23 @@ function ImportMdoModal({ open, onClose, onImported }) {
  * лесорубочного билета обязательны — без них backend откажет (400) — и они
  * же потом сами подставляются в Акт освидетельствования (генератор читает
  * их прямо с делянки, отдельно вводить в Inspection не нужно). */
-function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initialNomer, initialData }) {
+function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initialNomer, initialData,
+  initialSrokZagotovki, initialSrokVyvozki, uzheAktivna }) {
   const toast = useToast();
   const [nomer, setNomer] = useState("");
   const [data, setData] = useState("");
+  const [srokZag, setSrokZag] = useState("");
+  const [srokVyv, setSrokVyv] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
       setNomer(initialNomer || "");
       setData(initialData || "");
+      setSrokZag(initialSrokZagotovki || "");
+      setSrokVyv(initialSrokVyvozki || "");
     }
-  }, [open, initialNomer, initialData]);
+  }, [open, initialNomer, initialData, initialSrokZagotovki, initialSrokVyvozki]);
 
   const canSave = nomer.trim() !== "" && data.trim() !== "";
 
@@ -479,8 +485,10 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
       await api.post(`/delyanki/${delyankaId}/activate`, {
         nomer_lesorubochnogo_bileta: nomer.trim(),
         data_lesorubochnogo_bileta: data.trim(),
+        srok_zagotovki: srokZag,
+        srok_vyvozki: srokVyv,
       });
-      toast.show({ tone: "success", title: "Делянка активирована" });
+      toast.show({ tone: "success", title: uzheAktivna ? "Билет и сроки сохранены" : "Делянка активирована" });
       onActivated();
       onClose();
     } catch (e) {
@@ -494,7 +502,7 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
     <Modal
       open={open}
       onClose={handleClose}
-      title="Сделать активной"
+      title={uzheAktivna ? "Лесорубочный билет и сроки" : "Сделать активной"}
       size="sm"
       footer={
         <>
@@ -508,10 +516,12 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
       }
     >
       <div className="flex flex-col gap-4">
-        <p className="text-base text-ink">
-          Делянка станет активной и появится в расходе и актах освидетельствования. Укажите номер и дату
-          лесорубочного билета — оба поля обязательны.
-        </p>
+        {!uzheAktivna && (
+          <p className="text-base text-ink">
+            Делянка станет активной и появится в расходе и актах освидетельствования. Укажите номер и дату
+            лесорубочного билета — оба поля обязательны.
+          </p>
+        )}
         <TextField label="№ лесорубочного билета" value={nomer} onChange={(e) => setNomer(e.target.value)} />
         <TextField
           label="Дата лесорубочного билета"
@@ -519,6 +529,11 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
           value={data}
           onChange={(e) => setData(normalizeDateInput(e.target.value))}
         />
+        <p className="text-[12.5px] text-muted-2 -mb-2">Сроки из билета — по ним Инспекция считает срок акта и шлёт напоминания:</p>
+        <div className="grid grid-cols-2 gap-3">
+          <DateField label="Окончание заготовки" value={srokZag} onChange={setSrokZag} />
+          <DateField label="Окончание вывозки" value={srokVyv} onChange={setSrokVyv} />
+        </div>
       </div>
     </Modal>
   );
@@ -925,6 +940,11 @@ function PlotDetail({ delyankaId, onListChanged }) {
             <Button variant="ghost" size="sm" onClick={() => openScreen("inspection", { d: delyanka.id })}>
               🔍 Инспекция
             </Button>
+            {delyanka.status === "активна" && can("delyanka.edit") && (
+              <Button variant="ghost" size="sm" disabled={busyAction !== null} onClick={() => setActivateModalOpen(true)}>
+                Билет и сроки
+              </Button>
+            )}
             {delyanka.status !== "активна" && can("delyanka.edit") && (
               <Button
                 variant="primary"
@@ -976,6 +996,9 @@ function PlotDetail({ delyankaId, onListChanged }) {
           delyankaId={delyankaId}
           initialNomer={delyanka.nomer_lesorubochnogo_bileta}
           initialData={delyanka.data_lesorubochnogo_bileta}
+          initialSrokZagotovki={delyanka.srok_okonchaniya_zagotovki}
+          initialSrokVyvozki={delyanka.srok_okonchaniya_vyvozki}
+          uzheAktivna={delyanka.status === "активна"}
         />
 
         {items.length > 0 && (

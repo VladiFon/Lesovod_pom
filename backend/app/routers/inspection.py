@@ -69,15 +69,10 @@ def _parse_date(value: Optional[str]):
 PLOSHAD_ZAKRYTA_DOPUSK = 0.01
 
 
-def _plus_mesyats(dt: datetime) -> datetime:
-    """Та же дата через календарный месяц (31.01 → 28/29.02)."""
-    year, month = (dt.year + 1, 1) if dt.month == 12 else (dt.year, dt.month + 1)
-    for day in (dt.day, 30, 29, 28):
-        try:
-            return dt.replace(year=year, month=month, day=day)
-        except ValueError:
-            continue
-    return dt
+# Срок акта после закрытия площади — в днях, как и от вывозки (+30),
+# чтобы оба срока считались одинаково (решение Влада, 2026-11-02; раньше
+# тут был календарный месяц).
+SROK_AKTA_DNEY = 30
 
 
 def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
@@ -86,7 +81,7 @@ def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
     Площадь делянки — сумма delyanka_item.ploshad (из МДО), освоено — сумма
     raskhod_naryad.ploshad по всем выделам делянки. Площадь «закрыта» в
     дату наряда, на котором нарастающий итог дошёл до площади делянки; с
-    этой даты есть месяц, чтобы составить акт освидетельствования. Акт,
+    этой даты есть SROK_AKTA_DNEY дней, чтобы составить акт освидетельствования. Акт,
     датированный не раньше закрытия, этот срок снимает."""
     ids = [d["id"] for d in delyanki]
     naryady = {}
@@ -125,7 +120,7 @@ def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
                     break
             if zakryta:
                 res["ploshad_zakryta"] = zakryta.strftime("%d.%m.%Y")
-                res["akt_po_ploshadi_do"] = _plus_mesyats(zakryta).strftime("%d.%m.%Y")
+                res["akt_po_ploshadi_do"] = (zakryta + timedelta(days=SROK_AKTA_DNEY)).strftime("%d.%m.%Y")
                 for a in acts_by_d.get(d["id"], []):
                     adt = _parse_date((a.get("act_date") or "").strip()) or _parse_date(
                         str(a.get("created_at") or "")[:10])
@@ -179,6 +174,17 @@ def list_inspection(conn=Depends(get_conn)):
     # поэтому и % освоения в списке — по нарядам, чтобы цифра в списке
     # совпадала с цифрой в акте. % по ЕГАИС отдаём рядом для сверки.
     osvoenie = raskhod_v2.compute_osvoenie_batch(conn, ids)
+    bilety = {}
+    if ids:
+        ph = ",".join("?" * len(ids))
+        for did, nomer, data in conn.execute(
+            f"SELECT id, nomer_lesorubochnogo_bileta, data_lesorubochnogo_bileta FROM delyanka WHERE id IN ({ph})", ids
+        ).fetchall():
+            dt = str(data or "")
+            bilety[did] = {
+                "nomer_lesorubochnogo_bileta": nomer,
+                "data_lesorubochnogo_bileta": f"{dt[8:10]}.{dt[5:7]}.{dt[:4]}" if len(dt) == 10 and dt[4] == "-" else dt or None,
+            }
     ploshadi = _ploshad_po_naryadam(conn, delyanki, raskhod_v2.get_delyanka_items_batch(conn, ids), acts)
 
     result = []
@@ -190,11 +196,12 @@ def list_inspection(conn=Depends(get_conn)):
         deadline = None
         vyvozka_dt = _parse_date(srok_vyvozki)
         if vyvozka_dt:
-            deadline = (vyvozka_dt + timedelta(days=30)).strftime("%d.%m.%Y")
+            deadline = (vyvozka_dt + timedelta(days=SROK_AKTA_DNEY)).strftime("%d.%m.%Y")
 
         result.append({
             **d,
             "zakryta": d.get("status") == "архив",
+            **bilety.get(d["id"], {}),
             "srok_okonchaniya_zagotovki": srok_zagotovki,
             "srok_okonchaniya_vyvozki": srok_vyvozki,
             "srok_osvidetelstvovaniya": deadline,

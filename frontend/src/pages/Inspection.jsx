@@ -9,6 +9,7 @@ import DataTable from "../components/DataTable.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
+import DateField from "../components/DateField.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { useScreenParam } from "../nav.js";
 
@@ -109,7 +110,7 @@ function parseRuDate(value) {
 
 const URGENT_SOON_DAYS = 7;
 
-/** Какой срок акта сейчас главный. Площадь по нарядам закрыта — месяц на
+/** Какой срок акта сейчас главный. Площадь по нарядам закрыта — 30 дней на
  * акт с даты закрытия (akt_po_ploshadi_do). Иначе — старый срок от
  * окончания вывозки (srok_osvidetelstvovaniya). Если акт уже есть (любой,
  * см. osvidetelstvovana в inspection.py), срок не важен — делянка
@@ -214,10 +215,17 @@ function Section({ title, children }) {
   );
 }
 
+// Форма акта по шагам (вместо одной простыни на 30+ полей). Сформировать
+// можно с любого шага — всё, что не трогали, подставлено из делянки,
+// нарядов и прошлого акта.
+const SHAGI_AKTA = ["Акт и площадь", "Комиссия", "Подрост и нарушения", "Заключение"];
+
 function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsChanged }) {
   const toast = useToast();
   const [form, setForm] = useState(emptyActForm());
   const [zakrytPosle, setZakrytPosle] = useState(true);
+  const [shag, setShag] = useState(0);
+  const setDate = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));
   const [submitting, setSubmitting] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [draftPresetName, setDraftPresetName] = useState(null);
@@ -227,6 +235,7 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
     if (open) {
       setForm(emptyActForm());
       setZakrytPosle(true);
+      setShag(0);
       setSelectedPreset("");
       setDraftPresetName(null);
       // Всё, что уже известно (билет, площадь, вид рубки, комиссия
@@ -358,7 +367,9 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
             Закрыть делянку после акта
           </label>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>Отмена</Button>
-          <Button variant="primary" onClick={handleSubmit} loading={submitting}>Сформировать акт</Button>
+          {shag > 0 && <Button variant="secondary" onClick={() => setShag(shag - 1)} disabled={submitting}>← Назад</Button>}
+          {shag < SHAGI_AKTA.length - 1 && <Button variant="secondary" onClick={() => setShag(shag + 1)}>Далее →</Button>}
+          <Button variant={shag === SHAGI_AKTA.length - 1 ? "primary" : "ghost"} onClick={handleSubmit} loading={submitting}>Сформировать акт</Button>
         </>
       }
     >
@@ -447,89 +458,116 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
           )}
         </div>
 
-        <Section title="Общие сведения">
-          <div className="grid grid-cols-3 gap-3">
-            <TextField label="Дата акта" placeholder="ДД.ММ.ГГГГ" value={form.act_date} onChange={setField("act_date")} />
-            <TextField label="Область" value={form.oblast} onChange={setField("oblast")} />
-            <TextField label="Район" value={form.rayon} onChange={setField("rayon")} />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <TextField label="№ основания рубки" value={form.osnovanie_nomer} onChange={setField("osnovanie_nomer")} />
-            <TextField label="Дата основания" placeholder="ДД.ММ.ГГГГ" value={form.osnovanie_data} onChange={setField("osnovanie_data")} />
-            <TextField label="Дата извещения" placeholder="ДД.ММ.ГГГГ" value={form.izveshchenie_data} onChange={setField("izveshchenie_data")} />
-          </div>
-        </Section>
+        <div className="flex gap-1.5 flex-wrap">
+          {SHAGI_AKTA.map((t, i) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setShag(i)}
+              className={[
+                "px-3 h-8 rounded-full border text-[12.5px] font-semibold transition-colors",
+                shag === i ? "bg-pine text-white border-pine" : "bg-surface text-ink border-border hover:bg-hover",
+              ].join(" ")}
+            >
+              {i + 1}. {t}
+            </button>
+          ))}
+        </div>
 
-        <Section title="Комиссия">
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label="Председатель, должность" value={form.predsedatel_dolzhnost} onChange={setField("predsedatel_dolzhnost")} />
-            <TextField label="Председатель, ФИО" value={form.predsedatel_fio} onChange={setField("predsedatel_fio")} />
-          </div>
-          <TextAreaField label="Члены комиссии" rows={2} value={form.chleny_text} onChange={setField("chleny_text")} hint="По одному на строку: Должность; ФИО" />
-        </Section>
+        {shag === 0 && (
+          <>
+            <Section title="Акт и основание">
+              <div className="grid grid-cols-3 gap-3">
+                <DateField label="Дата акта" value={form.act_date} onChange={setDate("act_date")} />
+                <TextField label="№ основания рубки" value={form.osnovanie_nomer} onChange={setField("osnovanie_nomer")} />
+                <DateField label="Дата основания" value={form.osnovanie_data} onChange={setDate("osnovanie_data")} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <DateField label="Дата извещения" value={form.izveshchenie_data} onChange={setDate("izveshchenie_data")} />
+                <TextField label="Вид освидетельствования" value={form.vid_osvidetelstvovaniya} onChange={setField("vid_osvidetelstvovaniya")} />
+                <TextField label="Способ рубки" value={form.sposob_rubki} onChange={setField("sposob_rubki")} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <TextField label="Способ учёта" value={form.sposob_ucheta} onChange={setField("sposob_ucheta")} />
+                <TextField label="Способ очистки" value={form.sposob_ochistki} onChange={setField("sposob_ochistki")} />
+              </div>
+            </Section>
+            <Section title="Площадь, га">
+              <div className="grid grid-cols-3 gap-3">
+                <TextField label="Разрешено" type="number" step="0.01" value={form.ploshad_razresheno} onChange={setField("ploshad_razresheno")} />
+                <TextField label="Фактически" type="number" step="0.01" value={form.ploshad_fakt} onChange={setField("ploshad_fakt")} hint="по нарядам" />
+                <TextField label="Не вывезено" type="number" step="0.01" value={form.ploshad_nevyvezeno} onChange={setField("ploshad_nevyvezeno")} />
+              </div>
+            </Section>
+          </>
+        )}
 
-        <Section title="Представители">
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label="Лесхоз, должность" value={form.predstavitel_lesxoza_dolzhnost} onChange={setField("predstavitel_lesxoza_dolzhnost")} />
-            <TextField label="Лесхоз, ФИО" value={form.predstavitel_lesxoza_fio} onChange={setField("predstavitel_lesxoza_fio")} />
-          </div>
-          <TextField label="Лесопользователь, организация" value={form.predstavitel_lesopolz_organizatsiya} onChange={setField("predstavitel_lesopolz_organizatsiya")} />
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label="Лесопользователь, должность" value={form.predstavitel_lesopolz_dolzhnost} onChange={setField("predstavitel_lesopolz_dolzhnost")} />
-            <TextField label="Лесопользователь, ФИО" value={form.predstavitel_lesopolz_fio} onChange={setField("predstavitel_lesopolz_fio")} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label="Подписант от лесопольз., должность" value={form.predstavitel_lesopolzovaniya_dolzhnost} onChange={setField("predstavitel_lesopolzovaniya_dolzhnost")} />
-            <TextField label="Подписант от лесопольз., ФИО" value={form.predstavitel_lesopolzovaniya_fio} onChange={setField("predstavitel_lesopolzovaniya_fio")} />
-          </div>
-        </Section>
+        {shag === 1 && (
+          <>
+            <Section title="Комиссия">
+              <div className="grid grid-cols-2 gap-3">
+                <TextField label="Председатель, должность" value={form.predsedatel_dolzhnost} onChange={setField("predsedatel_dolzhnost")} />
+                <TextField label="Председатель, ФИО" value={form.predsedatel_fio} onChange={setField("predsedatel_fio")} />
+              </div>
+              <TextAreaField label="Члены комиссии" rows={2} value={form.chleny_text} onChange={setField("chleny_text")} hint="По одному на строку: Должность; ФИО" />
+              <TextAreaField label="Другие лица" rows={2} value={form.drugie_litsa_text} onChange={setField("drugie_litsa_text")} hint="По одному на строку: Должность; ФИО" />
+            </Section>
+            {/* Эти поля из акта в акт почти не меняются и подставляются из
+                прошлого акта / пресета — свёрнуты, чтобы не мозолили глаза. */}
+            <details className="rounded-[10px] border border-border px-3.5 py-2.5">
+              <summary className="cursor-pointer text-sm font-semibold text-ink">
+                Постоянные поля
+                <span className="font-normal text-muted-2">
+                  {" "}— {[form.oblast, form.rayon, form.predstavitel_lesopolz_organizatsiya, form.rukovoditel_fio].filter(Boolean).join(", ") || "не заполнены — раскройте"}
+                </span>
+              </summary>
+              <div className="flex flex-col gap-3 mt-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <TextField label="Область" value={form.oblast} onChange={setField("oblast")} />
+                  <TextField label="Район" value={form.rayon} onChange={setField("rayon")} />
+                  <TextField label="Лесхоз, должность" value={form.predstavitel_lesxoza_dolzhnost} onChange={setField("predstavitel_lesxoza_dolzhnost")} />
+                  <TextField label="Лесхоз, ФИО" value={form.predstavitel_lesxoza_fio} onChange={setField("predstavitel_lesxoza_fio")} />
+                </div>
+                <TextField label="Лесопользователь, организация" value={form.predstavitel_lesopolz_organizatsiya} onChange={setField("predstavitel_lesopolz_organizatsiya")} />
+                <div className="grid grid-cols-2 gap-3">
+                  <TextField label="Лесопользователь, должность" value={form.predstavitel_lesopolz_dolzhnost} onChange={setField("predstavitel_lesopolz_dolzhnost")} />
+                  <TextField label="Лесопользователь, ФИО" value={form.predstavitel_lesopolz_fio} onChange={setField("predstavitel_lesopolz_fio")} />
+                  <TextField label="Подписант от лесопольз., должность" value={form.predstavitel_lesopolzovaniya_dolzhnost} onChange={setField("predstavitel_lesopolzovaniya_dolzhnost")} />
+                  <TextField label="Подписант от лесопольз., ФИО" value={form.predstavitel_lesopolzovaniya_fio} onChange={setField("predstavitel_lesopolzovaniya_fio")} />
+                  <TextField label="Руководитель, должность" value={form.rukovoditel_dolzhnost} onChange={setField("rukovoditel_dolzhnost")} />
+                  <TextField label="Руководитель, ФИО" value={form.rukovoditel_fio} onChange={setField("rukovoditel_fio")} />
+                </div>
+              </div>
+            </details>
+          </>
+        )}
 
-        <Section title="Способы">
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label="Вид освидетельствования" value={form.vid_osvidetelstvovaniya} onChange={setField("vid_osvidetelstvovaniya")} />
-            <TextField label="Способ рубки" value={form.sposob_rubki} onChange={setField("sposob_rubki")} />
-            <TextField label="Способ учёта" value={form.sposob_ucheta} onChange={setField("sposob_ucheta")} />
-            <TextField label="Способ очистки" value={form.sposob_ochistki} onChange={setField("sposob_ochistki")} />
-          </div>
-        </Section>
+        {shag === 2 && (
+          <>
+            <Section title="Подрост">
+              <div className="grid grid-cols-2 gap-3">
+                <TextField label="Площадь, га" type="number" step="0.01" value={form.podrost_ploshad_ga} onChange={setField("podrost_ploshad_ga")} />
+                <TextField label="Площадь, %" type="number" step="0.1" value={form.podrost_ploshad_protsent} onChange={setField("podrost_ploshad_protsent")} />
+                <TextField label="Количество, тыс. шт/га" type="number" step="0.1" value={form.podrost_kolichestvo_tys} onChange={setField("podrost_kolichestvo_tys")} />
+                <TextField label="Количество, %" type="number" step="0.1" value={form.podrost_kolichestvo_protsent} onChange={setField("podrost_kolichestvo_protsent")} />
+              </div>
+              <TextAreaField label="Характеристика подроста" rows={2} value={form.harakteristika_podrosta} onChange={setField("harakteristika_podrosta")} />
+            </Section>
+            <Section title="Нарушения">
+              <TextAreaField label="Выявленные нарушения" rows={2} value={form.narusheniya_text} onChange={setField("narusheniya_text")} hint="По одному на строку: Вид нарушения; Количество" />
+            </Section>
+          </>
+        )}
 
-        <Section title="Площадь, га">
-          <div className="grid grid-cols-3 gap-3">
-            <TextField label="Разрешено" type="number" step="0.01" value={form.ploshad_razresheno} onChange={setField("ploshad_razresheno")} />
-            <TextField label="Фактически" type="number" step="0.01" value={form.ploshad_fakt} onChange={setField("ploshad_fakt")} />
-            <TextField label="Не вывезено" type="number" step="0.01" value={form.ploshad_nevyvezeno} onChange={setField("ploshad_nevyvezeno")} />
-          </div>
-        </Section>
-
-        <Section title="Подрост">
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label="Площадь, га" type="number" step="0.01" value={form.podrost_ploshad_ga} onChange={setField("podrost_ploshad_ga")} />
-            <TextField label="Площадь, %" type="number" step="0.1" value={form.podrost_ploshad_protsent} onChange={setField("podrost_ploshad_protsent")} />
-            <TextField label="Количество, тыс. шт/га" type="number" step="0.1" value={form.podrost_kolichestvo_tys} onChange={setField("podrost_kolichestvo_tys")} />
-            <TextField label="Количество, %" type="number" step="0.1" value={form.podrost_kolichestvo_protsent} onChange={setField("podrost_kolichestvo_protsent")} />
-          </div>
-          <TextAreaField label="Характеристика подроста" rows={2} value={form.harakteristika_podrosta} onChange={setField("harakteristika_podrosta")} />
-        </Section>
-
-        <Section title="Нарушения">
-          <TextAreaField label="Выявленные нарушения" rows={2} value={form.narusheniya_text} onChange={setField("narusheniya_text")} hint="По одному на строку: Вид нарушения; Количество" />
-        </Section>
-
-        <Section title="Качество, заявления, заключение">
-          <TextAreaField label="Качество рубок" rows={2} value={form.kachestvo_rubok} onChange={setField("kachestvo_rubok")} />
-          <TextAreaField label="Заявления лесопользователя" rows={2} value={form.zayavleniya_lesopolzovatelya} onChange={setField("zayavleniya_lesopolzovatelya")} />
-          <TextAreaField label="Заявления других лиц" rows={2} value={form.zayavleniya_drugih} onChange={setField("zayavleniya_drugih")} />
-          <TextField label="Приложение №4" value={form.prilozhenie_4} onChange={setField("prilozhenie_4")} />
-          <TextAreaField label="Заключение" rows={2} value={form.zaklyuchenie} onChange={setField("zaklyuchenie")} />
-        </Section>
-
-        <Section title="Прочее">
-          <TextAreaField label="Другие лица" rows={2} value={form.drugie_litsa_text} onChange={setField("drugie_litsa_text")} hint="По одному на строку: Должность; ФИО" />
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label="Руководитель, должность" value={form.rukovoditel_dolzhnost} onChange={setField("rukovoditel_dolzhnost")} />
-            <TextField label="Руководитель, ФИО" value={form.rukovoditel_fio} onChange={setField("rukovoditel_fio")} />
-          </div>
-        </Section>
+        {shag === 3 && (
+          <Section title="Качество, заявления, заключение">
+            <TextAreaField label="Качество рубок" rows={2} value={form.kachestvo_rubok} onChange={setField("kachestvo_rubok")} />
+            <TextAreaField label="Заявления лесопользователя" rows={2} value={form.zayavleniya_lesopolzovatelya} onChange={setField("zayavleniya_lesopolzovatelya")} />
+            <TextAreaField label="Заявления других лиц" rows={2} value={form.zayavleniya_drugih} onChange={setField("zayavleniya_drugih")} />
+            <TextField label="Приложение №4" value={form.prilozhenie_4} onChange={setField("prilozhenie_4")} />
+            <TextAreaField label="Заключение" rows={2} value={form.zaklyuchenie} onChange={setField("zaklyuchenie")} />
+          </Section>
+        )}
       </div>
     </Modal>
   );
@@ -648,7 +686,7 @@ function ManualActModal({ open, onClose, delyankaId, onSaved }) {
       }
     >
       <div className="flex flex-col gap-3">
-        <TextField label="Дата акта" placeholder="ДД.ММ.ГГГГ" value={actDate} onChange={(e) => setActDate(e.target.value)} />
+        <DateField label="Дата акта" value={actDate} onChange={setActDate} />
         <div>
           <label className="block text-xs font-semibold tracking-wide text-muted-2 uppercase mb-1.5">Файл акта (необязательно)</label>
           <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-sm" />
@@ -817,10 +855,19 @@ function InspectionDetail({ row, onChanged }) {
           </div>
         ) : null}
 
-        <div className="grid gap-3.5 items-end grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
-          <TextField label="Срок окончания заготовки" placeholder="ДД.ММ.ГГГГ" value={srokZagotovki} onChange={(e) => setSrokZagotovki(e.target.value)} />
-          <TextField label="Срок окончания вывозки" placeholder="ДД.ММ.ГГГГ" value={srokVyvozki} onChange={(e) => setSrokVyvozki(e.target.value)} />
-          <Button variant="secondary" onClick={handleSaveSroki} loading={savingSroki}>Сохранить сроки</Button>
+        <div>
+          <div className="text-[12.5px] text-muted-2 mb-1.5">
+            Лесорубочный билет{" "}
+            {row.nomer_lesorubochnogo_bileta ? (
+              <b className="text-ink">№ {row.nomer_lesorubochnogo_bileta}{row.data_lesorubochnogo_bileta ? ` от ${row.data_lesorubochnogo_bileta}` : ""}</b>
+            ) : "не внесён"}
+            {!srokZagotovki && !srokVyvozki && " — сроки заготовки и вывозки перепишите из билета (их можно внести и сразу при активации делянки)."}
+          </div>
+          <div className="grid gap-3.5 items-end grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
+            <DateField label="Срок окончания заготовки" value={srokZagotovki} onChange={setSrokZagotovki} />
+            <DateField label="Срок окончания вывозки" value={srokVyvozki} onChange={setSrokVyvozki} />
+            <Button variant="secondary" onClick={handleSaveSroki} loading={savingSroki}>Сохранить сроки</Button>
+          </div>
         </div>
 
         <div>
