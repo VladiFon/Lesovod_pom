@@ -446,10 +446,13 @@ def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = 
         }
         if geom:
             try:
-                own.append({"type": "Feature", "geometry": json.loads(geom), "properties": props})
+                own.append({"type": "Feature", "geometry": json.loads(geom),
+                            "properties": {**props, "has_kontur": True}})
                 continue
             except (TypeError, ValueError):
                 pass
+        # без своего контура — полигон всего выдела; плагин не считает его площадью делянки
+        props["has_kontur"] = False
         wanted.setdefault((num, props["kvartal"], props["vydel"]), []).append(props)
     result = _vydel_polygons(lesnichestvo_num, wanted) if wanted else {"type": "FeatureCollection", "features": []}
     result["features"].extend(own)
