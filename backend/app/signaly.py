@@ -104,13 +104,21 @@ def proverit_sroki(conn, segodnya=None):
         "SELECT id, nazvanie, srok_okonchaniya_zagotovki, srok_okonchaniya_vyvozki "
         "FROM delyanka WHERE status = 'активна'"
     ).fetchall()
+    # Делянки, на которые акт освидетельствования уже есть, — про сроки
+    # освидетельствования не напоминаем (раньше колокольчик звенел
+    # «просрочено», хотя акт давно составлен).
+    try:
+        s_aktom = {r[0] for r in conn.execute("SELECT DISTINCT delyanka_id FROM osvidetelstvovanie_acts")}
+    except Exception:  # noqa: BLE001 — старая база без таблицы актов
+        s_aktom = set()
     sozdano = 0
     for did, nazvanie, zag, vyv in rows:
         vyv_d = _parse(vyv)
         sroki = [
             ("zagotovka", "окончание заготовки", _parse(zag)),
             ("vyvozka", "окончание вывозки", vyv_d),
-            ("osvid", "освидетельствование", vyv_d + timedelta(days=30) if vyv_d else None),
+            ("osvid", "освидетельствование",
+             vyv_d + timedelta(days=30) if vyv_d and did not in s_aktom else None),
         ]
         for kod, chto, srok in sroki:
             if srok is None:
