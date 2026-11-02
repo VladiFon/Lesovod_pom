@@ -33,6 +33,7 @@ osvidetelstvovanie_generator.py).
     в приложении такого поля на этом экране нет, редактируется вручную.
   - ФИО руководителя — передаётся явно как аргумент.
 """
+import re
 from pathlib import Path
 
 from spravka_template_fill import fill_spravka, PORODA_COL
@@ -75,6 +76,24 @@ def _fmt(value):
     if value == int(value):
         return str(int(value))
     return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _nomer_lesoseki(delyanka, items):
+    """«лесосека № …» в справке — только номер лесосеки («2»), а не всё
+    название делянки («кв.1, выд.1, №2»). Берём lesoseka_nomer выделов
+    (из МДО), иначе число после «№» в названии, иначе название как есть."""
+    nomera = []
+    for it in items or []:
+        cifry = re.findall(r"\d+", str(it.get("lesoseka_nomer") or ""))
+        if cifry:
+            n = cifry[0].lstrip("0") or "0"
+            if n not in nomera:
+                nomera.append(n)
+    if nomera:
+        return ", ".join(nomera)
+    nazv = str((delyanka or {}).get("nazvanie") or "")
+    m = re.search(r"№\s*(\d+)", nazv) or re.search(r"(?:лесосека|л\.)\s*(\d+)", nazv, re.I)
+    return m.group(1) if m else nazv
 
 
 def generate_spravka(
@@ -156,7 +175,7 @@ def generate_spravka(
         "bilet_day": bilet_day, "bilet_month": bilet_month, "bilet_year": bilet_year,
         "kvartal": kvartal_text, "vydel": vydel_text,
         "lesnichestvo": lesnichestvo,
-        "delyanka_nomer": d.get("nazvanie", ""),
+        "delyanka_nomer": _nomer_lesoseki(d, items),
         "ploshad_proydennaya": _fmt(ploshad_proydennaya or 0),
         "itogo_total": vsego_total, "itogo_by_poroda": vsego_by,
         "delovaya_total": delovaya_total, "delovaya_by_poroda": delovaya_by,

@@ -109,8 +109,10 @@ def fill_akt(template_path, data, output_path):
         if idx < len(chleny):
             set_cell_text(t0, row, 1, chleny[idx], align=WD_ALIGN_PARAGRAPH.LEFT)
 
-    # --- вид лесосеки (ГП/ССР/ВСР) — слово "лесосеки" уже напечатано в бланке ---
-    set_cell_text(t0, 34, 21, d.get("vid_lesoseki", ""))
+    # --- вид освидетельствования — ячейка сразу после напечатанного в
+    # бланке слова «лесосеки» (раньше туда шёл vid_lesoseki, которого нет
+    # в форме, и ячейка всегда оставалась пустой) ---
+    set_cell_text(t0, 34, 21, d.get("vid_osvidetelstvovaniya") or d.get("vid_lesoseki", ""))
 
     # --- квартал / выдел / билет / кому выдан ---
     set_cell_text(t0, 36, 5, d.get("kvartal", ""))
@@ -127,8 +129,10 @@ def fill_akt(template_path, data, output_path):
                   "измельчение и разбрасывание порубочных остатков на лесосеке"),
                   align=WD_ALIGN_PARAGRAPH.LEFT)
 
-    # --- сроки окончания заготовки/вывозки — в бланке нет линии для
-    # заполнения (только надпись), поэтому не печатаем поверх неё ---
+    # --- сроки окончания заготовки/вывозки (из билета, см. карточку
+    # делянки / Инспекцию) — ячейка справа от надписи ---
+    set_cell_text(t0, 42, 8, d.get("srok_zagotovki", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell_text(t0, 43, 8, d.get("srok_vyvozki", ""), align=WD_ALIGN_PARAGRAPH.LEFT)
 
     # --- таблица объёмов ---
     st = d.get("sortiment_totals") or {}
@@ -167,12 +171,12 @@ def fill_akt(template_path, data, output_path):
     chleny_low = d.get("chleny_podpisi") or chleny
     slots = [(32, 7, 13), (34, 0, 6)]
     for i, (row, dcol, fcol) in enumerate(slots):
-        if i < len(chleny_low):
-            # ожидаем строку "должность; ФИО" либо просто текст
-            val = chleny_low[i]
-            if isinstance(val, dict):
-                set_cell_text(t1, row, dcol, val.get("dolzhnost", ""))
-                set_cell_text(t1, row, fcol, val.get("fio", ""))
+        # В самом бланке в этих строках напечатаны чужие фамилии (образец) —
+        # пустой слот тоже чистим, иначе в акт попадал «Куц А.В.».
+        val = chleny_low[i] if i < len(chleny_low) else {}
+        if isinstance(val, dict):
+            set_cell_text(t1, row, dcol, val.get("dolzhnost", ""))
+            set_cell_text(t1, row, fcol, val.get("fio", ""))
     set_cell_text(t1, 36, 7, d.get("predstavitel_lesopolzovaniya_dolzhnost", ""))
     set_cell_text(t1, 36, 13, d.get("predstavitel_lesopolzovaniya_fio", ""))
 

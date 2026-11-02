@@ -70,6 +70,7 @@ function emptyActForm() {
   return {
     act_date: "", oblast: "", rayon: "",
     osnovanie_nomer: "", osnovanie_data: "", izveshchenie_data: "",
+    srok_zagotovki: "", srok_vyvozki: "",
     predsedatel_dolzhnost: "", predsedatel_fio: "", chleny_text: "",
     predstavitel_lesxoza_dolzhnost: "", predstavitel_lesxoza_fio: "",
     predstavitel_lesopolz_organizatsiya: "", predstavitel_lesopolz_dolzhnost: "", predstavitel_lesopolz_fio: "",
@@ -280,6 +281,8 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
       sposob_ochistki: p.sposob_ochistki || "",
       rukovoditel_dolzhnost: p.rukovoditel_dolzhnost || "",
       rukovoditel_fio: p.rukovoditel_fio || "",
+      osnovanie_nomer: p.osnovanie_nomer || "",
+      osnovanie_data: p.osnovanie_data || "",
   });
 
   // Сохранение/удаление пресетов (Блок 5, PLAN_DORABOTKI, п. "создание/
@@ -311,6 +314,8 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
           sposob_ochistki: form.sposob_ochistki || "",
           rukovoditel_dolzhnost: form.rukovoditel_dolzhnost || "",
           rukovoditel_fio: form.rukovoditel_fio || "",
+          osnovanie_nomer: form.osnovanie_nomer || "",
+          osnovanie_data: form.osnovanie_data || "",
         },
         { nazvanie }
       );
@@ -476,16 +481,16 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
 
         {shag === 0 && (
           <>
-            <Section title="Акт и основание">
+            <Section title="Акт">
               <div className="grid grid-cols-3 gap-3">
                 <DateField label="Дата акта" value={form.act_date} onChange={setDate("act_date")} />
-                <TextField label="№ основания рубки" value={form.osnovanie_nomer} onChange={setField("osnovanie_nomer")} />
-                <DateField label="Дата основания" value={form.osnovanie_data} onChange={setDate("osnovanie_data")} />
+                <DateField label="Дата извещения" value={form.izveshchenie_data} onChange={setDate("izveshchenie_data")} />
+                <TextField label="Вид освидетельствования" value={form.vid_osvidetelstvovaniya} onChange={setField("vid_osvidetelstvovaniya")} hint="печатается после слова «лесосеки»" />
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <DateField label="Дата извещения" value={form.izveshchenie_data} onChange={setDate("izveshchenie_data")} />
-                <TextField label="Вид освидетельствования" value={form.vid_osvidetelstvovaniya} onChange={setField("vid_osvidetelstvovaniya")} />
                 <TextField label="Способ рубки" value={form.sposob_rubki} onChange={setField("sposob_rubki")} />
+                <DateField label="Срок окончания заготовки" value={form.srok_zagotovki} onChange={setDate("srok_zagotovki")} />
+                <DateField label="Срок окончания вывозки" value={form.srok_vyvozki} onChange={setDate("srok_vyvozki")} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <TextField label="Способ учёта" value={form.sposob_ucheta} onChange={setField("sposob_ucheta")} />
@@ -529,6 +534,10 @@ function ActModal({ open, onClose, delyankaId, presets, onGenerated, onPresetsCh
                   <TextField label="Лесхоз, ФИО" value={form.predstavitel_lesxoza_fio} onChange={setField("predstavitel_lesxoza_fio")} />
                 </div>
                 <TextField label="Лесопользователь, организация" value={form.predstavitel_lesopolz_organizatsiya} onChange={setField("predstavitel_lesopolz_organizatsiya")} />
+                <div className="grid grid-cols-2 gap-3">
+                  <TextField label="Полномочие представителя лесопольз., №" value={form.osnovanie_nomer} onChange={setField("osnovanie_nomer")} hint="«действующего на основании полномочия … №» — не билет" />
+                  <DateField label="Полномочие, от" value={form.osnovanie_data} onChange={setDate("osnovanie_data")} />
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <TextField label="Лесопользователь, должность" value={form.predstavitel_lesopolz_dolzhnost} onChange={setField("predstavitel_lesopolz_dolzhnost")} />
                   <TextField label="Лесопользователь, ФИО" value={form.predstavitel_lesopolz_fio} onChange={setField("predstavitel_lesopolz_fio")} />

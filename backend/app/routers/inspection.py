@@ -318,12 +318,32 @@ def delete_checklist_item(item_id: int, user=Depends(require_permission("inspect
 # --------------------------------------------------------------------------- #
 #   Пресеты акта освидетельствования
 # --------------------------------------------------------------------------- #
+# Полномочие представителя лесопользователя (№ и дата) хранится в пресете
+# вместе с комиссией — столбцы добавляются здесь, чтобы не трогать схему
+# legacy db.py.
+_PRESET_EXTRA = ("osnovanie_nomer", "osnovanie_data")
+
+
+def _ensure_preset_extra(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(osvidetelstvovanie_komissiya_preset)").fetchall()}
+    for c in _PRESET_EXTRA:
+        if cols and c not in cols:
+            conn.execute(f"ALTER TABLE osvidetelstvovanie_komissiya_preset ADD COLUMN {c} TEXT")
+    conn.commit()
+
+
 @router.get("/presets")
 def list_presets(conn=Depends(get_conn)):
     """Пресеты акта + составы комиссий, сохранённые в карточке делянки
     (komissiya_preset): один общий справочник комиссий, а не отдельный
     на каждый документ (анализ удобства 01.10.2026)."""
     own = legacy_db.list_osvidetelstvovanie_presets(conn)
+    _ensure_preset_extra(conn)
+    extra = {r[0]: r[1:] for r in conn.execute(
+        f"SELECT nazvanie, {', '.join(_PRESET_EXTRA)} FROM osvidetelstvovanie_komissiya_preset").fetchall()}
+    for p in own:
+        for k, v in zip(_PRESET_EXTRA, extra.get(p["nazvanie"], ())):
+            p[k] = v or ""
     names = {p["nazvanie"] for p in own}
     for p in delyanka.list_komissiya_presets(conn):
         if p["nazvanie"] in names or not (p.get("predsedatel_fio") or p.get("chleny")):
@@ -358,18 +378,25 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
                   "predstavitel_lesopolz_organizatsiya", "predstavitel_lesopolz_dolzhnost",
                   "predstavitel_lesopolz_fio", "predstavitel_lesopolzovaniya_dolzhnost",
                   "predstavitel_lesopolzovaniya_fio", "sposob_ucheta", "sposob_ochistki",
-                  "vid_osvidetelstvovaniya"):
+                  "vid_osvidetelstvovaniya",
+                  # «действующего на основании полномочия … № … от …» —
+                  # полномочие представителя, а НЕ лесорубочный билет
+                  # (раньше сюда ошибочно шёл № и дата билета делянки).
+                  "osnovanie_nomer", "osnovanie_data",
+                  # Комиссия из прошлого акта — если в карточке делянки
+                  # своей нет (ниже карточка делянки её перекроет).
+                  "predsedatel_dolzhnost", "predsedatel_fio", "chleny"):
             if prev.get(k):
                 out[k] = prev[k]
     lesnichiy = legacy_db.get_app_login(conn) or {}
     if lesnichiy.get("fio"):
         out["predstavitel_lesxoza_fio"] = lesnichiy["fio"]
         out["predstavitel_lesxoza_dolzhnost"] = lesnichiy.get("dolzhnost") or "Лесничий"
-    if d.get("nomer_lesorubochnogo_bileta"):
-        out["osnovanie_nomer"] = d["nomer_lesorubochnogo_bileta"]
-    if d.get("data_lesorubochnogo_bileta"):
-        dt = str(d["data_lesorubochnogo_bileta"])
-        out["osnovanie_data"] = f"{dt[8:10]}.{dt[5:7]}.{dt[:4]}" if len(dt) == 10 and dt[4] == "-" else dt
+    # Сроки окончания заготовки/вывозки — из делянки (вносятся с билетом).
+    if d.get("srok_okonchaniya_zagotovki"):
+        out["srok_zagotovki"] = d["srok_okonchaniya_zagotovki"]
+    if d.get("srok_okonchaniya_vyvozki"):
+        out["srok_vyvozki"] = d["srok_okonchaniya_vyvozki"]
     ploshad = sum(float(it.get("ploshad") or 0) for it in items)
     if ploshad:
         out["ploshad_razresheno"] = str(round(ploshad, 2))
@@ -400,6 +427,11 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
         chleny = []
     if chleny:
         out["chleny"] = chleny
+    # Председатель для подписи: нет ни в карточке, ни в прошлом акте —
+    # лесничий (тот же, что «Мы, нижеподписавшиеся»).
+    if not out.get("predsedatel_fio") and out.get("predstavitel_lesxoza_fio"):
+        out["predsedatel_fio"] = out["predstavitel_lesxoza_fio"]
+        out["predsedatel_dolzhnost"] = out.get("predsedatel_dolzhnost") or out.get("predstavitel_lesxoza_dolzhnost", "")
     if d.get("podrost_ploshad"):
         out["podrost_ploshad_ga"] = str(d["podrost_ploshad"])
     if d.get("podrost_tys_sht"):
@@ -410,6 +442,7 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
 @router.post("/presets")
 def save_preset(nazvanie: str, fields: Dict[str, Any], user=Depends(require_permission("inspection.edit")),
                  conn=Depends(get_conn)):
+    extra = {k: fields.pop(k, "") or "" for k in _PRESET_EXTRA}
     legacy_db.save_osvidetelstvovanie_preset(
         conn, nazvanie,
         predsedatel_dolzhnost=fields.pop("predsedatel_dolzhnost", ""),
@@ -417,6 +450,11 @@ def save_preset(nazvanie: str, fields: Dict[str, Any], user=Depends(require_perm
         chleny=fields.pop("chleny", []),
         **fields,
     )
+    _ensure_preset_extra(conn)
+    conn.execute(
+        f"UPDATE osvidetelstvovanie_komissiya_preset SET {', '.join(f'{k}=?' for k in _PRESET_EXTRA)} WHERE nazvanie=?",
+        (*extra.values(), nazvanie.strip()))
+    conn.commit()
     return {"ok": True}
 
 
