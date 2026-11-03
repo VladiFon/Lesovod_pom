@@ -1496,7 +1496,14 @@ SKLAD_HOW_IGNORED = "ignored"      # лесничий отметил "не на�
 SKLAD_HOW_AMBIGUOUS = "ambiguous"  # подходит несколько выделов
 SKLAD_HOW_CONFLICT = "conflict"    # один кандидат, но номер лесосеки другой
 SKLAD_HOW_NONE = "none"            # ни одного подходящего выдела
-SKLAD_HOWS_PROBLEM = (SKLAD_HOW_AMBIGUOUS, SKLAD_HOW_CONFLICT, SKLAD_HOW_NONE)
+# Выбран автоматически, но ТОЛЬКО потому, что другая подходящая делянка
+# закрыта (не 'активна'). Объём учитывается (как auto), но склад просится
+# на проверку: так объёмы закрытой делянки могли молча уехать в новую
+# делянку того же квартала/выдела (анализ 03.11.2026, Б1). Пропадает,
+# когда склад привязан вручную — в т.ч. заморозкой при закрытии делянки
+# (zamorozit_sklady_delyanki).
+SKLAD_HOW_AUTO_STATUS = "auto_status"
+SKLAD_HOWS_PROBLEM = (SKLAD_HOW_AMBIGUOUS, SKLAD_HOW_CONFLICT, SKLAD_HOW_NONE, SKLAD_HOW_AUTO_STATUS)
 
 
 def egais_sklad_key(sklad, kvartal="", vydel=""):
@@ -1641,7 +1648,11 @@ def _auto_match_sklad(info, items_by_kvartal):
             return _item_ploshad(c) is not None and abs(_item_ploshad(c) - parsed["ploshad"]) < 0.051
         narrowed = _narrow(narrowed, same_area)
         narrowed = _narrow(narrowed, lambda c: same_area(c) or _item_ploshad(c) is None)
+    do_statusa = narrowed
     narrowed = _narrow(narrowed, lambda c: c.get("delyanka_status") == "активна")
+    # выбор решила только закрытость другой делянки (черновик не в счёт)
+    po_statusu = len(do_statusa) > 1 and len(narrowed) == 1 and any(
+        c.get("delyanka_status") == "архив" for c in do_statusa)
 
     finalist_ids = [c["id"] for c in narrowed]
     if len(narrowed) != 1:
@@ -1653,6 +1664,8 @@ def _auto_match_sklad(info, items_by_kvartal):
         # приложении. Молча приписывать нельзя (именно так приход л.3
         # попадал в л.1) - пусть лесничий подтвердит.
         return SKLAD_HOW_CONFLICT, None, candidate_ids, finalist_ids
+    if po_statusu:
+        return SKLAD_HOW_AUTO_STATUS, chosen["id"], candidate_ids, finalist_ids
     return SKLAD_HOW_AUTO, chosen["id"], candidate_ids, finalist_ids
 
 
@@ -1715,6 +1728,36 @@ def resolve_egais_sklady(conn):
             # привязка к удалённому выделу - как будто её нет
         info.update(how=how, item_id=item_id, candidates=candidates, finalists=finalists)
     return sklady
+
+
+def zamorozit_sklady_delyanki(conn, delyanka_id, kto="авто"):
+    """Перед закрытием делянки: склады ЕГАИС, которые сейчас автоматически
+    отнесены к её выделам, закрепляются за ними (как ручная привязка).
+    Иначе после закрытия автоподбор перестаёт считать её «активной», и
+    объёмы уезжают в другую делянку того же квартала/выдела или повисают
+    в «Разборе ЕГАИС» (анализ 03.11.2026, Б1). Возвращает число складов."""
+    try:
+        item_ids = {r[0] for r in conn.execute(
+            "SELECT id FROM delyanka_item WHERE delyanka_id=?", (delyanka_id,))}
+        if not item_ids:
+            return 0
+        resolution = resolve_egais_sklady(conn)
+        if not resolution:
+            return 0
+        sejchas = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        n = 0
+        for key, info in resolution.items():
+            if info.get("how") in (SKLAD_HOW_AUTO, SKLAD_HOW_AUTO_STATUS) and info.get("item_id") in item_ids:
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO egais_sklad_link (sklad, delyanka_item_id, status, linked_by, linked_at) "
+                    "VALUES (?, ?, 'linked', ?, ?)",
+                    (key, info["item_id"], f"{kto}: делянка закрыта", sejchas),
+                )
+                n += cur.rowcount or 0
+        conn.commit()
+        return n
+    except sqlite3.OperationalError:
+        return 0  # старая база без журнала ЕГАИС
 
 
 def _sklad_keys_for_item(resolution, item):

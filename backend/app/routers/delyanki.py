@@ -210,6 +210,9 @@ def archive_delyanka(delyanka_id: int, user=Depends(require_permission("delyanka
     d, _ = delyanka.get_delyanka_full(conn, delyanka_id)
     if d is None:
         raise HTTPException(404, "Делянка не найдена")
+    # Склады ЕГАИС закрепить за делянкой ДО закрытия (raskhod_v2).
+    import raskhod_v2
+    raskhod_v2.zamorozit_sklady_delyanki(conn, delyanka_id, user["login"])
     delyanka.archive_delyanka(conn, delyanka_id)
     webext.touch_updated_by(conn, "delyanka", delyanka_id, user["login"])
     return {"ok": True}

@@ -149,6 +149,55 @@ def proverit_sroki(conn, segodnya=None):
     return sozdano
 
 
+def proverit_egais_posle_akta(conn):
+    """Закрытая (архив) делянка с актом освидетельствования, а по её складам
+    ЕГАИС после даты акта пришли новые операции — либо склад привязан не
+    туда, либо работа шла на уже освидетельствованной делянке. Лучше узнать
+    от Лесовода, чем от проверяющих (анализ 03.11.2026). Одно уведомление
+    на делянку и дату последней такой операции."""
+    try:
+        akty = {}
+        for did, act_date in conn.execute(
+            "SELECT a.delyanka_id, a.act_date FROM osvidetelstvovanie_acts a "
+            "JOIN delyanka d ON d.id = a.delyanka_id WHERE d.status = 'архив'"
+        ).fetchall():
+            dt = _parse(act_date)
+            if dt and (did not in akty or dt > akty[did]):
+                akty[did] = dt
+        if not akty:
+            return 0
+        resolution = raskhod_v2.resolve_egais_sklady(conn)
+        if not resolution:
+            return 0
+    except Exception:  # noqa: BLE001 — старая база без актов/журнала
+        return 0
+    sozdano = 0
+    for did, akt in akty.items():
+        nazvanie = (conn.execute("SELECT nazvanie FROM delyanka WHERE id=?", (did,)).fetchone() or ["—"])[0]
+        posle = []
+        for item_id, in conn.execute("SELECT id FROM delyanka_item WHERE delyanka_id=?", (did,)).fetchall():
+            for r in raskhod_v2._egais_journal_rows_for_item(
+                conn, {"id": item_id}, ["data_dokumenta_sort", "tip_dokumenta", "obyom"], resolution
+            ):
+                d = _parse(r.get("data_dokumenta_sort"))
+                if d and d > akt:
+                    posle.append((d, r.get("tip_dokumenta") or "", float(r.get("obyom") or 0)))
+        if not posle:
+            continue
+        poslednyaya = max(p[0] for p in posle)
+        if _uzhe(conn, "egais_posle_akta", did, poslednyaya.isoformat()):
+            continue
+        _otmetit(conn, "egais_posle_akta", did, poslednyaya.isoformat())
+        conn.commit()
+        obyom = sum(p[2] for p in posle)
+        text = (f"ЕГАИС после акта: «{nazvanie}» закрыта (акт {akt:%d.%m.%Y}), а по её складам после этой "
+                f"даты {len(posle)} операц. на {_m3(obyom)} м³ (последняя {poslednyaya:%d.%m.%Y}). "
+                "Проверьте привязку складов в «Разборе ЕГАИС».")
+        webext.notify(conn, "egais_posle_akta", text, related_id=did)
+        sozdano += 1
+    return sozdano
+
+
 def proverit(conn):
     """Одна проверка всего. Ошибка не должна ронять импорт/наряд, из
     которого её позвали, — тогда просто ничего не отправим."""
@@ -157,7 +206,7 @@ def proverit(conn):
     try:
         conn.executescript(SCHEMA)
         delyanki = conn.execute("SELECT id, nazvanie FROM delyanka WHERE status = 'активна'").fetchall()
-        return proverit_osvoenie(conn, delyanki) + proverit_sroki(conn)
+        return proverit_osvoenie(conn, delyanki) + proverit_sroki(conn) + proverit_egais_posle_akta(conn)
     except Exception as exc:  # noqa: BLE001
         print(f"❌ Проверка оповещений не удалась: {exc}")
         return 0

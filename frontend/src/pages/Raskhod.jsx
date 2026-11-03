@@ -138,6 +138,7 @@ const SKLAD_HOW = {
   conflict: { tone: "warning", label: "номер лесосеки не совпал" },
   none: { tone: "neutral", label: "нет такого выдела в приложении" },
   auto: { tone: "success", label: "определён автоматически" },
+  auto_status: { tone: "warning", label: "проверьте: соседняя делянка закрыта" },
   manual: { tone: "info", label: "привязан вручную" },
   ignored: { tone: "neutral", label: "не наш склад" },
 };
@@ -194,6 +195,12 @@ function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
             {row.item_label ? ` · → ${row.item_label}` : ""}
           </span>
         </div>
+        {row.how === "auto_status" && (
+          <div className="text-xs text-oak mt-1">
+            Отнесён к «{row.item_label}» только потому, что другая подходящая делянка закрыта. Если верно — нажмите
+            «Привязать»; если склад той, закрытой делянки — выберите её выдел.
+          </div>
+        )}
         {guess && (
           <div className="text-xs text-pine mt-1">Скорее всего это «{guess.label}» — проверьте и нажмите «Привязать».</div>
         )}
