@@ -48,7 +48,7 @@ _KULT = ["Кв.", "Выдел по лесоустройству", "Площад�
          "Количество, шт/га", "Приживаемость, %"]
 COLUMNS = {
     3: ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Вид рубки", "Выдел (подвыдел)",
-        "Площадь вырубки, га", "Выбираемый запас, м3/га"],
+        "Площадь вырубки, га", "Выбираемый запас на выдел, м3"],
     4: _TAKS,
     5: _TAKS,
     6: _TAKS,
@@ -66,7 +66,7 @@ COLUMNS = {
     14: ["Кв.", "Выдел", "Площадь, га", "Вид земель", "Состав", "Возраст, лет", "Высота, м",
          "Диаметр, см", "Полнота", "Тип леса", "Причина перевода"],
     15: ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Вид рубки", "Выдел (подвыдел)", "Площадь, га",
-         "Полнота после рубки", "Выбираемый запас, м3/га"],
+         "Полнота после рубки", "Выбираемый запас на выдел, м3"],
 }
 TITLES = {
     3: "Прил. 3 — сплошнолесосечные, сплошные санитарные рубки, рубки реконструкции, окончательные приёмы постепенных",
@@ -581,14 +581,27 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
             "i.chasti_json "
             "FROM delyanka_item i JOIN delyanka d ON d.id = i.delyanka_id ORDER BY i.id"
         ).fetchall()
-        acts = conn.execute("SELECT delyanka_id, act_date FROM osvidetelstvovanie_acts").fetchall()
+        acts = conn.execute("SELECT delyanka_id, act_date, data_json FROM osvidetelstvovanie_acts "
+                            "ORDER BY id").fetchall()
     except Exception:  # noqa: BLE001 — старая база без делянок
         return
     act_years: Dict[int, set] = {}
-    for d_id, act_date in acts:
+    ploshad_po_aktu: Dict[int, float] = {}
+    for d_id, act_date, act_data in acts:
         y = _year_of(act_date)
         if y:
             act_years.setdefault(d_id, set()).add(y)
+        if y == god:
+            fakt = _num(_json(act_data).get("ploshad_fakt"))
+            if fakt:
+                ploshad_po_aktu[d_id] = fakt
+    po_delyanke = _zapas_po_delyankam(items)
+    # Площадь вырубки берётся из акта освидетельствования (инструкция) —
+    # если в акте фактическая площадь заметно другая, чем по МДО, скажем.
+    ploshad_mdo: Dict[int, float] = {}
+    for row in items:
+        ploshad_mdo[row[1]] = ploshad_mdo.get(row[1], 0.0) + (_num(row[6]) or 0.0)
+    vklyuchena: Dict[int, Tuple[int, str]] = {}  # delyanka_id -> (приложение, название)
 
     for (item_id, d_id, nazvanie, lesn, kv, vd, pl, zapas_ga, vyrub, polnota, raw, status,
          data_vyp, chasti_raw) in items:
@@ -608,6 +621,7 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
         n = pril_rubki(vid)
         res = result[n]
         res["uchastki"] += 1
+        vklyuchena.setdefault(d_id, (n, nazvanie or str(d_id)))
         kv = str(kv or "").strip()
         vd = str(vd or "").strip()
         mesto = f"кв. {kv or '—'} выд. {vd or '—'}"
@@ -615,14 +629,24 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
             _warn(res, f"d{item_id}", f"{mesto}: в МДО не указан вид рубки — отнесён к прочим рубкам", [3])
             vid = RUBKA_PROCHAYA
         area = _num(pl)
-        zapas = _num(vyrub)
-        if zapas is not None and area:
-            zapas_ga = zapas / area
+        # Выбираемый запас на 1 га — по делянке в целом: весь вырубаемый
+        # запас делянки (м3) / вся её площадь (га). Одинаков для каждого
+        # выдела делянки; запас выдела = (м3/га) × площадь выдела.
+        obshiy = po_delyanke.get(d_id)
+        raschet = ""
+        if obshiy:
+            zapas_ga = obshiy["na_ga"]
+            raschet = (f"{fmt(round(obshiy['zapas'], 2))} м³ / {fmt(round(obshiy['ploshad'], 3))} га = "
+                       f"{fmt(round(zapas_ga, 2))} м³/га")
         else:
             zapas_ga = _num(zapas_ga)
             vyborka = _num(str(mdo.get("vyborka_zapasa_pct") or "").replace("%", ""))
             if zapas_ga is not None and vyborka and n == 15:
                 zapas_ga = zapas_ga * vyborka / 100
+            if zapas_ga is not None:
+                raschet = "по таксации выдела (в МДО нет «Итого ликвида»)"
+                _warn(res, None, f"{mesto}: выбираемый запас взят из таксации выдела, а не из МДО — "
+                                 "проверьте или впишите вручную")
         if zapas_ga is None:
             _warn(res, f"d{item_id}", f"{mesto}: нет выбираемого запаса (МДО)", [6 if n == 3 else 7])
         nazvanie_vida = _cap(mdo.get("sposob_rubki") or mdo.get("vid_rubki") or vid)
@@ -638,15 +662,66 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
         _chasti_info(res, f"d{item_id}", kv, vd, area, chasti_raw, taxation)
         if len(parts) > 1 and any(p["ploshad"] is None for p in parts):
             _warn(res, f"d{item_id}", f"{mesto}: лесосека в нескольких выделах — нажмите «По выделам» и "
-                                      "укажите площадь в каждом", [5])
+                                      "укажите площадь в каждом", [5, 6] if n == 3 else [5, 7])
         for i, p in enumerate(parts):
             pv = p["vydel"] or vd
             tax = taxation.get((kv, pv), "") or (fmt(_num(mdo.get("ploshad_obshaya"))) if len(parts) == 1 else "")
             row = [kv, pv, tax, nazvanie_vida, p["podvydel"] or pv, fmt(p["ploshad"])]
             if n == 15:
                 row.append(fmt(posle))
-            row.append(fmt(round(zapas_ga)) if zapas_ga else "")
-            _row(res, f"d{item_id}:{i}", row, vid)
+            dop = raschet
+            # Прил. 3 и 15: запас, вырубленный на этом выделе, м³ =
+            # (запас делянки / площадь делянки) × площадь вырубки выдела
+            # (кв.35 выд.15: 254,97 м³/га × 0,05 га = 12,75 м³).
+            na_vydel = zapas_ga * p["ploshad"] if zapas_ga and p["ploshad"] else None
+            row.append(fmt(round(na_vydel, 2)) if na_vydel else "")
+            if na_vydel:
+                dop += f" × {fmt(p['ploshad'])} га = {fmt(round(na_vydel, 2))} м³"
+            elif zapas_ga and len(parts) == 1:
+                _warn(res, f"d{item_id}", f"{mesto}: нет площади вырубки — запас на выдел не посчитать",
+                      [5, 6] if n == 3 else [5, 7])
+            _row(res, f"d{item_id}:{i}", row, vid, dop)
+
+    for d_id, (n, naz) in vklyuchena.items():
+        fakt, mdo_pl = ploshad_po_aktu.get(d_id), ploshad_mdo.get(d_id) or 0.0
+        if fakt and mdo_pl and abs(fakt - mdo_pl) > 0.05:
+            _warn(result[n], None, f"Делянка «{naz}»: по акту освидетельствования вырублено {fmt(fakt)} га, "
+                                   f"а по МДО {fmt(round(mdo_pl, 2))} га — проверьте площадь вырубки")
+
+
+def _zapas_po_delyankam(items) -> Dict[int, dict]:
+    """{delyanka_id: {zapas, ploshad, na_ga, items}} — вырубаемый запас на
+    1 га по делянке в целом. Запас — «Итого ликвида» из МДО: если у всех
+    выделов делянки записано одно и то же число, это общий запас лесосеки
+    (одно МДО на несколько выделов) и берётся один раз, иначе запасы
+    выделов складываются. Площадь — сумма площадей выделов, у которых есть
+    запас (выделы без МДО, добавленные позже из QGIS, получают тот же
+    запас на 1 га, но площадь лесосеки не раздувают)."""
+    by_d: Dict[int, List[Tuple[int, Optional[float], Optional[float]]]] = {}
+    for row in items:
+        item_id, d_id, pl, vyrub = row[0], row[1], row[6], row[8]
+        by_d.setdefault(d_id, []).append((item_id, _num(pl), _num(vyrub)))
+    out: Dict[int, dict] = {}
+    for d_id, lst in by_d.items():
+        s_zapasom = [(z, a) for _, a, z in lst if z is not None and z > 0]
+        if not s_zapasom:
+            continue
+        zapasy = {round(z, 3) for z, _ in s_zapasom}
+        ploshad = sum(a for _, a in s_zapasom if a)
+        if len(s_zapasom) > 1 and len(zapasy) == 1:
+            zapas = s_zapasom[0][0]
+            # одно МДО, скопированное в каждый выдел: если у выделов та же
+            # площадь (вся лесосека) — тоже берём один раз
+            ploshadi = {round(a, 3) for _, a in s_zapasom if a}
+            if len(ploshadi) == 1:
+                ploshad = next(iter(ploshadi))
+        else:
+            zapas = sum(z for z, _ in s_zapasom)
+        if ploshad <= 0:
+            continue
+        out[d_id] = {"zapas": zapas, "ploshad": ploshad, "na_ga": zapas / ploshad,
+                     "items": [i for i, _, _ in lst]}
+    return out
 
 
 def _rubki_uhoda(conn, god: int, lesnichestvo: str, result: dict, taxation: dict) -> None:
@@ -679,10 +754,16 @@ def _rubki_uhoda(conn, god: int, lesnichestvo: str, result: dict, taxation: dict
         if polnota is None:
             _warn(res, f"p{pid}", f"{mesto} (проба рубок ухода №{pid}): не указана полнота", [6])
         tax = taxation.get((kv, vd), "") or fmt(_num(pl_vydela))
+        na_vydel = zapas_ga * area if zapas_ga and area else None
+        if zapas_ga and not area:
+            _warn(res, f"p{pid}", f"{mesto} (проба рубок ухода №{pid}): нет площади — запас на выдел не посчитать",
+                  [5, 7])
+        dop = (f"{fmt(round(zapas_ga, 2))} м³/га × {fmt(area)} га = {fmt(round(na_vydel, 2))} м³"
+               if na_vydel else "")
         _row(res, f"p{pid}", [
             kv, vd, tax, _cap(d.get("vid_rubki") or d.get("sposob_rubki") or "рубка ухода"), vd,
-            fmt(area), fmt(polnota), fmt(round(zapas_ga, 1)) if zapas_ga else "",
-        ], vid)
+            fmt(area), fmt(polnota), fmt(round(na_vydel, 2)) if na_vydel else "",
+        ], vid, dop)
 
 
 # --------------------------------------------------------------------------- #
