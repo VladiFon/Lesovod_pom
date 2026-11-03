@@ -374,11 +374,15 @@ function ImportMdoModal({ open, onClose, onImported }) {
       const created = result?.delyanka_ids?.length ?? 0;
       const notFound = result?.not_found_in_taxation?.length ?? 0;
       const errors = result?.errors ?? [];
+      const uzheEst = result?.uzhe_est ?? [];
       toast.show({
-        tone: errors.length ? "warning" : "success",
-        title: created ? `Создано делянок: ${created}` : "Импорт завершён",
+        tone: errors.length || uzheEst.length ? "warning" : "success",
+        title: created ? `Создано делянок: ${created}` : uzheEst.length ? "Новых делянок нет" : "Импорт завершён",
         description:
           [
+            uzheEst.length
+              ? `Уже есть, второй раз не заведены: ${uzheEst.map((d) => d.nazvanie || `№${d.id}`).join("; ")}`
+              : null,
             notFound ? `Не найдено в таксации: ${notFound}` : null,
             errors.length ? `Ошибок при импорте: ${errors.length}` : null,
           ]
@@ -1322,6 +1326,13 @@ export default function Plots() {
       .filter((d) => !q || (d.nazvanie || "").toLowerCase().includes(q));
   }, [delyanki, showArchived, search]);
 
+  // Одинаковые названия — почти всегда один МДО, загруженный дважды.
+  const dubli = useMemo(() => {
+    const n = {};
+    delyanki.forEach((d) => { const k = (d.nazvanie || "").trim().toLowerCase(); if (k) n[k] = (n[k] || 0) + 1; });
+    return n;
+  }, [delyanki]);
+
   const handleListChanged = (removed) => {
     if (removed) setSelectedId(null);
     loadList();
@@ -1386,6 +1397,11 @@ export default function Plots() {
                     {d.storonnyaya && (
                       <div className="font-mono text-[10.5px] text-oak font-semibold mt-0.5 truncate">
                         рубит {d.storonnyaya.zagotovitel}
+                      </div>
+                    )}
+                    {dubli[(d.nazvanie || "").trim().toLowerCase()] > 1 && (
+                      <div className="text-[10.5px] text-error font-semibold mt-0.5 truncate" title="Такая же делянка заведена ещё раз — лишнюю удалите (кнопка «Удалить» в карточке, попадёт в Корзину)">
+                        ⚠ дубль · запись №{d.id}
                       </div>
                     )}
                   </button>

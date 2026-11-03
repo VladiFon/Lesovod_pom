@@ -431,6 +431,46 @@ def _extract_vydel_candidates(text: str) -> List[str]:
     return re.findall(r"\d+", raw)
 
 
+def _klyuchi_vydelov(conn, delyanka_id: int) -> set:
+    """Набор (лесничество, квартал, выдел, № лесосеки) делянки — по нему
+    узнаём повторный импорт того же МДО."""
+    norm = lambda v: re.sub(r"\s+", "", str(v or "")).lower()  # noqa: E731
+    return {
+        (norm(r[0]), norm(r[1]), norm(r[2]), norm(r[3]))
+        for r in conn.execute(
+            "SELECT lesnichestvo, kvartal, vydel, lesoseka_nomer FROM delyanka_item WHERE delyanka_id = ?",
+            (delyanka_id,),
+        ).fetchall()
+    }
+
+
+def _ubrat_povtory(conn, new_ids: List[int]) -> tuple:
+    """Повторный импорт того же МДО создавал вторую такую же делянку (Влад,
+    03.11.2026: «почему дублируются делянки» — кв.71 выд.2,8,9 лесосека №8
+    дважды). Новая делянка, у которой те же выделы и лесосека, что у уже
+    существующей, сразу удаляется, а в ответ идёт, какая уже есть."""
+    ostavleny, uzhe_est = [], []
+    for i, new_id in enumerate(new_ids):
+        klyuchi = _klyuchi_vydelov(conn, new_id)
+        twin = None
+        # С уже бывшими делянками и с теми, что этот же импорт создал раньше.
+        ne_smotret = new_ids[i:]
+        if klyuchi and all(k[1] and k[2] for k in klyuchi):
+            for (other_id, nazv) in conn.execute(
+                "SELECT id, nazvanie FROM delyanka WHERE id NOT IN (%s) ORDER BY id"
+                % ",".join("?" * len(ne_smotret)), ne_smotret,
+            ).fetchall():
+                if _klyuchi_vydelov(conn, other_id) == klyuchi:
+                    twin = (other_id, nazv)
+                    break
+        if twin:
+            delyanka.delete_delyanka(conn, new_id)
+            uzhe_est.append({"id": twin[0], "nazvanie": twin[1]})
+        else:
+            ostavleny.append(new_id)
+    return ostavleny, uzhe_est
+
+
 def _run_import_mdo(task_id: str, rtf_paths: List[str], merge_into_one: bool):
     conn = get_connection()
     try:
@@ -470,6 +510,7 @@ def _run_import_mdo(task_id: str, rtf_paths: List[str], merge_into_one: bool):
                 "not_found_in_taxation": [nf for r in results for nf in r[2]],
                 "errors": [{"file": e[0], "error": e[1]} for e in errors],
             }
+        result["delyanka_ids"], result["uzhe_est"] = _ubrat_povtory(conn, result["delyanka_ids"])
         webext.set_task_done(conn, task_id, result=result)
     except Exception as e:  # noqa: BLE001
         webext.set_task_error(conn, task_id, str(e))
