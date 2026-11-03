@@ -34,6 +34,7 @@ from app.routers import (
     inspection,
     korzina as korzina_router,
     kvesty,
+    tabel_igra,
     lesokultury,
     map as map_router,
     notes,
@@ -127,3 +128,4 @@ app.include_router(proby.router)
 app.include_router(zhdet.router)
 app.include_router(otsrochka.router)
 app.include_router(kvesty.router)
+app.include_router(tabel_igra.router)

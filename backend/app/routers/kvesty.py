@@ -78,6 +78,8 @@ ISTOCHNIKI = [
     ("proby", "Проба уходов", 30,
      "SELECT date(completed_at) d, COUNT(*) FROM uhody_proby WHERE completed_at IS NOT NULL AND completed_at >= ? "
      "GROUP BY d", None),
+    ("tabel", "Строка табеля", 2,
+     "SELECT date(created_at) d, COUNT(*) FROM tabel_zapis WHERE created_at >= ? {avtor} GROUP BY d", "entered_by"),
     ("lesokultury", "Мероприятие лесокультур", 10,
      "SELECT date(created_at) d, COUNT(*) FROM lesokultury_meropriyatiya WHERE created_at >= ? GROUP BY d", None),
 ]
@@ -248,6 +250,7 @@ def _achivki(conn, dni, items, ser, user_id):
         ("seriya20", "Месяц без прогулов", "20 рабочих дней подряд", ser >= 20),
         ("bossy", "Охотник на боссов", "Закрыто 5 боссов", _bossov(conn, user_id) >= 5),
         ("svoi10", "Сам себе начальник", "10 своих квестов", svoi >= 10),
+        ("tabel500", "Табельщик", "500 строк табеля", vsego.get("tabel", 0) >= 500),
     ]
     return [{"kod": k, "title": t, "hint": h, "est": bool(e)} for k, t, h, e in spisok]
 

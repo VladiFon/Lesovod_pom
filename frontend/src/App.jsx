@@ -25,6 +25,7 @@ import Settings from "./pages/Settings.jsx";
 import ComponentGallery from "./pages/ComponentGallery.jsx";
 import Korzina from "./pages/Korzina.jsx";
 import Kvesty from "./pages/Kvesty.jsx";
+import TabelIgra from "./pages/TabelIgra.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -45,6 +46,8 @@ const Telefon = makeMergedScreen("telefon", [
 const Tabel = makeMergedScreen("tabel", [
   { key: "vvod", label: "Ввод табеля", Page: TabelRuchnoy },
   { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
+  // Игровой ввод табеля (03.11.2026): звенья, «как в прошлый раз», XP.
+  { key: "pereklichka", label: "🎮 Перекличка", Page: TabelIgra },
 ]);
 const Zadachi = makeMergedScreen("zadachi", [
   { key: "plan", label: "План работ", Page: PlanRabot },
