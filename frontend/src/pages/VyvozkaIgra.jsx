@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client.js";
 import { useToast } from "../components/Toast.jsx";
 import { openScreen, useScreenParam } from "../nav.js";
+import Lesopoval from "./Lesopoval.jsx";
 
 /**
  * «🚛 Вывозка» — игровой вид экрана «Расход / ЕГАИС» (03.11.2026).
@@ -9,7 +10,7 @@ import { openScreen, useScreenParam } from "../nav.js";
  * успеют ли к сроку вывозки. Табло: расход по дням, неделя к неделе,
  * рекорд, серия, кто оформил больше, куда ушло, «мусор» разбора ЕГАИС,
  * робот вечерней выгрузки. Сервер: backend/app/routers/vyvozka_igra.py.
- * Ничего не пишет — работа с нарядами/ЕГАИС во вкладке «Расход».
+ * Остатки и быстрый наряд — «🪓 Лесоповал» (Lesopoval.jsx); правка нарядов и ЕГАИС — вкладка «Расход».
  */
 
 const C = {
@@ -57,7 +58,7 @@ function Shtabel({ na, prihod }) {
   );
 }
 
-function Sklad({ x }) {
+function Sklad({ x, onLesopoval }) {
   const tone = {
     bad: { bg: C.dangerSoft, border: "#f3c2bd", color: C.danger },
     ok: { bg: C.moss, border: "#bcefc5", color: C.leaf },
@@ -97,9 +98,9 @@ function Sklad({ x }) {
       <div style={{ padding: "6px 9px", borderRadius: 8, background: tone.bg, color: tone.color, fontSize: 13, fontWeight: 600 }}>{x.verdikt}</div>
       <div className="flex items-center justify-between" style={{ gap: 8 }}>
         <span style={{ fontSize: 12, color: C.muted, fontStyle: "italic" }}>{shutka(x.ton, x.id)}</span>
-        <button type="button" onClick={() => openScreen("raskhod", { tab: "raskhod", d: x.id })} style={{
-          padding: "5px 11px", borderRadius: 8, fontWeight: 700, fontSize: 12, border: `1px solid ${C.pine}`, color: C.pine, background: "#fff", whiteSpace: "nowrap",
-        }}>Открыть в Расходе →</button>
+        <button type="button" onClick={() => onLesopoval(x)} style={{
+          padding: "5px 11px", borderRadius: 8, fontWeight: 700, fontSize: 12, border: `1px solid ${C.wood}`, color: "#fff", background: C.wood, whiteSpace: "nowrap",
+        }}>🪓 Остатки и наряд</button>
       </div>
     </div>
   );
@@ -144,6 +145,7 @@ function Tablo({ po_dnyam, rekord }) {
 export default function VyvozkaIgra() {
   const toast = useToast();
   const [d, setD] = useState(null);
+  const [lesopoval, setLesopoval] = useState(null);
   const [dParam] = useScreenParam("raskhod", "d");
   const [razborParam] = useScreenParam("raskhod", "razbor");
 
@@ -194,7 +196,7 @@ export default function VyvozkaIgra() {
         <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
           <Tablo po_dnyam={d.po_dnyam} rekord={d.rekord} />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 12 }}>
-            {d.delyanki.map((x) => <Sklad key={x.id} x={x} />)}
+            {d.delyanki.map((x) => <Sklad key={x.id} x={x} onLesopoval={setLesopoval} />)}
           </div>
         </div>
 
@@ -241,6 +243,7 @@ export default function VyvozkaIgra() {
           </div>
         </aside>
       </div>
+      <Lesopoval delyanka={lesopoval} onClose={() => setLesopoval(null)} onSaved={load} />
     </div>
   );
 }

@@ -114,6 +114,9 @@ def sobrat(conn, segodnya=None):
     ids = [did for did, r in vse.items() if r.get("status") == "активна" or (po_d.get(did) and
            po_d[did]["prihod"] - po_d[did]["raskhod"] >= OSTATOK_MIN)]
     chuzhie = storonnyaya.load(conn, ids)
+    items = {}
+    for iid, did, kv, vd in conn.execute("SELECT id, delyanka_id, kvartal, vydel FROM delyanka_item ORDER BY poryadok, id"):
+        items.setdefault(did, []).append({"item_id": iid, "label": f"кв.{kv or '—'} выд.{vd or '—'}"})
 
     delyanki = []
     for did in ids:
@@ -151,6 +154,7 @@ def sobrat(conn, segodnya=None):
             "posledniy": a["posledniy"].strftime("%d.%m.%Y") if a["posledniy"] else None,
             "verdikt": verdikt, "ton": ton,
             "zagotovitel": storonnyaya.zagotovitel(chuzhie[did]) if did in chuzhie else None,
+            "items": items.get(did, []),
         })
     poryadok = {"bad": 0, "idle": 1, "ok": 2, "pusto": 3}
     delyanki.sort(key=lambda x: (poryadok[x["ton"]], -(x["na_sklade"] or 0)))

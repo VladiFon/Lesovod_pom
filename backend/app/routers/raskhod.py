@@ -226,6 +226,8 @@ def create_naryad(item_id: int, body: NaryadIn, user=Depends(require_permission(
         nomer_naryada=body.nomer_naryada, ploshad=body.ploshad,
         primechanie=body.primechanie, pozitsii=body.pozitsii,
     )
+    # Кто занёс — для «кто последний правил» и XP квестов за свои наряды.
+    webext.touch_updated_by(conn, "raskhod_naryad", naryad_id, user["login"])
     signaly.proverit(conn)
     return {"id": naryad_id}
 
