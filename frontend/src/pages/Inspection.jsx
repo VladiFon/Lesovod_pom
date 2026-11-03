@@ -13,6 +13,8 @@ import DateField from "../components/DateField.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { useScreenParam } from "../nav.js";
 import DelyankaNav from "../components/DelyankaNav.jsx";
+import OtsrochkaModal from "../components/OtsrochkaModal.jsx";
+import { useCan } from "../auth.jsx";
 import StoronnyayaBlock from "../components/StoronnyayaBlock.jsx";
 
 /**
@@ -713,6 +715,42 @@ function ManualActModal({ open, onClose, delyankaId, onSaved }) {
   );
 }
 
+// Отсрочка по срокам (app/routers/otsrochka.py): сроки в карточке уже
+// продлённые; здесь — откуда продлили и основание, с отменой ошибки.
+function OtsrochkaInfo({ row, onChanged }) {
+  const toast = useToast();
+  const can = useCan();
+  const [busy, setBusy] = useState(false);
+  const o = row.otsrochka;
+  const otmenit = async () => {
+    if (!window.confirm(`Отменить последнюю отсрочку? Вернутся сроки: заготовка ${o.prezhniy_srok_zagotovki || "—"}, вывозка ${o.prezhniy_srok_vyvozki || "—"}.`)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/otsrochka/${row.id}/poslednyaya`);
+      toast.show({ tone: "success", title: "Отсрочка отменена" });
+      onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось отменить", description: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="rounded-[10px] border border-border bg-surface-alt px-3.5 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+      <span className="text-sm text-ink">
+        ⏳ <b>Отсрочка</b>{row.otsrochek > 1 ? ` (${row.otsrochek}-я)` : ""}: заготовка до {o.novyy_srok_zagotovki || "—"}
+        {o.prezhniy_srok_zagotovki && o.prezhniy_srok_zagotovki !== o.novyy_srok_zagotovki ? ` (было ${o.prezhniy_srok_zagotovki})` : ""},
+        вывозка до {o.novyy_srok_vyvozki || "—"}
+        {o.prezhniy_srok_vyvozki && o.prezhniy_srok_vyvozki !== o.novyy_srok_vyvozki ? ` (было ${o.prezhniy_srok_vyvozki})` : ""}
+        {o.osnovanie && <span className="block text-xs text-muted mt-0.5">Основание: {o.osnovanie}</span>}
+      </span>
+      {can("inspection.edit") && (
+        <Button variant="ghost" size="sm" onClick={otmenit} loading={busy}>Отменить последнюю</Button>
+      )}
+    </div>
+  );
+}
+
 function InspectionDetail({ row, onChanged }) {
   const toast = useToast();
   const [srokZagotovki, setSrokZagotovki] = useState(row.srok_okonchaniya_zagotovki || "");
@@ -869,6 +907,8 @@ function InspectionDetail({ row, onChanged }) {
           </div>
         ) : null}
 
+        {row.otsrochka && <OtsrochkaInfo row={row} onChanged={onChanged} />}
+
         <StoronnyayaBlock row={row} onChanged={onChanged} />
 
         <div>
@@ -980,6 +1020,18 @@ export default function Inspection() {
   const selectedId = selectedParam ? Number(selectedParam) : null;
   const setSelectedId = (id) => setSelectedParam(id ?? "");
   const [blankLoading, setBlankLoading] = useState(false);
+  const can = useCan();
+  // «Нужна отсрочка»: #/inspection?otsrochka=1 открывает окно (из «Ждёт меня»)
+  const [otsrochkaParam, setOtsrochkaParam] = useScreenParam("inspection", "otsrochka");
+  const [otsrochkaOpen, setOtsrochkaOpen] = useState(false);
+  const [otsrochkaN, setOtsrochkaN] = useState(0);
+  const loadOtsrochkaN = useCallback(() => {
+    api.get("/otsrochka/kandidaty", { dney: 30 }).then((r) => setOtsrochkaN((r || []).length)).catch(() => {});
+  }, []);
+  useEffect(() => { loadOtsrochkaN(); }, [loadOtsrochkaN]);
+  useEffect(() => {
+    if (otsrochkaParam) { setOtsrochkaOpen(true); setOtsrochkaParam(""); }
+  }, [otsrochkaParam]); // eslint-disable-line react-hooks/exhaustive-deps
   const [search, setSearch] = useState("");
   const [filtr, setFiltrState] = useState(() => zapomnennoe("inspection.filtr", "vse"));
   const [sortKey, setSortKeyState] = useState(() => zapomnennoe("inspection.sort", "srok"));
@@ -1061,6 +1113,14 @@ export default function Inspection() {
             <Button variant="secondary" size="sm" onClick={handleBlankTemplate} loading={blankLoading}>
               ↓ Пустой бланк акта
             </Button>
+            <Button
+              variant={otsrochkaN > 0 ? "primary" : "secondary"}
+              size="sm"
+              onClick={() => setOtsrochkaOpen(true)}
+              title="Срок заготовки подходит или прошёл, а заготовка не закончена"
+            >
+              ⏳ Нужна отсрочка{otsrochkaN > 0 ? ` (${otsrochkaN})` : ""}
+            </Button>
             {osvNezakrytyh > 0 && (
               <Button variant="primary" size="sm" onClick={zakrytVse} loading={zakryvaem} title="Акт есть, а делянка всё ещё активна">
                 Закрыть освидетельствованные ({osvNezakrytyh})
@@ -1139,6 +1199,7 @@ export default function Inspection() {
                   <span className="font-mono text-[10.5px] text-faint">
                     {r.storonnyaya && <span className="text-oak font-semibold">рубит {r.storonnyaya.zagotovitel || "сторонний"} · </span>}
                     заготовка {r.srok_okonchaniya_zagotovki || "—"} · вывозка {r.srok_okonchaniya_vyvozki || "—"}
+                    {r.otsrochek > 0 && <span className="text-pine font-semibold"> · ⏳ отсрочка</span>}
                   </span>
                   <span className="font-mono text-[10.5px] text-muted-2" title="Площадь делянки (МДО) и сумма площадей нарядов">
                     {r.ploshad_vsego == null ? (
@@ -1181,6 +1242,12 @@ export default function Inspection() {
         </Card>
       )}
       </div>
+      <OtsrochkaModal
+        open={otsrochkaOpen}
+        onClose={() => setOtsrochkaOpen(false)}
+        onSaved={() => { load(); loadOtsrochkaN(); }}
+        canEdit={can("inspection.edit")}
+      />
     </div>
   );
 }

@@ -19,6 +19,7 @@ from app.database import get_conn
 router = APIRouter(prefix="/api/zhdet", tags=["zhdet"])
 
 SKORO_DNEY = 7
+OTSROCHKA_DNEY = 30  # за сколько дней до конца срока заготовки напоминать про отсрочку
 
 
 def _d(s):
@@ -103,6 +104,15 @@ def sobrat(conn, user, segodnya=None):
         "inspection", {"d": skoro[0]["id"]} if len(skoro) == 1 else {})
     add("zakryt", len(zakryt), "Освидетельствованы, но не закрыты", "Кнопка «Закрыть освидетельствованные» в Инспекции",
         "inspection", {}, "info")
+
+    try:
+        from app.routers import otsrochka
+        nuzhna = otsrochka.kandidaty(conn, OTSROCHKA_DNEY, segodnya)
+    except Exception:  # noqa: BLE001
+        nuzhna = []
+    add("otsrochka", len(nuzhna), f"Нужна отсрочка: срок заготовки ≤ {OTSROCHKA_DNEY} дн., а заготовка не закончена",
+        imena(nuzhna) + (f" · осталось {ost:.0f} м³" if (ost := sum(r.get('ostatok') or 0 for r in nuzhna)) >= 1 else ""),
+        "inspection", {"otsrochka": "1"}, "danger" if any(r["prosrochen"] for r in nuzhna) else "warning")
 
     n = _count(conn, "SELECT COUNT(*) FROM delyanka WHERE status='черновик'")
     add("chernoviki", n, "Делянки-черновики без лесорубочного билета", "Внести билет — делянка станет активной",
