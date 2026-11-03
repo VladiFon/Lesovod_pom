@@ -15,8 +15,10 @@ import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.
 import KonturBlock from "../components/KonturBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
 import { useCan } from "../auth.jsx";
+import StoronnyayaBlock from "../components/StoronnyayaBlock.jsx";
 import OsvoenieBadge from "../components/OsvoenieBadge.jsx";
-import { openScreen, useScreenParam } from "../nav.js";
+import { useScreenParam } from "../nav.js";
+import DelyankaNav, { EtapBadge } from "../components/DelyankaNav.jsx";
 
 /**
  * Экран "Делянки" (screens/plots/) — Этап 5 плана.
@@ -923,23 +925,18 @@ function PlotDetail({ delyankaId, onListChanged }) {
               <h2 className="font-ui font-extrabold text-base text-pine truncate" style={{ fontSize: 16 }}>
                 {delyanka.nazvanie || `Делянка №${delyanka.id}`}
               </h2>
-              <StatusBadge status={delyanka.status} />
+              {delyanka.etap ? <EtapBadge etap={delyanka.etap} /> : <StatusBadge status={delyanka.status} />}
               {osvoenie?.pct != null && <OsvoenieBadge pct={osvoenie.pct} level={osvoenie.level} suffix=" освоено" />}
             </div>
+            <DelyankaNav delyankaId={delyanka.id} current="plots" className="mt-1.5" />
             <p className="font-mono text-[10.5px] text-muted-2 mt-[3px]">
               {items.length} {pluralizeVydel(items.length)} · создана {formatDate(delyanka.created_at)}
               {delyanka.updated_at ? ` · изменена ${formatDate(delyanka.updated_at)}${delyanka.updated_by ? ` (${delyanka.updated_by})` : ""}` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Перекрёстные переходы (анализ удобства 01.10.2026): та же
-                делянка сразу открывается в «Расходе» и «Инспекции». */}
-            <Button variant="ghost" size="sm" onClick={() => openScreen("raskhod", { d: delyanka.id })}>
-              📊 Расход
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => openScreen("inspection", { d: delyanka.id })}>
-              🔍 Инспекция
-            </Button>
+            {/* Перекрёстные переходы — ряд DelyankaNav под заголовком
+                (Расход · Инспекция · Документы), шаг 4 разбора 03.11.2026. */}
             {delyanka.status === "активна" && can("delyanka.edit") && (
               <Button variant="ghost" size="sm" disabled={busyAction !== null} onClick={() => setActivateModalOpen(true)}>
                 Билет и сроки
@@ -979,6 +976,11 @@ function PlotDetail({ delyankaId, onListChanged }) {
         </div>
 
         <GotovnostChecklist delyanka={delyanka} items={items} documents={documents} />
+
+        {/* Сторонняя заготовка — та же галочка, что в Инспекции. */}
+        {delyanka.status !== "черновик" && (can("inspection.edit") || delyanka.storonnyaya) && (
+          <StoronnyayaBlock row={{ id: delyanka.id }} onChanged={() => { load(); onListChanged(); }} />
+        )}
 
         <Modal open={!!chastiItem} onClose={() => setChastiItem(null)} title="Площадь по выделам" size="lg">
           {chastiItem && (
@@ -1375,12 +1377,17 @@ export default function Plots() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate text-[13.5px] font-semibold text-ink">{d.nazvanie || `Делянка №${d.id}`}</span>
-                      <StatusBadge status={d.status} dot={false} />
+                      {d.etap ? <EtapBadge etap={d.etap} /> : <StatusBadge status={d.status} dot={false} />}
                     </div>
                     <div className="font-mono text-[10.5px] text-muted-2 mt-0.5 truncate">
                       {d.n_items} {pluralizeVydel(d.n_items)}
                       {d.kategorii ? ` · ${d.kategorii}` : ""}
                     </div>
+                    {d.storonnyaya && (
+                      <div className="font-mono text-[10.5px] text-oak font-semibold mt-0.5 truncate">
+                        рубит {d.storonnyaya.zagotovitel}
+                      </div>
+                    )}
                   </button>
                 </li>
               ))}

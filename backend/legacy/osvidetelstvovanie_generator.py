@@ -20,9 +20,9 @@ generate_blank_akt_template) СОХРАНЁН как в предыдущей в�
   - верхний блок "уполномоченные представители" вмещает до 3 членов
     комиссии (d["chleny"][:3]) вместо прежних 2 — если нужно больше,
     придётся редактировать сам файл-шаблон (добавить строку в таблицу);
-  - в бланке нет отдельных линий для даты выдачи лесорубочного билета и
-    для сроков окончания заготовки/вывозки — эти даты в документе не
-    печатаются (данные при этом остаются в карточке делянки).
+  - в бланке нет отдельной линии для даты выдачи лесорубочного билета;
+    сроки окончания заготовки/вывозки печатаются справа от надписей
+    (с 2026-11-02, из формы акта или из делянки).
 """
 import os
 from pathlib import Path
@@ -113,6 +113,13 @@ def generate_akt_osvidetelstvovaniya(delyanka: dict, items: list, sortiment_tota
         total_limit = total_fakt = ""
 
     chleny_raw = d.get("chleny") or []
+    # Председатель для подписи: если в форме пусто — это представитель
+    # лесхоза из «Мы, нижеподписавшиеся» (лесничий), как и в бланке.
+    predsedatel_dolzhnost = d.get("predsedatel_dolzhnost") or ""
+    predsedatel_fio = d.get("predsedatel_fio") or ""
+    if not predsedatel_fio:
+        predsedatel_fio = d.get("predstavitel_lesxoza_fio") or ""
+        predsedatel_dolzhnost = predsedatel_dolzhnost or d.get("predstavitel_lesxoza_dolzhnost") or ""
     chleny_lines = [_dolzhnost_fio(c.get("dolzhnost"), c.get("fio")) for c in chleny_raw]
 
     fill_data = {
@@ -129,6 +136,9 @@ def generate_akt_osvidetelstvovaniya(delyanka: dict, items: list, sortiment_tota
         "izveshchenie_day": izv_day, "izveshchenie_month": izv_month, "izveshchenie_year": izv_year,
         "chleny": chleny_lines,
         "vid_lesoseki": d.get("vid_lesoseki", ""),
+        "vid_osvidetelstvovaniya": d.get("vid_osvidetelstvovaniya", ""),
+        "srok_zagotovki": d.get("srok_zagotovki") or delyanka.get("srok_okonchaniya_zagotovki") or "",
+        "srok_vyvozki": d.get("srok_vyvozki") or delyanka.get("srok_okonchaniya_vyvozki") or "",
         "kvartal": kv_text, "vydel": vyd_text,
         "bilet_nomer": delyanka.get("nomer_lesorubochnogo_bileta", ""),
         "sposob_rubki": d.get("sposob_rubki") or "сплошной",
@@ -152,8 +162,8 @@ def generate_akt_osvidetelstvovaniya(delyanka: dict, items: list, sortiment_tota
         "zayavleniya_lesopolzovatelya": d.get("zayavleniya_lesopolzovatelya", ""),
         "zayavleniya_drugih": d.get("zayavleniya_drugih", ""),
         "prilozhenie_4": d.get("prilozhenie_4", ""),
-        "predsedatel_dolzhnost": d.get("predsedatel_dolzhnost", ""),
-        "predsedatel_fio": d.get("predsedatel_fio", ""),
+        "predsedatel_dolzhnost": predsedatel_dolzhnost,
+        "predsedatel_fio": predsedatel_fio,
         "chleny_podpisi": chleny_raw,
         "predstavitel_lesopolzovaniya_dolzhnost": d.get("predstavitel_lesopolzovaniya_dolzhnost", ""),
         "predstavitel_lesopolzovaniya_fio": d.get("predstavitel_lesopolzovaniya_fio", ""),

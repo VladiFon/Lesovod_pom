@@ -116,7 +116,8 @@ export default function RaspredelenieBrigad() {
         setDelyankiStatus(status);
         setBrigady(br);
         setSotrudniki(sotr);
-        setActivnyeDelyanki(delyanki);
+        // Делянки сторонней заготовки — не место для наших бригад.
+        setActivnyeDelyanki(delyanki.filter((d) => !d.storonnyaya));
       })
       .catch((err) => {
         toast.show({

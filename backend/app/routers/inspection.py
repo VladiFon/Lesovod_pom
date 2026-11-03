@@ -34,6 +34,7 @@ from app.database import get_conn, get_connection
 from app.paths import UPLOADS_DIR
 from app.doc_tasks import new_task_dir, register_document
 from app.auth import require_permission
+from app import storonnyaya
 import webext
 
 compute_sortiment_totals_multi = raskhod_v2.compute_sortiment_totals_multi
@@ -75,7 +76,31 @@ PLOSHAD_ZAKRYTA_DOPUSK = 0.01
 SROK_AKTA_DNEY = 30
 
 
-def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
+# --------------------------------------------------------------------------- #
+#   Сторонняя заготовка — общий признак делянки, см. app/storonnyaya.py.
+#   Факт для акта: справка заготовителя, если в ней есть объёмы, иначе наряды.
+# --------------------------------------------------------------------------- #
+SORTIMENTY = storonnyaya.SORTIMENTY
+_num = storonnyaya.num
+
+
+def _storonnie(conn, ids) -> Dict[int, dict]:
+    return storonnyaya.load(conn, ids)
+
+
+def _sortiment_totals_dlya_akta(conn, delyanka_id, items):
+    """Лимит — как всегда (из МДО), факт — из нарядов, а при сторонней
+    заготовке — из справки заготовителя."""
+    totals = compute_sortiment_limit_fakt_totals(conn, items)
+    st = _storonnie(conn, [delyanka_id]).get(delyanka_id)
+    if storonnyaya.est_spravka(st):
+        fakt = st.get("fakt") or {}
+        for k in SORTIMENTY:
+            totals.setdefault(k, {"limit": 0.0, "fakt": 0.0})["fakt"] = _num(fakt.get(k))
+    return totals
+
+
+def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d, zamena=None):
     """Освоенная площадь делянки по нарядам и срок акта по площади.
 
     Площадь делянки — сумма delyanka_item.ploshad (из МДО), освоено — сумма
@@ -93,6 +118,9 @@ def _ploshad_po_naryadam(conn, delyanki, items_by_d, acts_by_d):
             naryady.setdefault(delyanka_id, []).append(
                 (_parse_date((data or "").strip()), raskhod_v2._parse_ploshad_value(ploshad))
             )
+    # Сторонняя заготовка: вместо нарядов — одна «запись» из справки.
+    for did, rows in (zamena or {}).items():
+        naryady[did] = rows
     out = {}
     for d in delyanki:
         vsego = sum(raskhod_v2._parse_ploshad_value(it.get("ploshad")) for it in items_by_d.get(d["id"], []))
@@ -185,13 +213,24 @@ def list_inspection(conn=Depends(get_conn)):
                 "nomer_lesorubochnogo_bileta": nomer,
                 "data_lesorubochnogo_bileta": f"{dt[8:10]}.{dt[5:7]}.{dt[:4]}" if len(dt) == 10 and dt[4] == "-" else dt or None,
             }
-    ploshadi = _ploshad_po_naryadam(conn, delyanki, raskhod_v2.get_delyanka_items_batch(conn, ids), acts)
+    storonnie = _storonnie(conn, ids)
+    # Площадь из справки — только если заготовитель её указал; иначе
+    # (наряды пишем мы или сам заготовитель) — по нарядам, как обычно.
+    zamena = {did: [(_parse_date((st.get("spravka_data") or "").strip()), _num(st.get("ploshad_fakt")))]
+              for did, st in storonnie.items() if _num(st.get("ploshad_fakt"))}
+    ploshadi = _ploshad_po_naryadam(conn, delyanki, raskhod_v2.get_delyanka_items_batch(conn, ids), acts, zamena)
 
     result = []
     for d in delyanki:
         srok_zagotovki, srok_vyvozki = legacy_db.get_delyanka_sroki(conn, d["id"])
         osv = osvoenie.get(d["id"]) or {}
         pct_osvoeniya = osv.get("pct_naryad")
+        st = storonnie.get(d["id"])
+        if storonnyaya.est_spravka(st):
+            # % освоения по справке заготовителя: факт / лимит по всем сортиментам.
+            fakt = sum(_num((st.get("fakt") or {}).get(k)) for k in SORTIMENTY)
+            limit = _num(osv.get("limit")) or _num(st.get("limit_vsego"))
+            pct_osvoeniya = round(fakt / limit * 100, 1) if limit and fakt else None
 
         deadline = None
         vyvozka_dt = _parse_date(srok_vyvozki)
@@ -201,13 +240,15 @@ def list_inspection(conn=Depends(get_conn)):
         result.append({
             **d,
             "zakryta": d.get("status") == "архив",
+            "storonnyaya": st,
+            "po_spravke": storonnyaya.est_spravka(st),
             **bilety.get(d["id"], {}),
             "srok_okonchaniya_zagotovki": srok_zagotovki,
             "srok_okonchaniya_vyvozki": srok_vyvozki,
             "srok_osvidetelstvovaniya": deadline,
             "pct_osvoeniya_limita": pct_osvoeniya,
-            "pct_osvoeniya_naryad": osv.get("pct_naryad"),
-            "pct_osvoeniya_egais": osv.get("pct_egais"),
+            "pct_osvoeniya_naryad": osv.get("pct_naryad") if not storonnyaya.est_spravka(st) else None,
+            "pct_osvoeniya_egais": osv.get("pct_egais") if not storonnyaya.est_spravka(st) else None,
             "osvoenie_level": raskhod_v2._osvoenie_level(pct_osvoeniya),
             **ploshadi.get(d["id"], {}),
             **_osvidetelstvovanie(acts.get(d["id"], [])),
@@ -215,6 +256,58 @@ def list_inspection(conn=Depends(get_conn)):
             "acts": acts.get(d["id"], []),
         })
     return result
+
+
+class StoronnyayaIn(BaseModel):
+    storonnyaya: bool
+    zagotovitel: str = ""
+    spravka_nomer: str = ""
+    spravka_data: str = ""
+    ploshad_fakt: Optional[float] = None
+    fakt: Dict[str, Optional[float]] = {}
+    # кто пишет наряды: "my" — мы на сайте, "zagotovitel" — сам заготовитель
+    naryady: str = storonnyaya.NARYADY_MY
+
+
+@router.get("/{delyanka_id}/storonnyaya")
+def get_storonnyaya(delyanka_id: int, conn=Depends(get_conn)):
+    """Данные справки заготовителя + лимиты делянки по сортиментам (чтобы
+    вводить факт рядом с «разрешено»)."""
+    d, items = delyanka.get_delyanka_full(conn, delyanka_id)
+    if d is None:
+        raise HTTPException(404, "Делянка не найдена")
+    st = _storonnie(conn, [delyanka_id]).get(delyanka_id)
+    limity = compute_sortiment_limit_fakt_totals(conn, items)
+    return {"storonnyaya": st is not None, **(st or {}),
+            "limity": {k: round((limity.get(k) or {}).get("limit", 0.0), 2) for k in SORTIMENTY}}
+
+
+@router.put("/{delyanka_id}/storonnyaya")
+def set_storonnyaya(delyanka_id: int, body: StoronnyayaIn, user=Depends(require_permission("inspection.edit")),
+                    conn=Depends(get_conn)):
+    d, items = delyanka.get_delyanka_full(conn, delyanka_id)
+    if d is None:
+        raise HTTPException(404, "Делянка не найдена")
+    storonnyaya.ensure_columns(conn)
+    if body.naryady not in storonnyaya.NARYADY:
+        raise HTTPException(400, "Кто пишет наряды: my или zagotovitel")
+    if body.spravka_data.strip() and _parse_date(body.spravka_data.strip()) is None:
+        raise HTTPException(400, "Дата справки — в виде ДД.ММ.ГГГГ")
+    limity = compute_sortiment_limit_fakt_totals(conn, items)
+    data = {
+        "zagotovitel": body.zagotovitel.strip(),
+        "naryady": body.naryady,
+        "spravka_nomer": body.spravka_nomer.strip(),
+        "spravka_data": body.spravka_data.strip(),
+        "ploshad_fakt": body.ploshad_fakt,
+        "fakt": {k: body.fakt.get(k) for k in SORTIMENTY if body.fakt.get(k) is not None},
+        "limit_vsego": round(sum((limity.get(k) or {}).get("limit", 0.0) for k in SORTIMENTY), 2),
+    }
+    conn.execute("UPDATE delyanka SET zagotovka_storonnyaya=?, storonnyaya_json=? WHERE id=?",
+                 (1 if body.storonnyaya else 0, json.dumps(data, ensure_ascii=False), delyanka_id))
+    conn.commit()
+    webext.touch_updated_by(conn, "delyanka", delyanka_id, user["login"])
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -229,6 +322,8 @@ def _zakryt(conn, delyanka_id: int, login: str) -> bool:
         raise HTTPException(404, "Делянка не найдена")
     if row[0] == "архив":
         return False
+    # Склады ЕГАИС закрепить за делянкой ДО закрытия (raskhod_v2).
+    raskhod_v2.zamorozit_sklady_delyanki(conn, delyanka_id, login)
     delyanka.archive_delyanka(conn, delyanka_id)
     webext.touch_updated_by(conn, "delyanka", delyanka_id, login)
     return True
@@ -318,12 +413,32 @@ def delete_checklist_item(item_id: int, user=Depends(require_permission("inspect
 # --------------------------------------------------------------------------- #
 #   Пресеты акта освидетельствования
 # --------------------------------------------------------------------------- #
+# Полномочие представителя лесопользователя (№ и дата) хранится в пресете
+# вместе с комиссией — столбцы добавляются здесь, чтобы не трогать схему
+# legacy db.py.
+_PRESET_EXTRA = ("osnovanie_nomer", "osnovanie_data")
+
+
+def _ensure_preset_extra(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(osvidetelstvovanie_komissiya_preset)").fetchall()}
+    for c in _PRESET_EXTRA:
+        if cols and c not in cols:
+            conn.execute(f"ALTER TABLE osvidetelstvovanie_komissiya_preset ADD COLUMN {c} TEXT")
+    conn.commit()
+
+
 @router.get("/presets")
 def list_presets(conn=Depends(get_conn)):
     """Пресеты акта + составы комиссий, сохранённые в карточке делянки
     (komissiya_preset): один общий справочник комиссий, а не отдельный
     на каждый документ (анализ удобства 01.10.2026)."""
     own = legacy_db.list_osvidetelstvovanie_presets(conn)
+    _ensure_preset_extra(conn)
+    extra = {r[0]: r[1:] for r in conn.execute(
+        f"SELECT nazvanie, {', '.join(_PRESET_EXTRA)} FROM osvidetelstvovanie_komissiya_preset").fetchall()}
+    for p in own:
+        for k, v in zip(_PRESET_EXTRA, extra.get(p["nazvanie"], ())):
+            p[k] = v or ""
     names = {p["nazvanie"] for p in own}
     for p in delyanka.list_komissiya_presets(conn):
         if p["nazvanie"] in names or not (p.get("predsedatel_fio") or p.get("chleny")):
@@ -358,18 +473,25 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
                   "predstavitel_lesopolz_organizatsiya", "predstavitel_lesopolz_dolzhnost",
                   "predstavitel_lesopolz_fio", "predstavitel_lesopolzovaniya_dolzhnost",
                   "predstavitel_lesopolzovaniya_fio", "sposob_ucheta", "sposob_ochistki",
-                  "vid_osvidetelstvovaniya"):
+                  "vid_osvidetelstvovaniya",
+                  # «действующего на основании полномочия … № … от …» —
+                  # полномочие представителя, а НЕ лесорубочный билет
+                  # (раньше сюда ошибочно шёл № и дата билета делянки).
+                  "osnovanie_nomer", "osnovanie_data",
+                  # Комиссия из прошлого акта — если в карточке делянки
+                  # своей нет (ниже карточка делянки её перекроет).
+                  "predsedatel_dolzhnost", "predsedatel_fio", "chleny"):
             if prev.get(k):
                 out[k] = prev[k]
     lesnichiy = legacy_db.get_app_login(conn) or {}
     if lesnichiy.get("fio"):
         out["predstavitel_lesxoza_fio"] = lesnichiy["fio"]
         out["predstavitel_lesxoza_dolzhnost"] = lesnichiy.get("dolzhnost") or "Лесничий"
-    if d.get("nomer_lesorubochnogo_bileta"):
-        out["osnovanie_nomer"] = d["nomer_lesorubochnogo_bileta"]
-    if d.get("data_lesorubochnogo_bileta"):
-        dt = str(d["data_lesorubochnogo_bileta"])
-        out["osnovanie_data"] = f"{dt[8:10]}.{dt[5:7]}.{dt[:4]}" if len(dt) == 10 and dt[4] == "-" else dt
+    # Сроки окончания заготовки/вывозки — из делянки (вносятся с билетом).
+    if d.get("srok_okonchaniya_zagotovki"):
+        out["srok_zagotovki"] = d["srok_okonchaniya_zagotovki"]
+    if d.get("srok_okonchaniya_vyvozki"):
+        out["srok_vyvozki"] = d["srok_okonchaniya_vyvozki"]
     ploshad = sum(float(it.get("ploshad") or 0) for it in items)
     if ploshad:
         out["ploshad_razresheno"] = str(round(ploshad, 2))
@@ -380,6 +502,14 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
         "SELECT ploshad FROM raskhod_naryad WHERE delyanka_id=?", (delyanka_id,)).fetchall())
     if fakt:
         out["ploshad_fakt"] = str(round(fakt, 2))
+    st = _storonnie(conn, [delyanka_id]).get(delyanka_id)
+    if st is not None:
+        # Сторонняя заготовка: площадь — из справки заготовителя, а
+        # заготовитель — это и есть лесопользователь в акте.
+        if st.get("ploshad_fakt") is not None:
+            out["ploshad_fakt"] = str(st["ploshad_fakt"])
+        if st.get("zagotovitel"):
+            out["predstavitel_lesopolz_organizatsiya"] = st["zagotovitel"]
     out["act_date"] = datetime.now().strftime("%d.%m.%Y")
     from app.vidy import vid_rubki_info
 
@@ -400,6 +530,11 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
         chleny = []
     if chleny:
         out["chleny"] = chleny
+    # Председатель для подписи: нет ни в карточке, ни в прошлом акте —
+    # лесничий (тот же, что «Мы, нижеподписавшиеся»).
+    if not out.get("predsedatel_fio") and out.get("predstavitel_lesxoza_fio"):
+        out["predsedatel_fio"] = out["predstavitel_lesxoza_fio"]
+        out["predsedatel_dolzhnost"] = out.get("predsedatel_dolzhnost") or out.get("predstavitel_lesxoza_dolzhnost", "")
     if d.get("podrost_ploshad"):
         out["podrost_ploshad_ga"] = str(d["podrost_ploshad"])
     if d.get("podrost_tys_sht"):
@@ -410,6 +545,7 @@ def act_defaults(delyanka_id: int, conn=Depends(get_conn)):
 @router.post("/presets")
 def save_preset(nazvanie: str, fields: Dict[str, Any], user=Depends(require_permission("inspection.edit")),
                  conn=Depends(get_conn)):
+    extra = {k: fields.pop(k, "") or "" for k in _PRESET_EXTRA}
     legacy_db.save_osvidetelstvovanie_preset(
         conn, nazvanie,
         predsedatel_dolzhnost=fields.pop("predsedatel_dolzhnost", ""),
@@ -417,6 +553,11 @@ def save_preset(nazvanie: str, fields: Dict[str, Any], user=Depends(require_perm
         chleny=fields.pop("chleny", []),
         **fields,
     )
+    _ensure_preset_extra(conn)
+    conn.execute(
+        f"UPDATE osvidetelstvovanie_komissiya_preset SET {', '.join(f'{k}=?' for k in _PRESET_EXTRA)} WHERE nazvanie=?",
+        (*extra.values(), nazvanie.strip()))
+    conn.commit()
     return {"ok": True}
 
 
@@ -536,7 +677,7 @@ def _run_generate_akt_osv(task_id: str, delyanka_id: int, act_data: dict, create
         d, items = delyanka.get_delyanka_full(conn, delyanka_id)
         if d is None:
             raise ValueError(f"Делянка {delyanka_id} не найдена")
-        sortiment_totals = compute_sortiment_limit_fakt_totals(conn, items)
+        sortiment_totals = _sortiment_totals_dlya_akta(conn, delyanka_id, items)
         output_path = task_dir / f"Akt_osvidetelstvovaniya_{delyanka_id}.docx"
         path = osvidetelstvovanie_generator.generate_akt_osvidetelstvovaniya(
             d, items, sortiment_totals, act_data, str(output_path)

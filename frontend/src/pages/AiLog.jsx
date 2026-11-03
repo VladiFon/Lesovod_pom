@@ -3,6 +3,7 @@ import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
+import DateField from "../components/DateField.jsx";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { useToast } from "../components/Toast.jsx";
@@ -115,6 +116,9 @@ function ReviewPanel({ report, onDone }) {
   const [ispolnitel, setIspolnitel] = useState(report.ispolnitel_fio || "");
   const [lesnichestvo, setLesnichestvo] = useState(report.lesnichestvo || "");
   const [opisanie, setOpisanie] = useState(report.opisanie || "");
+  // дата работы = дата отчёта с телефона (раньше в журнал шла дата одобрения)
+  const dataOtcheta = () => String(report.data_soobscheniya || "").slice(0, 10);
+  const [dataRaboty, setDataRaboty] = useState(dataOtcheta());
   const [submitting, setSubmitting] = useState(null);
 
   useEffect(() => {
@@ -124,7 +128,8 @@ function ReviewPanel({ report, onDone }) {
     setIspolnitel(report.ispolnitel_fio || "");
     setOpisanie(report.opisanie || "");
     setLesnichestvo(report.lesnichestvo || "");
-  }, [report]);
+    setDataRaboty(dataOtcheta());
+  }, [report]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleApprove = async () => {
     if (!(kvartal.trim() && vydel.trim() && tipRaboty.trim() && lesnichestvo.trim())) {
@@ -136,6 +141,7 @@ function ReviewPanel({ report, onDone }) {
       await api.post(`/ai-log/raw-reports/${report.id}/approve`, {
         kvartal: kvartal.trim(), vydel: vydel.trim(), tip_raboty: tipRaboty.trim(),
         lesnichestvo: lesnichestvo.trim(), ispolnitel_fio: ispolnitel.trim(), opisanie: opisanie.trim(),
+        data_vypolneniya: dataRaboty || null,
       });
       toast.show({ tone: "success", title: "Отчёт одобрен и перенесён в выполненные работы" });
       onDone();
@@ -177,6 +183,7 @@ function ReviewPanel({ report, onDone }) {
         <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
           <TextField label="Исполнитель" value={ispolnitel} onChange={(e) => setIspolnitel(e.target.value)} />
           <LesnichestvoSelect value={lesnichestvo} onChange={setLesnichestvo} />
+          <DateField label="Дата работы" value={dataRaboty} onChange={setDataRaboty} />
         </div>
         <TextField label="Описание" value={opisanie} onChange={(e) => setOpisanie(e.target.value)} />
         <div className="flex items-center gap-2">
@@ -192,7 +199,7 @@ function ReviewPanel({ report, onDone }) {
   );
 }
 
-function RawReportsTab() {
+export function RawReportsTab() {
   const toast = useToast();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -252,7 +259,7 @@ function RawReportsTab() {
   );
 }
 
-function CompletedTab() {
+export function CompletedTab() {
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);

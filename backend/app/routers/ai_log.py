@@ -76,6 +76,36 @@ class ApproveIn(BaseModel):
     lesnichestvo: str
     ispolnitel_fio: Optional[str] = None
     opisanie: Optional[str] = None
+    # ГГГГ-ММ-ДД; пусто — дата самого отчёта с телефона (не сегодняшняя)
+    data_vypolneniya: Optional[str] = None
+
+
+def _data_otcheta(s: Optional[str]) -> Optional[str]:
+    """'03.11.2026 14:05' (формат raw_reports) → '2026-11-03'."""
+    s = (s or "").strip()
+    for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
+
+def _ensure_completed_cols(conn) -> None:
+    """Делянка/участок культур из отчёта раньше терялись при одобрении
+    (анализ 03.11.2026, Б5) — храним их и в журнале работ."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(completed_works)").fetchall()}
+    for c in ("delyanka_id", "lesokultury_uchastok_id"):
+        if c not in cols:
+            conn.execute(f"ALTER TABLE completed_works ADD COLUMN {c} INTEGER")
+
+
+def _raw_col(conn, report_id: int, col: str):
+    try:
+        r = conn.execute(f"SELECT {col} FROM raw_reports WHERE id=?", (report_id,)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return r[0] if r else None
 
 
 @router.post("/raw-reports/{report_id}/approve")
@@ -92,15 +122,28 @@ def approve_report(report_id: int, body: ApproveIn, conn=Depends(get_conn), _use
     dolzhnost_row = conn.execute("SELECT dolzhnost FROM lesorub_directory WHERE fio=?", (ispolnitel,)).fetchone()
     dolzhnost = dolzhnost_row[0] if dolzhnost_row else None
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    # Дата работы — из отчёта (раньше ставилось «сегодня»: отчёт, одобренный
+    # через неделю, уезжал в журнал не той датой — анализ 03.11.2026, Б4).
+    data = None
+    if body.data_vypolneniya:
+        data = _data_otcheta(body.data_vypolneniya)
+        if data is None:
+            raise HTTPException(400, "Дата работы — в формате ГГГГ-ММ-ДД")
+    if data is None:
+        data = _data_otcheta(_raw_col(conn, report_id, "data_soobscheniya"))
+    if data is None:
+        data = datetime.now().strftime("%Y-%m-%d")
+    _ensure_completed_cols(conn)
     # лесничество — в написании LCH_MAP, иначе выдел не покрасится на карте
     lesnichestvo = map_features.canonical_lesnichestvo(body.lesnichestvo)
     conn.execute(
         "INSERT INTO completed_works "
-        "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, photo_path, lesnichestvo, opisanie, dolzhnost) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
-        (today, ispolnitel, body.kvartal.strip(), body.vydel.strip(), body.tip_raboty.strip(),
-         photo_path or None, lesnichestvo, (body.opisanie or "").strip() or None, dolzhnost),
+        "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, photo_path, lesnichestvo, opisanie, dolzhnost, "
+        "delyanka_id, lesokultury_uchastok_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (data, ispolnitel, body.kvartal.strip(), body.vydel.strip(), body.tip_raboty.strip(),
+         photo_path or None, lesnichestvo, (body.opisanie or "").strip() or None, dolzhnost,
+         _raw_col(conn, report_id, "delyanka_id"), _raw_col(conn, report_id, "lesokultury_uchastok_id")),
     )
     map_features.mark_items_in_progress(conn, body.kvartal, body.vydel.split(","), lesnichestvo)
     conn.execute("UPDATE raw_reports SET status='обработано' WHERE id=?", (report_id,))

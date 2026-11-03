@@ -66,7 +66,10 @@ def fill_spravka(template_path, data, output_path):
     fill_row(12, d.get("vsego_total", ""), d.get("vsego_by_poroda"))
 
     # --- подпись ---
-    set_cell_text(t2, 1, 4, d.get("rukovoditel_fio", ""))
+    # ФИО — на линии (строка 0). Строка 1 — мелкая подпись бланка
+    # «(фамилия и инициалы)», её не трогаем (раньше ФИО писалось туда,
+    # под линию, вместо подписи).
+    set_cell_text(t2, 0, 4, d.get("rukovoditel_fio", ""))
 
     output_path = str(output_path)
     doc.save(output_path)

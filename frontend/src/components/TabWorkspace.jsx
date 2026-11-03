@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { NAV_GROUPS } from "./Sidebar.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import SlovarButton from "./Slovar.jsx";
+import ZhdetMenya from "./ZhdetMenya.jsx";
 
 const MONO = "'JetBrains Mono', monospace";
 const MAX_TABS = 8;
@@ -124,6 +125,7 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
         </div>
         <div className="flex items-center shrink-0" style={{ gap: 8, paddingBottom: 7 }}>
           <SlovarButton />
+          <ZhdetMenya />
           <NotificationBell onNavigate={(id) => dispatch({ type: "open", id })} />
           <button
             type="button"

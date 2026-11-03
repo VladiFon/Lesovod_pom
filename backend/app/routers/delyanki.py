@@ -26,7 +26,7 @@ import db as legacy_db
 import delyanka
 import tehkarta_generator
 
-from app import korzina
+from app import etap, korzina, storonnyaya
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
@@ -41,7 +41,17 @@ router = APIRouter(prefix="/api/delyanki", tags=["delyanki"])
 # --------------------------------------------------------------------------- #
 @router.get("/")
 def list_delyanki(status: Optional[str] = None, conn=Depends(get_conn)):
-    return delyanka.list_delyanki(conn, status=status)
+    rows = delyanka.list_delyanki(conn, status=status)
+    # «Рубит …» — сторонняя заготовка (app/storonnyaya.py), чтобы любой
+    # список делянок на сайте мог пометить чужую делянку.
+    st = storonnyaya.load(conn)
+    # Этап (В работе / Дорублена / Освидетельствована …) — один бейдж на
+    # всех экранах (app/etap.py).
+    et = etap.etapy(conn, rows)
+    for r in rows:
+        r["storonnyaya"] = storonnyaya.kratko(st.get(r["id"]))
+        r["etap"] = et.get(r["id"])
+    return rows
 
 
 class ManualDelyankaIn(BaseModel):
@@ -69,7 +79,16 @@ def create_delyanka_manual(body: ManualDelyankaIn,
 def get_delyanki_for_map(conn=Depends(get_conn), _user=Depends(map_reader)):
     """Облегчённый список для подсветки делянок на живой карте (веб и
     мобильное приложение) — см. delyanka.list_delyanka_items_for_map."""
-    return delyanka.list_delyanka_items_for_map(conn)
+    rows = delyanka.list_delyanka_items_for_map(conn)
+    # Сторонняя заготовка (app/storonnyaya.py): «рубит …» на карте и в
+    # выборе делянки для отчёта; nashi_naryady=false — наряды пишет сам
+    # заготовитель, телефон не предлагает такую делянку для отчёта.
+    chuzhie = storonnyaya.load(conn)
+    for r in rows:
+        st = chuzhie.get(r["delyanka_id"])
+        r["zagotovitel"] = storonnyaya.zagotovitel(st) if st is not None else None
+        r["nashi_naryady"] = storonnyaya.vidna_nashim(st)
+    return rows
 
 
 # --------------------------------------------------------------------------- #
@@ -159,6 +178,8 @@ def get_delyanka(delyanka_id: int, conn=Depends(get_conn)):
                                    d.get("listok_namechaemoe_meropriyatie"))
         it["vid_rubki_avto_kod"] = avto["vid_rubki_kod"]
         it["gruppa_avto"] = avto["gruppa_label"] if avto["gruppa"] else ""
+    d["storonnyaya"] = storonnyaya.kratko(storonnyaya.load(conn, [delyanka_id]).get(delyanka_id))
+    d["etap"] = etap.odna(conn, delyanka_id)
     return {"delyanka": d, "items": items}
 
 
@@ -194,6 +215,9 @@ def archive_delyanka(delyanka_id: int, user=Depends(require_permission("delyanka
     d, _ = delyanka.get_delyanka_full(conn, delyanka_id)
     if d is None:
         raise HTTPException(404, "Делянка не найдена")
+    # Склады ЕГАИС закрепить за делянкой ДО закрытия (raskhod_v2).
+    import raskhod_v2
+    raskhod_v2.zamorozit_sklady_delyanki(conn, delyanka_id, user["login"])
     delyanka.archive_delyanka(conn, delyanka_id)
     webext.touch_updated_by(conn, "delyanka", delyanka_id, user["login"])
     return {"ok": True}

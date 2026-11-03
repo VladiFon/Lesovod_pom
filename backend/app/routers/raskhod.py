@@ -39,6 +39,64 @@ def _get_item(conn, item_id: int) -> dict:
     return dict(zip(cols, row))
 
 
+@router.get("/obzor")
+def obzor_delyanok(zakrytye: bool = False, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Обзор для экрана «Расход», пока делянка не выбрана (шаг 4 разбора
+    03.11.2026): все активные (и по галочке — закрытые) делянки с % освоения
+    по нарядам и ЕГАИС, остатком, последним нарядом, этапом и «рубит …».
+    Тот же расчёт освоения, что карточка «Освоение делянки»."""
+    from app import etap, storonnyaya
+    statusy = ("активна", "архив") if zakrytye else ("активна",)
+    rows = [r for r in delyanka.list_delyanki(conn) if r.get("status") in statusy]
+    ids = [r["id"] for r in rows]
+    osv = legacy_raskhod.compute_osvoenie_batch(conn, ids)
+    et = etap.etapy(conn, rows)
+    st = storonnyaya.load(conn, ids)
+    poslednij, n_naryadov = {}, {}
+    if ids:
+        ph = ",".join("?" * len(ids))
+        for did, data in conn.execute(
+                f"SELECT delyanka_id, data FROM raskhod_naryad WHERE delyanka_id IN ({ph})", ids).fetchall():
+            n_naryadov[did] = n_naryadov.get(did, 0) + 1
+            dt = _data_naryada(data)
+            if dt and (did not in poslednij or dt > poslednij[did]):
+                poslednij[did] = dt
+    out = []
+    for r in rows:
+        o = osv.get(r["id"]) or {}
+        limit = o.get("limit") or 0
+        fakt = o.get("fakt") or 0
+        out.append({
+            "id": r["id"],
+            "nazvanie": r["nazvanie"],
+            "status": r["status"],
+            "n_items": r["n_items"],
+            "storonnyaya": storonnyaya.kratko(st.get(r["id"])),
+            "etap": et.get(r["id"]),
+            "limit": round(limit, 2),
+            "fakt_naryad": round(o.get("fakt_naryad") or 0, 2),
+            "fakt_egais": round(o["fakt_egais"], 2) if o.get("fakt_egais") is not None else None,
+            "pct_naryad": o.get("pct_naryad"),
+            "pct_egais": o.get("pct_egais"),
+            "level": o.get("level"),
+            "ostatok": round(limit - fakt, 2) if limit else None,
+            "poslednij_naryad": poslednij[r["id"]].strftime("%d.%m.%Y") if r["id"] in poslednij else None,
+            "n_naryadov": n_naryadov.get(r["id"], 0),
+        })
+    return out
+
+
+def _data_naryada(value):
+    from datetime import datetime as _dt
+    s = str(value or "").strip()[:10]
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y"):
+        try:
+            return _dt.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 @router.get("/items/{item_id}/limits")
 def get_limits(item_id: int, conn=Depends(get_conn)):
     item = _get_item(conn, item_id)

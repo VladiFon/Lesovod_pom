@@ -12,6 +12,8 @@ import { useToast } from "../components/Toast.jsx";
 import SvodkiModal from "./RaskhodSvodki.jsx";
 import { useCan } from "../auth.jsx";
 import { useScreenParam } from "../nav.js";
+import DelyankaNav, { EtapBadge } from "../components/DelyankaNav.jsx";
+import { osvoenieTone } from "../components/OsvoenieBadge.jsx";
 
 /**
  * Экран "Расход / ЕГАИС" (screens/raskhod/) — Этап 9 плана.
@@ -138,6 +140,7 @@ const SKLAD_HOW = {
   conflict: { tone: "warning", label: "номер лесосеки не совпал" },
   none: { tone: "neutral", label: "нет такого выдела в приложении" },
   auto: { tone: "success", label: "определён автоматически" },
+  auto_status: { tone: "warning", label: "проверьте: соседняя делянка закрыта" },
   manual: { tone: "info", label: "привязан вручную" },
   ignored: { tone: "neutral", label: "не наш склад" },
 };
@@ -194,6 +197,12 @@ function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
             {row.item_label ? ` · → ${row.item_label}` : ""}
           </span>
         </div>
+        {row.how === "auto_status" && (
+          <div className="text-xs text-oak mt-1">
+            Отнесён к «{row.item_label}» только потому, что другая подходящая делянка закрыта. Если верно — нажмите
+            «Привязать»; если склад той, закрытой делянки — выберите её выдел.
+          </div>
+        )}
         {guess && (
           <div className="text-xs text-pine mt-1">Скорее всего это «{guess.label}» — проверьте и нажмите «Привязать».</div>
         )}
@@ -1790,6 +1799,118 @@ function SummaryModal({ open, onClose, delyankaId, delyankaLabel }) {
   );
 }
 
+// Обзор всех делянок, пока ни одна не выбрана (шаг 4 разбора 03.11.2026):
+// раньше экран был пустым до выбора в выпадашке. % по нарядам и ЕГАИС,
+// остаток, последний наряд, этап; клик — открыть делянку.
+const OBZOR_FILTRY = [
+  ["vse", "Все"],
+  ["nashi", "Наши"],
+  ["chuzhie", "Рубят другие"],
+  ["vnimanie", "У лимита / переруб"],
+];
+const BAR = { neutral: "#2e7d4f", warning: "#b7791f", danger: "#ba1a1a" };
+
+function RaskhodObzor({ zakrytye, search, onSelect }) {
+  const [rows, setRows] = useState(null);
+  const [filtr, setFiltr] = useState("vse");
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    setRows(null);
+    api.get("/raskhod/obzor", { zakrytye: zakrytye ? 1 : 0 })
+      .then((r) => { setRows(r); setErr(null); })
+      .catch((e) => setErr(e.message));
+  }, [zakrytye]);
+
+  const q = (search || "").trim().toLowerCase();
+  const vidimye = (rows || []).filter((r) => {
+    if (q && !(r.nazvanie || "").toLowerCase().includes(q) && !String(r.id).includes(q)) return false;
+    if (filtr === "nashi") return !r.storonnyaya;
+    if (filtr === "chuzhie") return !!r.storonnyaya;
+    if (filtr === "vnimanie") return ["vnimanie", "preduprezhdenie", "pererub"].includes(r.level);
+    return true;
+  });
+  const fmt = (v) => (v == null ? "—" : Number(v).toLocaleString("ru-RU", { maximumFractionDigits: 1 }));
+
+  return (
+    <Card title="Все делянки" subtitle="Выберите строку, чтобы открыть выделы и наряды. Освоение — по большему из нарядов и ЕГАИС.">
+      <div className="flex gap-1.5 flex-wrap mb-3">
+        {OBZOR_FILTRY.map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setFiltr(k)}
+            className={[
+              "h-7 px-3 rounded-full text-[12.5px] font-semibold border transition-colors",
+              filtr === k ? "bg-pine border-pine text-white" : "bg-surface border-border text-muted hover:border-pine",
+            ].join(" ")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {err && <p className="text-error text-sm">{err}</p>}
+      {rows === null && !err ? (
+        <div className="py-6 text-center text-muted text-sm">Загрузка…</div>
+      ) : vidimye.length === 0 ? (
+        <div className="py-6 text-center text-muted text-sm">Делянок под этот фильтр нет</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="text-left text-muted-2 text-[11.5px] uppercase tracking-wide">
+                <th className="py-1.5 pr-3 font-semibold">Делянка</th>
+                <th className="py-1.5 pr-3 font-semibold">Этап</th>
+                <th className="py-1.5 pr-3 font-semibold min-w-[160px]">Освоение</th>
+                <th className="py-1.5 pr-3 font-semibold text-right">Лимит, м³</th>
+                <th className="py-1.5 pr-3 font-semibold text-right">Наряды</th>
+                <th className="py-1.5 pr-3 font-semibold text-right">ЕГАИС</th>
+                <th className="py-1.5 pr-3 font-semibold text-right">Остаток</th>
+                <th className="py-1.5 font-semibold">Последний наряд</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vidimye.map((r) => {
+                const pct = Math.max(r.pct_naryad ?? 0, r.pct_egais ?? 0);
+                const tone = osvoenieTone(r.level);
+                return (
+                  <tr
+                    key={r.id}
+                    onClick={() => onSelect(String(r.id))}
+                    className="border-t border-border hover:bg-hover cursor-pointer"
+                  >
+                    <td className="py-2 pr-3">
+                      <div className="font-semibold text-ink">{r.nazvanie || `Делянка №${r.id}`}</div>
+                      {r.storonnyaya && <div className="text-[11.5px] text-oak">рубит {r.storonnyaya.zagotovitel}</div>}
+                    </td>
+                    <td className="py-2 pr-3"><EtapBadge etap={r.etap} /></td>
+                    <td className="py-2 pr-3">
+                      {r.limit ? (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 rounded-full bg-hover overflow-hidden min-w-[80px]">
+                            <div style={{ width: `${Math.min(pct, 110) / 1.1}%`, height: "100%", background: BAR[tone] || BAR.neutral }} />
+                          </div>
+                          <span className="w-[44px] text-right font-semibold" style={{ color: tone === "danger" ? BAR.danger : undefined }}>{pct}%</span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-2">нет лимита</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-right">{fmt(r.limit)}</td>
+                    <td className="py-2 pr-3 text-right">{fmt(r.fakt_naryad)}</td>
+                    <td className="py-2 pr-3 text-right">{fmt(r.fakt_egais)}</td>
+                    <td className="py-2 pr-3 text-right">{fmt(r.ostatok)}</td>
+                    <td className="py-2 text-muted">{r.poslednij_naryad || "—"}{r.n_naryadov ? ` · ${r.n_naryadov} шт.` : ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function Raskhod() {
   const toast = useToast();
   const can = useCan();
@@ -1803,9 +1924,20 @@ export default function Raskhod() {
   const [importOpen, setImportOpen] = useState(false);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [delyankaSearch, setDelyankaSearch] = useState("");
+  // Закрытые (архив) — после акта делянка закрывается сама, а наряды и
+  // ЕГАИС по ней бывает нужно посмотреть или поправить.
+  const [pokazZakrytye, setPokazZakrytye] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [svodkiOpen, setSvodkiOpen] = useState(false);
   const [egaisReviewOpen, setEgaisReviewOpen] = useState(false);
+  // #/raskhod?razbor=1 — открыть «Разбор ЕГАИС» сразу (из «Ждёт меня»)
+  const [razborParam, setRazborParam] = useScreenParam("raskhod", "razbor");
+  useEffect(() => {
+    if (razborParam) {
+      setEgaisReviewOpen(true);
+      setRazborParam("");
+    }
+  }, [razborParam]); // eslint-disable-line react-hooks/exhaustive-deps
   const [egaisReviewCount, setEgaisReviewCount] = useState(0);
   const [delyankaEgaisCheck, setDelyankaEgaisCheck] = useState(null);
   // Растёт при каждом закрытии "Импорт ЕГАИС"/"Разбор ЕГАИС" — единственная
@@ -1829,13 +1961,20 @@ export default function Raskhod() {
   }, []);
 
   useEffect(() => {
-    // Только 'активна' — черновики (сразу после импорта МДО, без номера/даты
-    // лесорубочного билета) в расходе не должны быть доступны для выбора.
-    api.get("/delyanki/", { status: "активна" }).then(setDelyanki).catch((e) => {
-      toast.show({ tone: "danger", title: "Не удалось загрузить делянки", description: e.message });
-    });
+    // Черновики (сразу после импорта МДО, без номера/даты лесорубочного
+    // билета) в расходе не должны быть доступны для выбора; закрытые — по
+    // галочке «Показывать закрытые».
+    api.get("/delyanki/")
+      .then((rows) => setDelyanki(rows.filter((d) => d.status === "активна"
+        || (d.status === "архив" && (pokazZakrytye || String(d.id) === String(delyankaParam))))))
+      .catch((e) => {
+        toast.show({ tone: "danger", title: "Не удалось загрузить делянки", description: e.message });
+      });
+  }, [pokazZakrytye]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
     loadEgaisReviewSummary();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const vybrannaya = delyanki.find((d) => String(d.id) === String(delyankaId));
 
   useEffect(() => {
     if (String(delyankaParam || "") !== String(delyankaId || "")) handleDelyankaChange(delyankaParam);
@@ -1907,7 +2046,7 @@ export default function Raskhod() {
               onChange={(e) => handleDelyankaChange(e.target.value)}
               className="w-full bg-surface border border-border focus:border-pine focus:bg-surface rounded-md px-3.5 py-2.5 text-base text-ink outline-none transition-colors"
             >
-              <option value="">Выберите делянку…</option>
+              <option value="">Выберите делянку… (все — в таблице ниже)</option>
               {delyanki
                 .filter((d) => {
                   const q = delyankaSearch.trim().toLowerCase();
@@ -1916,9 +2055,22 @@ export default function Raskhod() {
                   return label.includes(q) || String(d.id).includes(q);
                 })
                 .map((d) => (
-                  <option key={d.id} value={d.id}>{d.nazvanie || `Делянка №${d.id}`}</option>
+                  <option key={d.id} value={d.id}>
+                    {d.nazvanie || `Делянка №${d.id}`}
+                    {d.storonnyaya ? ` — рубит ${d.storonnyaya.zagotovitel}` : ""}
+                    {d.status === "архив" ? " (закрыта)" : ""}
+                  </option>
                 ))}
             </select>
+            <label className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={pokazZakrytye}
+                onChange={(e) => setPokazZakrytye(e.target.checked)}
+                className="h-3.5 w-3.5 accent-pine"
+              />
+              Показывать закрытые
+            </label>
           </div>
 
           {itemsLoading && <div className="h-5 w-5 rounded-full border-2 border-pine border-t-transparent animate-spin" />}
@@ -1966,6 +2118,22 @@ export default function Raskhod() {
         </div>
       </Card>
 
+      {delyankaId && (
+        <DelyankaNav delyankaId={delyankaId} current="raskhod" etap={vybrannaya?.etap} />
+      )}
+
+      {vybrannaya?.storonnyaya && (
+        <div className="rounded-[10px] border border-oak bg-hover px-3.5 py-2.5 text-sm text-ink">
+          <b>Рубит {vybrannaya.storonnyaya.zagotovitel}</b> — заготовка сторонней организации.{" "}
+          {vybrannaya.storonnyaya.naryady === "zagotovitel"
+            ? "Наряды пишет сам заготовитель; если он передал их нам — можно завести здесь."
+            : "Наряды по ней заводим мы."}{" "}
+          {vybrannaya.storonnyaya.est_spravka
+            ? "Для акта объёмы берутся из справки заготовителя (Инспекция)."
+            : "Справки заготовителя нет — акт возьмёт объёмы из нарядов."}
+        </div>
+      )}
+
       <DelyankaEgaisSummary check={delyankaEgaisCheck} onOpenReview={() => setEgaisReviewOpen(true)} />
 
       <DelyankaOsvoenie delyankaId={delyankaId} egaisVersion={egaisVersion} />
@@ -1977,12 +2145,14 @@ export default function Raskhod() {
           egaisVersion={egaisVersion}
           onOpenEgaisReview={() => setEgaisReviewOpen(true)}
         />
+      ) : !delyankaId ? (
+        <RaskhodObzor zakrytye={pokazZakrytye} search={delyankaSearch} onSelect={handleDelyankaChange} />
       ) : (
         <Card>
           <EmptyState
             icon="🧮"
-            title="Выберите делянку и выдел"
-            description="Выберите делянку в списке выше (в нём только активные: черновик становится активным после ввода лесорубочного билета в «Делянках»). Затем — выдел, если их несколько."
+            title="Выберите выдел"
+            description="У делянки несколько выделов — выберите нужный кнопкой выше. Чтобы вернуться к списку всех делянок, выберите «Выберите делянку…»."
           />
         </Card>
       )}

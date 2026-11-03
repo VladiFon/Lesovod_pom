@@ -338,6 +338,11 @@ def list_delyanki_dlya_raspredeleniya(conn):
     назначение (кто там сейчас) + следующее назначение ЭТОЙ бригады/
     рабочего (куда они поедут дальше, если уже запланировано)."""
     delyanki = delyanka.list_delyanki(conn, status="активна")
+    # Делянки, которые рубит сторонняя организация, — не место для наших
+    # бригад (app/storonnyaya.py): ни в списке, ни в счётчике дашборда.
+    from app import storonnyaya
+    chuzhie = storonnyaya.load(conn)
+    delyanki = [d for d in delyanki if d["id"] not in chuzhie]
     # % освоения — как в карточке «Освоение делянки» (большее из наряда и
     # ЕГАИС), иначе бригада «не видит», что делянка уже дорублена по ЕГАИС.
     osvoenie = raskhod_v2.compute_osvoenie_batch(conn, [d["id"] for d in delyanki])
