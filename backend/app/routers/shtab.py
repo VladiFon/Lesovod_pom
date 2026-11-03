@@ -122,6 +122,18 @@ def _ogorod(conn, segodnya):
     return {"sezon": sezon, **it}
 
 
+def _pochta(conn):
+    def n(sql):
+        try:
+            return conn.execute(sql).fetchone()[0]
+        except Exception:  # noqa: BLE001
+            return 0
+    return {
+        "otchetov": n("SELECT COUNT(*) FROM raw_reports WHERE status='на проверке'"),
+        "zametok": n("SELECT COUNT(*) FROM worker_notes WHERE is_read=0"),
+    }
+
+
 def _reyting(conn, segodnya):
     from app.routers import reyting
     r = reyting.sobrat(conn, "mesyac", segodnya)
@@ -143,6 +155,7 @@ def sobrat(conn, user, segodnya=None):
         ("vyvozka", lambda: _vyvozka(conn)),
         ("ogorod", lambda: _ogorod(conn, segodnya)),
         ("reyting", lambda: _reyting(conn, segodnya)),
+        ("pochta", lambda: _pochta(conn)),
     ):
         try:
             conn.row_factory = rf

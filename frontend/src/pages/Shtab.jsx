@@ -132,6 +132,15 @@ export default function Shtab() {
           )}
         </Lokaciya>
 
+        <Lokaciya emoji="📬" title="Почта гонцов" knopka="Разобрать почту"
+          trevoga={d.pochta?.otchetov || 0} ok={d.pochta && !d.pochta.otchetov && !d.pochta.zametok}
+          onGo={() => openScreen("telefon", { tab: "pochta" })}>
+          {!d.pochta ? <Nedostupno /> : d.pochta.otchetov + d.pochta.zametok === 0 ? "Почта пуста — гонцы отдыхают 📭" : (
+            <>📜 отчётов на проверку: <b>{d.pochta.otchetov}</b>
+              <div>✉️ непрочитанных заметок: <b>{d.pochta.zametok}</b></div></>
+          )}
+        </Lokaciya>
+
         <Lokaciya emoji="🗺" title="Фронт работ" knopka="Расставить людей" trevoga={fr?.gorit || 0}
           ok={fr && !fr.gorit && fr.v_plane >= fr.lyudey && fr.lyudey > 0} onGo={() => openScreen("raspredelenie")}>
           {!fr ? <Nedostupno /> : (

@@ -49,13 +49,13 @@ function monthAgoISO() {
 
 // Фото отдаётся только с токеном (GET /ai-log/photo требует вход) — обычный
 // <img src> заголовок авторизации не шлёт, поэтому через AuthImage.
-function PhotoThumb({ path }) {
+export function PhotoThumb({ path }) {
   if (!path) return null;
   return <AuthImage path={`/ai-log/photo?path=${encodeURIComponent(path)}`} />;
 }
 
 /** Где рабочий был, когда отправлял отчёт: выбранный участок л/к или делянка и координаты телефона. */
-function ReportPlace({ report }) {
+export function ReportPlace({ report }) {
   const hasCoords = report.lat != null && report.lon != null;
   if (!report.lesokultury_label && !report.delyanka_nazvanie && !hasCoords) return null;
   return (
@@ -84,7 +84,7 @@ function ReportPlace({ report }) {
  * текстом: карта красит выдел, только если название совпадает с
  * справочным ("Оршанское", а не "Оршанское лесничество").
  */
-function LesnichestvoSelect({ value, onChange }) {
+export function LesnichestvoSelect({ value, onChange }) {
   const [options, setOptions] = useState([]);
   useEffect(() => {
     api.get("/map/lesnichestva").then((map) => setOptions(Object.keys(map || {}))).catch(() => setOptions([]));

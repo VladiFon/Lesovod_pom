@@ -33,6 +33,7 @@ import OhotaAktov from "./pages/OhotaAktov.jsx";
 import VyvozkaIgra from "./pages/VyvozkaIgra.jsx";
 import Shtab from "./pages/Shtab.jsx";
 import Reyting from "./pages/Reyting.jsx";
+import Pochta from "./pages/Pochta.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -46,6 +47,13 @@ const Padded = (Inner) => function PaddedTab() {
 // вкладками. Старые ключи (ai_log, worker_notes, attendance, work_plan,
 // calendar) — алиасы в nav.js, ссылки на них не ломаются.
 const Telefon = makeMergedScreen("telefon", [
+  { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
+  { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
+  { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
+]);
+// Игровой вид «С телефона» (03.11.2026): «Почта гонцов» + обычные вкладки.
+const TelefonIgra = makeMergedScreen("telefon", [
+  { key: "pochta", label: "📬 Почта гонцов", Page: Pochta },
   { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
   { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
   { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
@@ -126,7 +134,7 @@ const READY_SCREENS = {
   raspredelenie: { title: "Распределение бригад", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: poVidu(RaspredelenieBrigad, FrontRabot) },
   // Односторонние ленты "рабочий -> мастер" (мобильное приложение ->
   // веб), см. app/routers/attendance.py и app/routers/notes.py.
-  telefon: { title: "С телефона", subtitle: "Отчёты рабочих на проверку, заметки, журнал выполненных работ", Page: Telefon },
+  telefon: { title: "С телефона", subtitle: "Отчёты рабочих на проверку, заметки, журнал выполненных работ", Page: poVidu(Telefon, TelefonIgra) },
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
   // Удалённые делянки/участки лежат здесь 30 дней (app/korzina.py).
   korzina: { title: "Корзина", subtitle: "Удалённые делянки и участки — можно вернуть в течение 30 дней", Page: Korzina },
