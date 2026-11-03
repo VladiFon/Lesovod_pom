@@ -143,6 +143,12 @@ def _reyting(conn, segodnya):
     }
 
 
+def _gazeta(conn, segodnya):
+    from app.routers import gazeta
+    g = gazeta.sobrat(conn, None, segodnya)
+    return {"zagolovok": g["zagolovki"][0], "nomer": g["nomer"]}
+
+
 def sobrat(conn, user, segodnya=None):
     segodnya = segodnya or date.today()
     out = {"segodnya": segodnya.isoformat()}
@@ -156,6 +162,7 @@ def sobrat(conn, user, segodnya=None):
         ("ogorod", lambda: _ogorod(conn, segodnya)),
         ("reyting", lambda: _reyting(conn, segodnya)),
         ("pochta", lambda: _pochta(conn)),
+        ("gazeta", lambda: _gazeta(conn, segodnya)),
     ):
         try:
             conn.row_factory = rf

@@ -7,7 +7,7 @@ import { useVid } from "../vid.jsx";
 // ИИ-журнал) + заметки; «Табель» = ввод + присутствие; «Задачи» = план
 // работ + календарь (вкладки внутри экрана, см. App.jsx).
 export const NAV_GROUPS = [
-  { title: "обзор", items: [["dashboard", "Дашборд"], ["telefon", "С телефона"], ["kvesty", "🎯 Квесты"]] },
+  { title: "обзор", items: [["dashboard", "Дашборд"], ["telefon", "С телефона"], ["kvesty", "🎯 Квесты"], ["gazeta", "📰 Газета"]] },
   {
     title: "делянки",
     items: [["plots", "Делянки"], ["raskhod", "Расход / ЕГАИС"], ["inspection", "Инспекция"], ["documents", "Документы"]],
@@ -32,7 +32,7 @@ export const NAV_PERMISSION = { korzina: "korzina.view" };
 const MONO = "'JetBrains Mono', monospace";
 
 // Пункты только для игрового вида (переключатель в шапке / Настройках).
-const TOLKO_IGRA = new Set(["kvesty", "reyting"]);
+const TOLKO_IGRA = new Set(["kvesty", "reyting", "gazeta"]);
 
 export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, onLogout, permissions = [] }) {
   const [vid] = useVid();

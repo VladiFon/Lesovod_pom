@@ -33,6 +33,7 @@ import OhotaAktov from "./pages/OhotaAktov.jsx";
 import VyvozkaIgra from "./pages/VyvozkaIgra.jsx";
 import Shtab from "./pages/Shtab.jsx";
 import Reyting from "./pages/Reyting.jsx";
+import Gazeta from "./pages/Gazeta.jsx";
 import Pochta from "./pages/Pochta.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
@@ -141,6 +142,7 @@ const READY_SCREENS = {
   // Режим «Квесты» (03.11.2026): та же работа из «Ждёт меня» в виде квестов
   // с опытом и серией — отдельная вкладка рядом с обычными экранами.
   kvesty: { title: "🎯 Квесты", subtitle: "Дела дня как квесты: опыт, уровень, серия дней, свои галочки", Page: Kvesty },
+  gazeta: { title: "📰 Лесная правда", subtitle: "Газета недели: кто герой, сколько нарубили и вывезли, кого разыскивают", Page: Gazeta },
   reyting: { title: "🏆 Рейтинг", subtitle: "Кто впереди: очки за дни, кубы, задачи и трелёвку; битва звеньев", Page: Reyting },
   settings: { title: "Настройки", subtitle: "Ключи доступа и данные лесничего — общие для всех", Page: Settings },
   gallery: { title: "Витрина компонентов", subtitle: "Все базовые компоненты дизайн-системы на моковых данных", Page: ComponentGallery },

@@ -40,6 +40,7 @@ from app.routers import (
     vyvozka_igra,
     shtab,
     reyting,
+    gazeta,
     lesokultury,
     map as map_router,
     notes,
@@ -139,3 +140,4 @@ app.include_router(front_rabot.router)
 app.include_router(vyvozka_igra.router)
 app.include_router(shtab.router)
 app.include_router(reyting.router)
+app.include_router(gazeta.router)

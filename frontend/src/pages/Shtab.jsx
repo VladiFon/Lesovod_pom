@@ -132,6 +132,13 @@ export default function Shtab() {
           )}
         </Lokaciya>
 
+        <Lokaciya emoji="📰" title="Лесная правда" knopka="Читать газету" onGo={() => openScreen("gazeta")}>
+          {!d.gazeta ? <Nedostupno /> : (
+            <>Свежий номер {d.gazeta.nomer}:
+              <div style={{ fontFamily: "Georgia, serif", fontWeight: 800, fontSize: 14, marginTop: 4 }}>«{d.gazeta.zagolovok}»</div></>
+          )}
+        </Lokaciya>
+
         <Lokaciya emoji="📬" title="Почта гонцов" knopka="Разобрать почту"
           trevoga={d.pochta?.otchetov || 0} ok={d.pochta && !d.pochta.otchetov && !d.pochta.zametok}
           onGo={() => openScreen("telefon", { tab: "pochta" })}>
