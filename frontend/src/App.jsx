@@ -24,6 +24,7 @@ import { makeMergedScreen } from "./components/MergedScreen.jsx";
 import Settings from "./pages/Settings.jsx";
 import ComponentGallery from "./pages/ComponentGallery.jsx";
 import Korzina from "./pages/Korzina.jsx";
+import Kvesty from "./pages/Kvesty.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -97,6 +98,9 @@ const READY_SCREENS = {
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
   // Удалённые делянки/участки лежат здесь 30 дней (app/korzina.py).
   korzina: { title: "Корзина", subtitle: "Удалённые делянки и участки — можно вернуть в течение 30 дней", Page: Korzina },
+  // Режим «Квесты» (03.11.2026): та же работа из «Ждёт меня» в виде квестов
+  // с опытом и серией — отдельная вкладка рядом с обычными экранами.
+  kvesty: { title: "🎯 Квесты", subtitle: "Дела дня как квесты: опыт, уровень, серия дней, свои галочки", Page: Kvesty },
   settings: { title: "Настройки", subtitle: "Ключи доступа и данные лесничего — общие для всех", Page: Settings },
   gallery: { title: "Витрина компонентов", subtitle: "Все базовые компоненты дизайн-системы на моковых данных", Page: ComponentGallery },
 };

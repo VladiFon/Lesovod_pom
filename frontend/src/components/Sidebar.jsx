@@ -6,7 +6,7 @@ import React from "react";
 // ИИ-журнал) + заметки; «Табель» = ввод + присутствие; «Задачи» = план
 // работ + календарь (вкладки внутри экрана, см. App.jsx).
 export const NAV_GROUPS = [
-  { title: "обзор", items: [["dashboard", "Дашборд"], ["telefon", "С телефона"]] },
+  { title: "обзор", items: [["dashboard", "Дашборд"], ["telefon", "С телефона"], ["kvesty", "🎯 Квесты"]] },
   {
     title: "делянки",
     items: [["plots", "Делянки"], ["raskhod", "Расход / ЕГАИС"], ["inspection", "Инспекция"], ["documents", "Документы"]],
