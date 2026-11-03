@@ -48,7 +48,7 @@ _KULT = ["Кв.", "Выдел по лесоустройству", "Площад�
          "Количество, шт/га", "Приживаемость, %"]
 COLUMNS = {
     3: ["Кв.", "Выдел по лесоустройству", "Площадь, га", "Вид рубки", "Выдел (подвыдел)",
-        "Площадь вырубки, га", "Выбираемый запас, м3/га"],
+        "Площадь вырубки, га", "Выбираемый запас на выдел, м3"],
     4: _TAKS,
     5: _TAKS,
     6: _TAKS,
@@ -662,17 +662,30 @@ def _rubki_delyanki(conn, god: int, lesnichestvo: str, result: dict, taxation: d
         _chasti_info(res, f"d{item_id}", kv, vd, area, chasti_raw, taxation)
         if len(parts) > 1 and any(p["ploshad"] is None for p in parts):
             _warn(res, f"d{item_id}", f"{mesto}: лесосека в нескольких выделах — нажмите «По выделам» и "
-                                      "укажите площадь в каждом", [5])
+                                      "укажите площадь в каждом", [5, 6] if n == 3 else [5])
         for i, p in enumerate(parts):
             pv = p["vydel"] or vd
             tax = taxation.get((kv, pv), "") or (fmt(_num(mdo.get("ploshad_obshaya"))) if len(parts) == 1 else "")
             row = [kv, pv, tax, nazvanie_vida, p["podvydel"] or pv, fmt(p["ploshad"])]
             if n == 15:
                 row.append(fmt(posle))
-            row.append(fmt(round(zapas_ga, 2)) if zapas_ga else "")
             dop = raschet
-            if zapas_ga and p["ploshad"] and (len(parts) > 1 or (obshiy and len(obshiy["items"]) > 1)):
-                dop += f"; выд. {p['podvydel'] or pv}: {fmt(p['ploshad'])} га → {fmt(round(zapas_ga * p['ploshad'], 2))} м³"
+            if n == 3:
+                # Прил. 3: запас, вырубленный на этом выделе, м³ =
+                # (запас делянки / площадь делянки) × площадь вырубки выдела
+                # (кв.35 выд.15: 254,97 м³/га × 0,05 га = 12,75 м³).
+                na_vydel = zapas_ga * p["ploshad"] if zapas_ga and p["ploshad"] else None
+                row.append(fmt(round(na_vydel, 2)) if na_vydel else "")
+                if na_vydel:
+                    dop += f" × {fmt(p['ploshad'])} га = {fmt(round(na_vydel, 2))} м³"
+                elif zapas_ga and len(parts) == 1:
+                    _warn(res, f"d{item_id}", f"{mesto}: нет площади вырубки — запас на выдел не посчитать",
+                          [5, 6])
+            else:
+                row.append(fmt(round(zapas_ga, 2)) if zapas_ga else "")
+                if zapas_ga and p["ploshad"] and (len(parts) > 1 or (obshiy and len(obshiy["items"]) > 1)):
+                    dop += (f"; выд. {p['podvydel'] or pv}: {fmt(p['ploshad'])} га → "
+                            f"{fmt(round(zapas_ga * p['ploshad'], 2))} м³")
             _row(res, f"d{item_id}:{i}", row, vid, dop)
 
     for d_id, (n, naz) in vklyuchena.items():
