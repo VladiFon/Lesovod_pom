@@ -35,6 +35,7 @@ import Shtab from "./pages/Shtab.jsx";
 import Reyting from "./pages/Reyting.jsx";
 import Gazeta from "./pages/Gazeta.jsx";
 import PutDelyanki from "./pages/PutDelyanki.jsx";
+import Geroi from "./pages/Geroi.jsx";
 import Pochta from "./pages/Pochta.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
@@ -93,6 +94,11 @@ const PlotsIgra = makeMergedScreen("plots", [
   { key: "put", label: "🧭 Путь делянки", Page: PutDelyanki },
   { key: "spisok", label: "Список", Page: Plots },
 ]);
+// Игровой вид «Сотрудников» (03.11.2026): «Карточки героев» + справочник.
+const SotrudnikiIgra = makeMergedScreen("sotrudniki", [
+  { key: "geroi", label: "🧑‍🌾 Карточки героев", Page: Geroi },
+  { key: "spisok", label: "Справочник", Page: Sotrudniki },
+]);
 const Zadachi = makeMergedScreen("zadachi", [
   { key: "plan", label: "План работ", Page: PlanRabot },
   { key: "kalendar", label: "Календарь", Page: CalendarScreen },
@@ -133,7 +139,7 @@ const READY_SCREENS = {
   tabel: { title: "Табель", subtitle: "Кто где работал: ввод по дням и отметки рабочих с телефона", Page: Tabel },
   // Перенесено из Settings.jsx (WorkersCard) — тот же /api/auth/workers,
   // полноценный экран вместо блока внутри "Настроек".
-  sotrudniki: { title: "Сотрудники", subtitle: "Справочник работников: ФИО, должность, участок", Page: Sotrudniki },
+  sotrudniki: { title: "Сотрудники", subtitle: "Справочник работников: ФИО, должность, участок", Page: poVidu(Sotrudniki, SotrudnikiIgra) },
   // Планирование распределения бригад (см. backend/legacy/brigada.py) —
   // сигнал "делянка близка к завершению" (те же % освоения лимита/срок
   // вывозки, что и в "Инспекции") + состав бригад + назначение/

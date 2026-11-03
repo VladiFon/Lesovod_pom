@@ -42,6 +42,7 @@ from app.routers import (
     reyting,
     gazeta,
     put_delyanki,
+    geroi,
     lesokultury,
     map as map_router,
     notes,
@@ -143,3 +144,4 @@ app.include_router(shtab.router)
 app.include_router(reyting.router)
 app.include_router(gazeta.router)
 app.include_router(put_delyanki.router)
+app.include_router(geroi.router)
