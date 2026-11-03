@@ -27,6 +27,7 @@ import Korzina from "./pages/Korzina.jsx";
 import Kvesty from "./pages/Kvesty.jsx";
 import TabelIgra from "./pages/TabelIgra.jsx";
 import { poVidu } from "./vid.jsx";
+import UhodyIgra from "./pages/UhodyIgra.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -50,6 +51,12 @@ const Tabel = makeMergedScreen("tabel", [
   { key: "vvod", label: "Ввод табеля", Page: poVidu(TabelRuchnoy, TabelIgra) },
   { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
 ]);
+// Игровой вид «Лесокультур» (03.11.2026): «Огород уходов» + обычный список
+// участков второй вкладкой.
+const LesokulturyIgra = makeMergedScreen("forestry", [
+  { key: "ogorod", label: "🌱 Огород уходов", Page: UhodyIgra },
+  { key: "uchastki", label: "Участки", Page: Lesokultury },
+]);
 const Zadachi = makeMergedScreen("zadachi", [
   { key: "plan", label: "План работ", Page: PlanRabot },
   { key: "kalendar", label: "Календарь", Page: CalendarScreen },
@@ -72,7 +79,7 @@ const READY_SCREENS = {
   // из меню по решению пользователя — карты ведутся в самом QGIS, экран не
   // нужен. Backend (app/routers/map.py) не трогали, файл страницы удалён.
   taxation: { title: "Таксация", subtitle: "Поиск участка по кварталу/выделу и карточка-досье", Page: Taxation },
-  forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: Lesokultury },
+  forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: poVidu(Lesokultury, LesokulturyIgra) },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
   tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса по приказу №130: прил. 1–15", Page: TekushchieIzmeneniya },
   raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: Raskhod },
