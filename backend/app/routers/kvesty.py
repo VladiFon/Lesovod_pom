@@ -80,6 +80,8 @@ ISTOCHNIKI = [
      "GROUP BY d", None),
     ("tabel", "Строка табеля", 2,
      "SELECT date(created_at) d, COUNT(*) FROM tabel_zapis WHERE created_at >= ? {avtor} GROUP BY d", "entered_by"),
+    ("plan", "Задача в плане работ", 3,
+     "SELECT date(created_at) d, COUNT(*) FROM work_plan WHERE created_at >= ? GROUP BY d", None),
     ("lesokultury", "Мероприятие лесокультур", 10,
      "SELECT date(created_at) d, COUNT(*) FROM lesokultury_meropriyatiya WHERE created_at >= ? GROUP BY d", None),
 ]

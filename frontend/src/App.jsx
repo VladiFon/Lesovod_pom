@@ -28,6 +28,7 @@ import Kvesty from "./pages/Kvesty.jsx";
 import TabelIgra from "./pages/TabelIgra.jsx";
 import { poVidu } from "./vid.jsx";
 import UhodyIgra from "./pages/UhodyIgra.jsx";
+import FrontRabot from "./pages/FrontRabot.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -102,7 +103,7 @@ const READY_SCREENS = {
   // сигнал "делянка близка к завершению" (те же % освоения лимита/срок
   // вывозки, что и в "Инспекции") + состав бригад + назначение/
   // перемещение на делянку с диапазоном дат.
-  raspredelenie: { title: "Распределение бригад", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: RaspredelenieBrigad },
+  raspredelenie: { title: "Распределение бригад", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: poVidu(RaspredelenieBrigad, FrontRabot) },
   // Односторонние ленты "рабочий -> мастер" (мобильное приложение ->
   // веб), см. app/routers/attendance.py и app/routers/notes.py.
   telefon: { title: "С телефона", subtitle: "Отчёты рабочих на проверку, заметки, журнал выполненных работ", Page: Telefon },

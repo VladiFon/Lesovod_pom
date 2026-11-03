@@ -36,6 +36,7 @@ from app.routers import (
     kvesty,
     tabel_igra,
     uhody_igra,
+    front_rabot,
     lesokultury,
     map as map_router,
     notes,
@@ -131,3 +132,4 @@ app.include_router(otsrochka.router)
 app.include_router(kvesty.router)
 app.include_router(tabel_igra.router)
 app.include_router(uhody_igra.router)
+app.include_router(front_rabot.router)
