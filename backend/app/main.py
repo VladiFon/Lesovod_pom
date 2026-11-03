@@ -37,6 +37,7 @@ from app.routers import (
     map as map_router,
     notes,
     notifications,
+    otsrochka,
     proby,
     raskhod,
     settings as settings_router,
@@ -123,3 +124,4 @@ app.include_router(trelevka.router)
 app.include_router(korzina_router.router)
 app.include_router(proby.router)
 app.include_router(zhdet.router)
+app.include_router(otsrochka.router)

@@ -219,6 +219,10 @@ def list_inspection(conn=Depends(get_conn)):
     zamena = {did: [(_parse_date((st.get("spravka_data") or "").strip()), _num(st.get("ploshad_fakt")))]
               for did, st in storonnie.items() if _num(st.get("ploshad_fakt"))}
     ploshadi = _ploshad_po_naryadam(conn, delyanki, raskhod_v2.get_delyanka_items_batch(conn, ids), acts, zamena)
+    # Отсрочки по срокам (app/routers/otsrochka.py): сроки в карточке уже
+    # продлённые, здесь — сколько раз продлевали и последняя, для пометки.
+    from app.routers import otsrochka as _ots
+    otsrochki = _ots.istoriya(conn, ids)
 
     result = []
     for d in delyanki:
@@ -246,6 +250,8 @@ def list_inspection(conn=Depends(get_conn)):
             "srok_okonchaniya_zagotovki": srok_zagotovki,
             "srok_okonchaniya_vyvozki": srok_vyvozki,
             "srok_osvidetelstvovaniya": deadline,
+            "otsrochek": len(otsrochki.get(d["id"], [])),
+            "otsrochka": (otsrochki.get(d["id"]) or [None])[-1],
             "pct_osvoeniya_limita": pct_osvoeniya,
             "pct_osvoeniya_naryad": osv.get("pct_naryad") if not storonnyaya.est_spravka(st) else None,
             "pct_osvoeniya_egais": osv.get("pct_egais") if not storonnyaya.est_spravka(st) else None,
