@@ -41,6 +41,7 @@ from app.routers import (
     shtab,
     reyting,
     gazeta,
+    put_delyanki,
     lesokultury,
     map as map_router,
     notes,
@@ -141,3 +142,4 @@ app.include_router(vyvozka_igra.router)
 app.include_router(shtab.router)
 app.include_router(reyting.router)
 app.include_router(gazeta.router)
+app.include_router(put_delyanki.router)

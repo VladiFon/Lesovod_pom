@@ -34,6 +34,7 @@ import VyvozkaIgra from "./pages/VyvozkaIgra.jsx";
 import Shtab from "./pages/Shtab.jsx";
 import Reyting from "./pages/Reyting.jsx";
 import Gazeta from "./pages/Gazeta.jsx";
+import PutDelyanki from "./pages/PutDelyanki.jsx";
 import Pochta from "./pages/Pochta.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
@@ -87,6 +88,11 @@ const LesokulturyIgra = makeMergedScreen("forestry", [
   { key: "ogorod", label: "🌱 Огород уходов", Page: UhodyIgra },
   { key: "uchastki", label: "Участки", Page: Lesokultury },
 ]);
+// Игровой вид «Делянок» (03.11.2026): «Путь делянки» + обычный список.
+const PlotsIgra = makeMergedScreen("plots", [
+  { key: "put", label: "🧭 Путь делянки", Page: PutDelyanki },
+  { key: "spisok", label: "Список", Page: Plots },
+]);
 const Zadachi = makeMergedScreen("zadachi", [
   { key: "plan", label: "План работ", Page: PlanRabot },
   { key: "kalendar", label: "Календарь", Page: CalendarScreen },
@@ -101,7 +107,7 @@ const READY_SCREENS = {
   // Плоты сами управляют своим тулбаром (поиск, "Показывать архивные",
   // "Импорт МДО" в левой колонке) — по аналогии с Settings/Dashboard,
   // TopBar здесь без search/primaryAction, чтобы не дублировать поиск.
-  plots: { title: "Делянки", subtitle: "Карточки делянок, документы, импорт из МДО", Page: Plots },
+  plots: { title: "Делянки", subtitle: "Карточки делянок, документы, импорт из МДО", Page: poVidu(Plots, PlotsIgra) },
   // Этап 5 (часть 2): сквозной список документов по всем делянкам, с
   // фильтрами и массовыми действиями — см. pages/Documents.jsx.
   documents: { title: "Документы", subtitle: "Все документы по всем делянкам: фильтры, массовые действия", Page: Documents },

@@ -143,6 +143,16 @@ def _reyting(conn, segodnya):
     }
 
 
+def _put(conn, segodnya):
+    from app.routers import put_delyanki
+    p = put_delyanki.sobrat(conn, segodnya)
+    return {
+        "stancii": [{"emoji": s["emoji"], "title": s["title"], "n": s["delyanok"]} for s in p["stancii"][:-1]],
+        "finish": len(p["finish"]), "zastryali": p["zastryali"], "goryat": p["goryat"],
+        "zastryali_imena": [x["nazvanie"] for x in p["v_puti"] if x["zastryala"]][:3],
+    }
+
+
 def _gazeta(conn, segodnya):
     from app.routers import gazeta
     g = gazeta.sobrat(conn, None, segodnya)
@@ -163,6 +173,7 @@ def sobrat(conn, user, segodnya=None):
         ("reyting", lambda: _reyting(conn, segodnya)),
         ("pochta", lambda: _pochta(conn)),
         ("gazeta", lambda: _gazeta(conn, segodnya)),
+        ("put", lambda: _put(conn, segodnya)),
     ):
         try:
             conn.row_factory = rf

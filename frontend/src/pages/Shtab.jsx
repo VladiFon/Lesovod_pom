@@ -132,6 +132,15 @@ export default function Shtab() {
           )}
         </Lokaciya>
 
+        <Lokaciya emoji="🧭" title="Путь делянки" knopka="К дорогам" trevoga={d.put?.goryat || 0}
+          ok={d.put && !d.put.goryat && !d.put.zastryali} onGo={() => openScreen("plots", { tab: "put" })}>
+          {!d.put ? <Nedostupno /> : (
+            <>{d.put.stancii.filter((s) => s.n > 0).map((s) => `${s.emoji} ${s.title} ${s.n}`).join(" · ") || "В пути никого"}
+              <div>🏁 финишировали в этом году: <b>{d.put.finish}</b></div>
+              {d.put.zastryali > 0 && <div style={{ color: C.danger, fontWeight: 600 }}>🐌 застряли: {d.put.zastryali_imena.join(", ")}</div>}</>
+          )}
+        </Lokaciya>
+
         <Lokaciya emoji="📰" title="Лесная правда" knopka="Читать газету" onGo={() => openScreen("gazeta")}>
           {!d.gazeta ? <Nedostupno /> : (
             <>Свежий номер {d.gazeta.nomer}:
