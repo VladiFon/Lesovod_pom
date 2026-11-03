@@ -122,6 +122,15 @@ def _ogorod(conn, segodnya):
     return {"sezon": sezon, **it}
 
 
+def _reyting(conn, segodnya):
+    from app.routers import reyting
+    r = reyting.sobrat(conn, "mesyac", segodnya)
+    return {
+        "top": [{"fio": x["fio"], "ochki": x["ochki"], "mesto": x["mesto"]} for x in r["reyting"][:3]],
+        "zveno": r["zvenya"][0]["nazvanie"] if r["zvenya"] else None,
+    }
+
+
 def sobrat(conn, user, segodnya=None):
     segodnya = segodnya or date.today()
     out = {"segodnya": segodnya.isoformat()}
@@ -133,6 +142,7 @@ def sobrat(conn, user, segodnya=None):
         ("ohota", lambda: _ohota(conn, segodnya)),
         ("vyvozka", lambda: _vyvozka(conn)),
         ("ogorod", lambda: _ogorod(conn, segodnya)),
+        ("reyting", lambda: _reyting(conn, segodnya)),
     ):
         try:
             conn.row_factory = rf

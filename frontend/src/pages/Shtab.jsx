@@ -169,6 +169,16 @@ export default function Shtab() {
           )}
         </Lokaciya>
 
+        <Lokaciya emoji="🏆" title="Рейтинг" knopka="Кто впереди" onGo={() => openScreen("reyting")}>
+          {!d.reyting ? <Nedostupno /> : d.reyting.top.length === 0 ? "В этом месяце очков пока нет — заполни табель 🏁" : (
+            <>Лидеры месяца:
+              {d.reyting.top.map((x) => (
+                <div key={x.fio}>{["🥇", "🥈", "🥉"][x.mesto - 1] || "▫️"} {x.fio} — <b>{x.ochki}</b> очк.</div>
+              ))}
+              {d.reyting.zveno && <div style={{ color: C.muted }}>⚔️ лучшее звено: {d.reyting.zveno}</div>}</>
+          )}
+        </Lokaciya>
+
         <Lokaciya emoji="🎯" title="Квесты" knopka="Все квесты и ачивки" ok={ig && ig.kvestov_otkryto === 0}
           onGo={() => openScreen("kvesty")}>
           {!ig ? <Nedostupno /> : (
