@@ -1803,6 +1803,9 @@ export default function Raskhod() {
   const [importOpen, setImportOpen] = useState(false);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [delyankaSearch, setDelyankaSearch] = useState("");
+  // Закрытые (архив) — после акта делянка закрывается сама, а наряды и
+  // ЕГАИС по ней бывает нужно посмотреть или поправить.
+  const [pokazZakrytye, setPokazZakrytye] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [svodkiOpen, setSvodkiOpen] = useState(false);
   const [egaisReviewOpen, setEgaisReviewOpen] = useState(false);
@@ -1829,13 +1832,20 @@ export default function Raskhod() {
   }, []);
 
   useEffect(() => {
-    // Только 'активна' — черновики (сразу после импорта МДО, без номера/даты
-    // лесорубочного билета) в расходе не должны быть доступны для выбора.
-    api.get("/delyanki/", { status: "активна" }).then(setDelyanki).catch((e) => {
-      toast.show({ tone: "danger", title: "Не удалось загрузить делянки", description: e.message });
-    });
+    // Черновики (сразу после импорта МДО, без номера/даты лесорубочного
+    // билета) в расходе не должны быть доступны для выбора; закрытые — по
+    // галочке «Показывать закрытые».
+    api.get("/delyanki/")
+      .then((rows) => setDelyanki(rows.filter((d) => d.status === "активна"
+        || (d.status === "архив" && (pokazZakrytye || String(d.id) === String(delyankaParam))))))
+      .catch((e) => {
+        toast.show({ tone: "danger", title: "Не удалось загрузить делянки", description: e.message });
+      });
+  }, [pokazZakrytye]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
     loadEgaisReviewSummary();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const vybrannaya = delyanki.find((d) => String(d.id) === String(delyankaId));
 
   useEffect(() => {
     if (String(delyankaParam || "") !== String(delyankaId || "")) handleDelyankaChange(delyankaParam);
@@ -1916,9 +1926,22 @@ export default function Raskhod() {
                   return label.includes(q) || String(d.id).includes(q);
                 })
                 .map((d) => (
-                  <option key={d.id} value={d.id}>{d.nazvanie || `Делянка №${d.id}`}</option>
+                  <option key={d.id} value={d.id}>
+                    {d.nazvanie || `Делянка №${d.id}`}
+                    {d.storonnyaya ? ` — рубит ${d.storonnyaya.zagotovitel}` : ""}
+                    {d.status === "архив" ? " (закрыта)" : ""}
+                  </option>
                 ))}
             </select>
+            <label className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={pokazZakrytye}
+                onChange={(e) => setPokazZakrytye(e.target.checked)}
+                className="h-3.5 w-3.5 accent-pine"
+              />
+              Показывать закрытые
+            </label>
           </div>
 
           {itemsLoading && <div className="h-5 w-5 rounded-full border-2 border-pine border-t-transparent animate-spin" />}
@@ -1966,6 +1989,18 @@ export default function Raskhod() {
         </div>
       </Card>
 
+      {vybrannaya?.storonnyaya && (
+        <div className="rounded-[10px] border border-oak bg-hover px-3.5 py-2.5 text-sm text-ink">
+          <b>Рубит {vybrannaya.storonnyaya.zagotovitel}</b> — заготовка сторонней организации.{" "}
+          {vybrannaya.storonnyaya.naryady === "zagotovitel"
+            ? "Наряды пишет сам заготовитель; если он передал их нам — можно завести здесь."
+            : "Наряды по ней заводим мы."}{" "}
+          {vybrannaya.storonnyaya.est_spravka
+            ? "Для акта объёмы берутся из справки заготовителя (Инспекция)."
+            : "Справки заготовителя нет — акт возьмёт объёмы из нарядов."}
+        </div>
+      )}
+
       <DelyankaEgaisSummary check={delyankaEgaisCheck} onOpenReview={() => setEgaisReviewOpen(true)} />
 
       <DelyankaOsvoenie delyankaId={delyankaId} egaisVersion={egaisVersion} />
@@ -1982,7 +2017,7 @@ export default function Raskhod() {
           <EmptyState
             icon="🧮"
             title="Выберите делянку и выдел"
-            description="Выберите делянку в списке выше (в нём только активные: черновик становится активным после ввода лесорубочного билета в «Делянках»). Затем — выдел, если их несколько."
+            description="Выберите делянку в списке выше (в нём активные, закрытые — по галочке «Показывать закрытые»; черновик становится активным после ввода лесорубочного билета в «Делянках»). Затем — выдел, если их несколько."
           />
         </Card>
       )}

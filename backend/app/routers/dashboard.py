@@ -73,6 +73,7 @@ from app import legacy_bridge  # noqa: F401 — обязателен до import
 from app.auth import require_permission
 from app.auth import get_current_user
 from app.database import get_connection as _connect
+from app import storonnyaya
 from db import (
     get_current_weather,
     update_current_weather,
@@ -183,8 +184,17 @@ def _build_metrics(conn: sqlite3.Connection) -> dict:
     except Exception:  # noqa: BLE001 — секция отказоустойчива, как и остальные
         volume_egais = None
 
+    # Из них рубят сторонние организации (app/storonnyaya.py) — показываем
+    # отдельно, чтобы «в работе» не путало чужие делянки с нашими.
+    try:
+        storonnie_count = conn.execute(
+            "SELECT COUNT(*) FROM delyanka WHERE status = 'активна' AND zagotovka_storonnyaya = 1").fetchone()[0]
+    except sqlite3.OperationalError:
+        storonnie_count = 0
+
     return {
         "delyanki_count": delyanki_count or 0,
+        "storonnie_count": storonnie_count or 0,
         "chernoviki_count": chernoviki_count or 0,
         "volume_egais_m3": volume_egais,
         "volume_egais_m3_fmt": _fmt_m3(volume_egais) if volume_egais is not None else None,
@@ -232,7 +242,11 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
         osvoenie = compute_osvoenie_batch(conn, [r[0] for r in delyanka_rows])
     except sqlite3.OperationalError:
         osvoenie = {}
-    nazvaniya = {r[0]: r[1] for r in delyanka_rows}
+    try:
+        chuzhie = storonnyaya.load(conn)
+    except sqlite3.OperationalError:
+        chuzhie = {}
+    nazvaniya = {r[0]: (r[1] or "—") + storonnyaya.podpis(chuzhie.get(r[0])) for r in delyanka_rows}
     flagged = [
         (nazvaniya[d], o) for d, o in osvoenie.items()
         if o.get("pct") is not None and o["level"] in ("vnimanie", "preduprezhdenie", "pererub")

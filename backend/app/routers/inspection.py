@@ -34,6 +34,7 @@ from app.database import get_conn, get_connection
 from app.paths import UPLOADS_DIR
 from app.doc_tasks import new_task_dir, register_document
 from app.auth import require_permission
+from app import storonnyaya
 import webext
 
 compute_sortiment_totals_multi = raskhod_v2.compute_sortiment_totals_multi
@@ -76,50 +77,15 @@ SROK_AKTA_DNEY = 30
 
 
 # --------------------------------------------------------------------------- #
-#   Сторонняя заготовка
+#   Сторонняя заготовка — общий признак делянки, см. app/storonnyaya.py.
+#   Факт для акта: справка заготовителя, если в ней есть объёмы, иначе наряды.
 # --------------------------------------------------------------------------- #
-# Делянка, документы на которую оформляет наш лесхоз, а рубит другой
-# (лесхоз, лесопункт): нарядов у нас нет, объёмы приходят справкой
-# заготовителя. Флаг и данные справки — на самой делянке (столбцы
-# добавляются здесь, чтобы не трогать схему legacy db.py). Для такой
-# делянки «Фактически» в акте и «освоено» в списке берутся из справки,
-# а не из нарядов.
-SORTIMENTY = ("KR", "SR", "ML", "DROVA", "HVOROST")
-
-
-def _ensure_storonnyaya(conn):
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(delyanka)").fetchall()}
-    for c in ("zagotovka_storonnyaya", "storonnyaya_json"):
-        if c not in cols:
-            conn.execute(f"ALTER TABLE delyanka ADD COLUMN {c} {'INTEGER DEFAULT 0' if c == 'zagotovka_storonnyaya' else 'TEXT'}")
-    conn.commit()
-
-
-def _num(v) -> float:
-    try:
-        return float(str(v).replace(",", ".").strip()) if v not in (None, "") else 0.0
-    except ValueError:
-        return 0.0
+SORTIMENTY = storonnyaya.SORTIMENTY
+_num = storonnyaya.num
 
 
 def _storonnie(conn, ids) -> Dict[int, dict]:
-    """{delyanka_id: данные справки заготовителя} — только для делянок со
-    сторонней заготовкой."""
-    _ensure_storonnyaya(conn)
-    ids = list(ids)
-    if not ids:
-        return {}
-    ph = ",".join("?" * len(ids))
-    out = {}
-    for did, js in conn.execute(
-        f"SELECT id, storonnyaya_json FROM delyanka WHERE id IN ({ph}) AND zagotovka_storonnyaya = 1", ids
-    ).fetchall():
-        try:
-            data = json.loads(js or "{}")
-        except ValueError:
-            data = {}
-        out[did] = data if isinstance(data, dict) else {}
-    return out
+    return storonnyaya.load(conn, ids)
 
 
 def _sortiment_totals_dlya_akta(conn, delyanka_id, items):
@@ -127,7 +93,7 @@ def _sortiment_totals_dlya_akta(conn, delyanka_id, items):
     заготовке — из справки заготовителя."""
     totals = compute_sortiment_limit_fakt_totals(conn, items)
     st = _storonnie(conn, [delyanka_id]).get(delyanka_id)
-    if st is not None:
+    if storonnyaya.est_spravka(st):
         fakt = st.get("fakt") or {}
         for k in SORTIMENTY:
             totals.setdefault(k, {"limit": 0.0, "fakt": 0.0})["fakt"] = _num(fakt.get(k))
@@ -248,8 +214,10 @@ def list_inspection(conn=Depends(get_conn)):
                 "data_lesorubochnogo_bileta": f"{dt[8:10]}.{dt[5:7]}.{dt[:4]}" if len(dt) == 10 and dt[4] == "-" else dt or None,
             }
     storonnie = _storonnie(conn, ids)
+    # Площадь из справки — только если заготовитель её указал; иначе
+    # (наряды пишем мы или сам заготовитель) — по нарядам, как обычно.
     zamena = {did: [(_parse_date((st.get("spravka_data") or "").strip()), _num(st.get("ploshad_fakt")))]
-              for did, st in storonnie.items()}
+              for did, st in storonnie.items() if _num(st.get("ploshad_fakt"))}
     ploshadi = _ploshad_po_naryadam(conn, delyanki, raskhod_v2.get_delyanka_items_batch(conn, ids), acts, zamena)
 
     result = []
@@ -258,7 +226,7 @@ def list_inspection(conn=Depends(get_conn)):
         osv = osvoenie.get(d["id"]) or {}
         pct_osvoeniya = osv.get("pct_naryad")
         st = storonnie.get(d["id"])
-        if st is not None:
+        if storonnyaya.est_spravka(st):
             # % освоения по справке заготовителя: факт / лимит по всем сортиментам.
             fakt = sum(_num((st.get("fakt") or {}).get(k)) for k in SORTIMENTY)
             limit = _num(osv.get("limit")) or _num(st.get("limit_vsego"))
@@ -273,13 +241,14 @@ def list_inspection(conn=Depends(get_conn)):
             **d,
             "zakryta": d.get("status") == "архив",
             "storonnyaya": st,
+            "po_spravke": storonnyaya.est_spravka(st),
             **bilety.get(d["id"], {}),
             "srok_okonchaniya_zagotovki": srok_zagotovki,
             "srok_okonchaniya_vyvozki": srok_vyvozki,
             "srok_osvidetelstvovaniya": deadline,
             "pct_osvoeniya_limita": pct_osvoeniya,
-            "pct_osvoeniya_naryad": osv.get("pct_naryad") if st is None else None,
-            "pct_osvoeniya_egais": osv.get("pct_egais") if st is None else None,
+            "pct_osvoeniya_naryad": osv.get("pct_naryad") if not storonnyaya.est_spravka(st) else None,
+            "pct_osvoeniya_egais": osv.get("pct_egais") if not storonnyaya.est_spravka(st) else None,
             "osvoenie_level": raskhod_v2._osvoenie_level(pct_osvoeniya),
             **ploshadi.get(d["id"], {}),
             **_osvidetelstvovanie(acts.get(d["id"], [])),
@@ -296,6 +265,8 @@ class StoronnyayaIn(BaseModel):
     spravka_data: str = ""
     ploshad_fakt: Optional[float] = None
     fakt: Dict[str, Optional[float]] = {}
+    # кто пишет наряды: "my" — мы на сайте, "zagotovitel" — сам заготовитель
+    naryady: str = storonnyaya.NARYADY_MY
 
 
 @router.get("/{delyanka_id}/storonnyaya")
@@ -317,12 +288,15 @@ def set_storonnyaya(delyanka_id: int, body: StoronnyayaIn, user=Depends(require_
     d, items = delyanka.get_delyanka_full(conn, delyanka_id)
     if d is None:
         raise HTTPException(404, "Делянка не найдена")
-    _ensure_storonnyaya(conn)
+    storonnyaya.ensure_columns(conn)
+    if body.naryady not in storonnyaya.NARYADY:
+        raise HTTPException(400, "Кто пишет наряды: my или zagotovitel")
     if body.spravka_data.strip() and _parse_date(body.spravka_data.strip()) is None:
         raise HTTPException(400, "Дата справки — в виде ДД.ММ.ГГГГ")
     limity = compute_sortiment_limit_fakt_totals(conn, items)
     data = {
         "zagotovitel": body.zagotovitel.strip(),
+        "naryady": body.naryady,
         "spravka_nomer": body.spravka_nomer.strip(),
         "spravka_data": body.spravka_data.strip(),
         "ploshad_fakt": body.ploshad_fakt,

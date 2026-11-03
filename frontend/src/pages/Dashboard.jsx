@@ -268,7 +268,10 @@ export default function Dashboard({ onOpenTab }) {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <StatCard icon="🌳" title="Делянки в работе" value={loading ? "…" : String(metrics?.delyanki_count ?? 0)} caption={metrics?.chernoviki_count ? `Активные · ещё ${metrics.chernoviki_count} в черновиках` : "Активные делянки"} />
+        <StatCard icon="🌳" title="Делянки в работе" value={loading ? "…" : String(metrics?.delyanki_count ?? 0)} caption={[
+            metrics?.storonnie_count ? `из них ${metrics.storonnie_count} рубят другие` : "Активные делянки",
+            metrics?.chernoviki_count ? `ещё ${metrics.chernoviki_count} в черновиках` : null,
+          ].filter(Boolean).join(" · ")} />
         <StatCard icon="✅" title="Выполнено работ" value={loading ? "…" : String(metrics?.completed_count ?? 0)} caption="Все зафиксированные работы" />
         <StatCard icon="🪵" title="Заготовлено по нарядам, м³" value={loading ? "…" : metrics?.volume_m3_fmt ?? "0"} caption={metrics?.volume_egais_m3_fmt != null ? `По ЕГАИС (активные делянки): ${metrics.volume_egais_m3_fmt} м³` : "ЕГАИС ещё не загружен"} />
         <StatCard

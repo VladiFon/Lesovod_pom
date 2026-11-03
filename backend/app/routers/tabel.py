@@ -36,6 +36,7 @@ import webext
 
 from app.auth import require_office_or_master
 from app.database import get_conn
+from app import storonnyaya
 
 router = APIRouter(prefix="/api/tabel", tags=["tabel"])
 
@@ -103,7 +104,18 @@ def search_delyanki(
     подсказками по мере ввода: «12/5», номер лесосеки, название делянки,
     лесничество. Раньше веб искал только точным кварталом+выделом и брал
     первую найденную делянку, а на телефоне выбора делянки не было вовсе."""
-    return webext.search_tabel_delyanki(conn, search, include_archived, limit)
+    rows = webext.search_tabel_delyanki(conn, search, include_archived, limit)
+    # Сторонняя заготовка (app/storonnyaya.py): где наряды пишет сам
+    # заготовитель — не предлагаем; где пишем мы — с пометкой «рубит …».
+    chuzhie = storonnyaya.load(conn, {r["delyanka_id"] for r in rows})
+    out = []
+    for r in rows:
+        st = chuzhie.get(r["delyanka_id"])
+        if not storonnyaya.vidna_nashim(st):
+            continue
+        r["zagotovitel"] = storonnyaya.zagotovitel(st) if st is not None else None
+        out.append(r)
+    return out
 
 
 @router.get("/brigady")

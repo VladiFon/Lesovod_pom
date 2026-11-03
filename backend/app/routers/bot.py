@@ -129,7 +129,7 @@ import db as legacy_db
 import raskhod_v2
 import webext
 
-from app import map_features
+from app import map_features, storonnyaya
 from app.database import get_conn
 from app.auth import get_current_user, require_permission
 from app.paths import UPLOADS_DIR
@@ -519,6 +519,21 @@ def complete_zametka(
 
 
 # ------------------------------------------- делянки в квартале (запрос остатка) ---
+def _bez_chuzhih(conn, rows):
+    """Убирает из списка для телефона делянки сторонней заготовки, где
+    наряды пишет сам заготовитель (app/storonnyaya.py); где пишем мы —
+    оставляет и добавляет поле zagotovitel («рубит …»)."""
+    chuzhie = storonnyaya.load(conn, [r["delyanka_id"] for r in rows])
+    out = []
+    for r in rows:
+        st = chuzhie.get(r["delyanka_id"])
+        if not storonnyaya.vidna_nashim(st):
+            continue
+        r["zagotovitel"] = storonnyaya.zagotovitel(st) if st is not None else None
+        out.append(r)
+    return out
+
+
 @router.get("/delyanki")
 def list_active_delyanki(
     kvartal: str,
@@ -532,7 +547,8 @@ def list_active_delyanki(
     из-за чего остаток на телефоне считался не по той же делянке, что на
     вебе. Старые версии приложения читают только vydel/lesoseka_nomer и
     работают как раньше."""
-    return legacy_db.get_active_delyanki_grouped_for_bot(conn, kvartal)
+    rows = legacy_db.get_active_delyanki_grouped_for_bot(conn, kvartal)
+    return _bez_chuzhih(conn, rows)
 
 
 @router.get("/remaining")
@@ -623,11 +639,17 @@ def my_delyanki(
             e["vydely"].append(str(vydel))
         if lesoseka and not e["lesoseka_nomer"]:
             e["lesoseka_nomer"] = str(lesoseka)
+    # Сторонняя заготовка: на телефоне видна, только если наряды по ней
+    # пишем мы; где наряды пишет сам заготовитель — скрыта.
+    chuzhie = storonnyaya.load(conn, list(by_id))
+    for did in [d for d, st in chuzhie.items() if not storonnyaya.vidna_nashim(st)]:
+        by_id.pop(did, None)
     osv = raskhod_v2.compute_osvoenie_batch(conn, list(by_id))
     out = []
     for did, e in by_id.items():
         o = osv.get(did) or {}
         out.append({
+            "zagotovitel": storonnyaya.zagotovitel(chuzhie[did]) if did in chuzhie else None,
             "delyanka_id": did,
             "nazvanie": e["nazvanie"],
             "kvartal": ", ".join(e["kvartaly"]),

@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 from app import legacy_bridge  # noqa: F401
 import raskhod_v2
 import webext
+from app import storonnyaya
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signal_sent (
@@ -68,8 +69,11 @@ def _pct(v):
 
 def proverit_osvoenie(conn, delyanki):
     osv = raskhod_v2.compute_osvoenie_batch(conn, [d for d, _ in delyanki])
+    chuzhie = storonnyaya.load(conn)
     sozdano = 0
     for did, nazvanie in delyanki:
+        # «рубит …» в тексте — чтобы не путать чужую делянку с нашей
+        nazvanie = f"{nazvanie}{storonnyaya.podpis(chuzhie.get(did))}"
         o = osv.get(did) or {}
         pct = o.get("pct")
         if pct is None:
@@ -111,8 +115,10 @@ def proverit_sroki(conn, segodnya=None):
         s_aktom = {r[0] for r in conn.execute("SELECT DISTINCT delyanka_id FROM osvidetelstvovanie_acts")}
     except Exception:  # noqa: BLE001 — старая база без таблицы актов
         s_aktom = set()
+    chuzhie = storonnyaya.load(conn)
     sozdano = 0
     for did, nazvanie, zag, vyv in rows:
+        nazvanie = f"{nazvanie}{storonnyaya.podpis(chuzhie.get(did))}"
         vyv_d = _parse(vyv)
         sroki = [
             ("zagotovka", "окончание заготовки", _parse(zag)),

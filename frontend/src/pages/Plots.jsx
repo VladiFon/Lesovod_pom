@@ -15,6 +15,7 @@ import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.
 import KonturBlock from "../components/KonturBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
 import { useCan } from "../auth.jsx";
+import StoronnyayaBlock from "../components/StoronnyayaBlock.jsx";
 import OsvoenieBadge from "../components/OsvoenieBadge.jsx";
 import { openScreen, useScreenParam } from "../nav.js";
 
@@ -980,6 +981,11 @@ function PlotDetail({ delyankaId, onListChanged }) {
 
         <GotovnostChecklist delyanka={delyanka} items={items} documents={documents} />
 
+        {/* Сторонняя заготовка — та же галочка, что в Инспекции. */}
+        {delyanka.status !== "черновик" && (can("inspection.edit") || delyanka.storonnyaya) && (
+          <StoronnyayaBlock row={{ id: delyanka.id }} onChanged={() => { load(); onListChanged(); }} />
+        )}
+
         <Modal open={!!chastiItem} onClose={() => setChastiItem(null)} title="Площадь по выделам" size="lg">
           {chastiItem && (
             <ChastiForm info={chastiInfo(chastiItem)} onSave={saveChasti} onCancel={() => setChastiItem(null)} />
@@ -1381,6 +1387,11 @@ export default function Plots() {
                       {d.n_items} {pluralizeVydel(d.n_items)}
                       {d.kategorii ? ` · ${d.kategorii}` : ""}
                     </div>
+                    {d.storonnyaya && (
+                      <div className="font-mono text-[10.5px] text-oak font-semibold mt-0.5 truncate">
+                        рубит {d.storonnyaya.zagotovitel}
+                      </div>
+                    )}
                   </button>
                 </li>
               ))}
