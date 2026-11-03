@@ -36,6 +36,7 @@ import Reyting from "./pages/Reyting.jsx";
 import Gazeta from "./pages/Gazeta.jsx";
 import PutDelyanki from "./pages/PutDelyanki.jsx";
 import Geroi from "./pages/Geroi.jsx";
+import Chellendzhi from "./pages/Chellendzhi.jsx";
 import Pochta from "./pages/Pochta.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
@@ -155,6 +156,7 @@ const READY_SCREENS = {
   // с опытом и серией — отдельная вкладка рядом с обычными экранами.
   kvesty: { title: "🎯 Квесты", subtitle: "Дела дня как квесты: опыт, уровень, серия дней, свои галочки", Page: Kvesty },
   gazeta: { title: "📰 Лесная правда", subtitle: "Газета недели: кто герой, сколько нарубили и вывезли, кого разыскивают", Page: Gazeta },
+  chellendzhi: { title: "🔥 Челленджи", subtitle: "Общие цели на всю команду: одна шкала, в конце звание", Page: Chellendzhi },
   reyting: { title: "🏆 Рейтинг", subtitle: "Кто впереди: очки за дни, кубы, задачи и трелёвку; битва звеньев", Page: Reyting },
   settings: { title: "Настройки", subtitle: "Ключи доступа и данные лесничего — общие для всех", Page: Settings },
   gallery: { title: "Витрина компонентов", subtitle: "Все базовые компоненты дизайн-системы на моковых данных", Page: ComponentGallery },

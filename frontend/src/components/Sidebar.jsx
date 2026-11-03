@@ -21,6 +21,7 @@ export const NAV_GROUPS = [
       ["zadachi", "Задачи"],
       ["tabel", "Табель"],
       ["reyting", "🏆 Рейтинг"],
+      ["chellendzhi", "🔥 Челленджи"],
     ],
   },
   { title: "прочее", items: [["archive", "Архив"], ["korzina", "Корзина"], ["settings", "Настройки"]] },
@@ -32,7 +33,7 @@ export const NAV_PERMISSION = { korzina: "korzina.view" };
 const MONO = "'JetBrains Mono', monospace";
 
 // Пункты только для игрового вида (переключатель в шапке / Настройках).
-const TOLKO_IGRA = new Set(["kvesty", "reyting", "gazeta"]);
+const TOLKO_IGRA = new Set(["kvesty", "reyting", "gazeta", "chellendzhi"]);
 
 export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, onLogout, permissions = [] }) {
   const [vid] = useVid();

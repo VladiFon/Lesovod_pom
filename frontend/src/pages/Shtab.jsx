@@ -132,6 +132,21 @@ export default function Shtab() {
           )}
         </Lokaciya>
 
+        <Lokaciya emoji="🔥" title="Челленджи" knopka="К челленджам" ok={d.chellendzhi?.aktivnye?.some((x) => x.status === "pobeda")}
+          onGo={() => openScreen("chellendzhi")}>
+          {!d.chellendzhi ? <Nedostupno /> : d.chellendzhi.aktivnye.length === 0 ? "Нет активных целей — запусти челлендж для команды 🎯" : (
+            <>{d.chellendzhi.aktivnye.map((x) => (
+              <div key={x.nazvanie}>
+                {x.emoji} {x.nazvanie} — <b>{x.pct}%</b>
+                <div style={{ height: 5, borderRadius: 3, background: C.line, marginTop: 2 }}>
+                  <div style={{ height: "100%", width: `${Math.min(x.pct, 100)}%`, borderRadius: 3, background: x.status === "pobeda" ? C.gold : C.leaf }} />
+                </div>
+              </div>
+            ))}
+              {d.chellendzhi.zvanie && <div style={{ color: C.gold, fontWeight: 700, marginTop: 4 }}>🏆 Звание команды: {d.chellendzhi.zvanie}</div>}</>
+          )}
+        </Lokaciya>
+
         <Lokaciya emoji="🧭" title="Путь делянки" knopka="К дорогам" trevoga={d.put?.goryat || 0}
           ok={d.put && !d.put.goryat && !d.put.zastryali} onGo={() => openScreen("plots", { tab: "put" })}>
           {!d.put ? <Nedostupno /> : (

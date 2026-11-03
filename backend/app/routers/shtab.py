@@ -153,6 +153,16 @@ def _put(conn, segodnya):
     }
 
 
+def _chellendzhi(conn, segodnya):
+    from app.routers import chellendzhi
+    c = chellendzhi.sobrat(conn, segodnya)
+    return {
+        "aktivnye": [{"nazvanie": x["nazvanie"], "emoji": x.get("emoji"), "pct": x.get("pct", 0), "status": x.get("status"),
+                      "temp": x.get("temp")} for x in c["aktivnye"] if x.get("status") != "oshibka"][:3],
+        "zvanie": c["zvaniya"][0]["priz"] if c["zvaniya"] else None, "pobed": c["pobed"],
+    }
+
+
 def _gazeta(conn, segodnya):
     from app.routers import gazeta
     g = gazeta.sobrat(conn, None, segodnya)
@@ -174,6 +184,7 @@ def sobrat(conn, user, segodnya=None):
         ("pochta", lambda: _pochta(conn)),
         ("gazeta", lambda: _gazeta(conn, segodnya)),
         ("put", lambda: _put(conn, segodnya)),
+        ("chellendzhi", lambda: _chellendzhi(conn, segodnya)),
     ):
         try:
             conn.row_factory = rf
