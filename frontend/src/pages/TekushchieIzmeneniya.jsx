@@ -127,6 +127,29 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
       toast.show({ tone: "danger", title: "Не удалось сохранить строку", description: e.message });
     }
   };
+  const skryt = async (klyuch) => {
+    if (!window.confirm("Убрать эту строку из ведомости? В программе ничего не удалится, строку можно вернуть внизу карточки.")) return;
+    try {
+      await api.put("/tekushchie-izmeneniya/skrytye", { god: Number(god), prilozhenie: p.nomer, klyuch });
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось убрать строку", description: e.message });
+    }
+  };
+  const vernut = async (klyuch) => {
+    try {
+      await api.delete(`/tekushchie-izmeneniya/skrytye?god=${god}&prilozhenie=${p.nomer}&klyuch=${encodeURIComponent(klyuch)}`);
+      await onChanged();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось вернуть строку", description: e.message });
+    }
+  };
+  const kopiya = (values) => {
+    setAdding({ values: [...values] });
+    setTimeout(() => document.getElementById(`ti-add-${p.nomer}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  };
+  const skrytyeRows = p.skrytye || [];
+
   const remove = async (id) => {
     if (!window.confirm("Удалить строку, введённую вручную?")) return;
     try {
@@ -142,13 +165,17 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="font-ui font-extrabold text-pine text-[14px]">{p.title}</h3>
-          <span className="text-xs text-muted">
-            строк: {p.rows.length}{p.ruchnye.length > 0 && ` (вручную: ${p.ruchnye.length})`}
+          <span className="inline-flex items-center gap-2">
+            <span className="text-xs text-muted">
+              строк: {p.rows.length}{p.ruchnye.length > 0 && ` (вручную: ${p.ruchnye.length})`}
+              {skrytyeRows.length > 0 && `, убрано: ${skrytyeRows.length}`}
+            </span>
+            {!adding && <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>＋ Строка</Button>}
           </span>
         </div>
         <p className="text-xs text-muted">
           {p.istochnik
-            ? `Откуда: ${p.istochnik}. Красным — чего не хватает: нажмите «Дописать» у строки. Можно добавить и свои строки.`
+            ? `Откуда: ${p.istochnik}. Красным — чего не хватает: нажмите «Дописать» у строки. Лишнюю строку — «Убрать», свою — «＋ Строка» или «Копия» с похожей.`
             : "В программе этих данных нет — строки вводятся вручную."}
         </p>
         {p.warnings.length > 0 && (
@@ -237,11 +264,14 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
                             {p.popravleno[i] && (
                               <Button variant="ghost" size="sm" onClick={() => resetPopravka(key)}>Сбросить</Button>
                             )}
+                            <Button variant="ghost" size="sm" title="Добавить свою строку с такими же значениями" onClick={() => kopiya(r)}>Копия</Button>
+                            <Button variant="ghost" size="sm" title="Не включать в ведомость (данные в программе не удаляются)" onClick={() => skryt(key)}>Убрать</Button>
                           </span>
                         )}
                         {ruch && (
                           <span className="inline-flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setEditId(ruch.id)}>Изменить</Button>
+                            <Button variant="ghost" size="sm" onClick={() => kopiya(ruch.values)}>Копия</Button>
                             <Button variant="ghost" size="sm" onClick={() => remove(ruch.id)}>Удалить</Button>
                           </span>
                         )}
@@ -266,7 +296,25 @@ function PrilozhenieCard({ p, god, lesnichestvo, onChanged }) {
           )}
           {!adding && <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>Добавить строку</Button>}
         </div>
-        {adding && <RuchnayaForm columns={p.columns} onSave={(values) => save(values)} onCancel={() => setAdding(false)} />}
+        {adding && (
+          <div id={`ti-add-${p.nomer}`}>
+            <RuchnayaForm key={JSON.stringify(adding)} columns={p.columns} initial={adding?.values}
+              onSave={(values) => save(values)} onCancel={() => setAdding(false)} />
+          </div>
+        )}
+        {skrytyeRows.length > 0 && (
+          <details className="text-xs">
+            <summary className="cursor-pointer text-muted font-semibold">Убрано из ведомости: {skrytyeRows.length}</summary>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {skrytyeRows.map((h) => (
+                <li key={h.klyuch} className="flex items-center gap-2 flex-wrap">
+                  <span className="text-muted">{h.values.filter(Boolean).slice(0, 6).join(" · ")}</span>
+                  <Button variant="ghost" size="sm" onClick={() => vernut(h.klyuch)}>Вернуть</Button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </div>
     </Card>
   );
