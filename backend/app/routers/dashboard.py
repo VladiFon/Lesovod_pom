@@ -62,6 +62,7 @@ PySide6-версии, просто вызываются из HTTP-эндпоин
 
 import datetime
 import json
+from typing import Optional
 import sqlite3
 import urllib.error
 import urllib.request
@@ -126,8 +127,44 @@ class HarvestPlanIn(BaseModel):
     value: float
 
 
+def _god_param(god: Optional[str]) -> Optional[str]:
+    """'2026' → '2026'; 'vse' → None (за всё время); пусто — текущий год."""
+    g = (god or "").strip().lower()
+    if g == "vse":
+        return None
+    if g.isdigit() and len(g) == 4:
+        return g
+    return str(datetime.date.today().year)
+
+
+def _ym(value) -> Optional[str]:
+    """Дата наряда → 'ГГГГ-ММ'. В базе даты нарядов — «ДД.ММ.ГГГГ» (так
+    вводит сайт), реже ISO; SQLite strftime понимает только ISO, поэтому
+    график «Факт» раньше всегда был нулевым (анализ 03.11.2026)."""
+    s = str(value or "").strip()[:10]
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y"):
+        try:
+            return datetime.datetime.strptime(s, fmt).strftime("%Y-%m")
+        except ValueError:
+            continue
+    return None
+
+
+def _naryady_po_mesyacam(conn) -> dict:
+    """{'ГГГГ-ММ': м³ по нарядам}."""
+    out: dict = {}
+    for data, obyom in conn.execute(
+        "SELECT n.data, SUM(p.obyom) FROM raskhod_pozitsiya p JOIN raskhod_naryad n ON p.naryad_id = n.id "
+        "GROUP BY n.data"
+    ).fetchall():
+        ym = _ym(data)
+        if ym:
+            out[ym] = out.get(ym, 0.0) + (obyom or 0.0)
+    return out
+
+
 @router.get("/summary")
-def get_summary():
+def get_summary(god: Optional[str] = None):
     """Один запрос на весь экран — метрики, таблица делянок, ИИ-лента,
     график и погода. Каждая секция отказоустойчива по отдельности (как
     и в load_metrics() десктопа): если конкретной таблицы в БД ещё нет,
@@ -136,7 +173,7 @@ def get_summary():
     conn = _connect()
     try:
         return {
-            "metrics": _build_metrics(conn),
+            "metrics": _build_metrics(conn, _god_param(god)),
             "plots": _build_plots_table(conn),
             "insights": _build_ai_insights(conn),
             "chart": _build_harvest_chart(conn),
@@ -146,7 +183,11 @@ def get_summary():
         conn.close()
 
 
-def _build_metrics(conn: sqlite3.Connection) -> dict:
+def _build_metrics(conn: sqlite3.Connection, god: Optional[str] = None) -> dict:
+    """god — 'ГГГГ' или None (за всё время): за период считаются «Выполнено
+    работ» и «Заготовлено за год». Наряды и ЕГАИС на карточке «Заготовлено»
+    — по одним и тем же активным делянкам, иначе цифры несравнимы (раньше
+    наряды были за всё время по всем делянкам, а ЕГАИС — по активным)."""
     # «В работе» — только активные делянки; черновики (импорт МДО без
     # билета) считаются отдельно, иначе цифра расходилась со списком.
     try:
@@ -156,13 +197,20 @@ def _build_metrics(conn: sqlite3.Connection) -> dict:
         delyanki_count = chernoviki_count = 0
 
     try:
-        completed_count = conn.execute("SELECT COUNT(*) FROM completed_works").fetchone()[0]
+        if god:
+            completed_count = conn.execute(
+                "SELECT COUNT(*) FROM completed_works WHERE substr(data_vypolneniya, 1, 4) = ?", (god,)).fetchone()[0]
+        else:
+            completed_count = conn.execute("SELECT COUNT(*) FROM completed_works").fetchone()[0]
     except sqlite3.OperationalError:
         completed_count = 0
 
     try:
-        volume_row = conn.execute("SELECT SUM(obyom) FROM raskhod_pozitsiya").fetchone()
-        volume = volume_row[0] if volume_row and volume_row[0] is not None else 0
+        if god:
+            volume_god = sum(v for ym, v in _naryady_po_mesyacam(conn).items() if ym.startswith(god + "-"))
+        else:
+            volume_row = conn.execute("SELECT SUM(obyom) FROM raskhod_pozitsiya").fetchone()
+            volume_god = volume_row[0] if volume_row and volume_row[0] is not None else 0
     except sqlite3.OperationalError:
         volume = 0
 
@@ -181,8 +229,10 @@ def _build_metrics(conn: sqlite3.Connection) -> dict:
         osv = compute_osvoenie_batch(conn, ids)
         egais_vals = [o["fakt_egais"] for o in osv.values() if o.get("fakt_egais") is not None]
         volume_egais = sum(egais_vals) if egais_vals else None
+        volume = sum(o.get("fakt_naryad") or 0 for o in osv.values())
     except Exception:  # noqa: BLE001 — секция отказоустойчива, как и остальные
         volume_egais = None
+        volume = 0
 
     # Из них рубят сторонние организации (app/storonnyaya.py) — показываем
     # отдельно, чтобы «в работе» не путало чужие делянки с нашими.
@@ -199,8 +249,11 @@ def _build_metrics(conn: sqlite3.Connection) -> dict:
         "volume_egais_m3": volume_egais,
         "volume_egais_m3_fmt": _fmt_m3(volume_egais) if volume_egais is not None else None,
         "completed_count": completed_count or 0,
+        "god": god,
         "volume_m3": volume or 0,
         "volume_m3_fmt": _fmt_m3(volume),
+        "volume_god_m3": volume_god or 0,
+        "volume_god_m3_fmt": _fmt_m3(volume_god),
         "ai_queue_count": ai_queue_count,
         "ai_queue_alert": ai_queue_count > 0,
     }
@@ -320,20 +373,39 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
             "severity": "warning",
         })
 
+    # Раньше здесь были «Акты», но читались записи журнала выполненных
+    # работ (completed_works) — к актам освидетельствования отношения не
+    # имели (анализ 03.11.2026). Теперь: настоящие акты + последние работы.
     try:
         recent_acts = conn.execute(
-            "SELECT lesnichestvo, data_vypolneniya FROM completed_works "
-            "ORDER BY id DESC LIMIT 2"
+            "SELECT a.act_date, d.id, d.nazvanie FROM osvidetelstvovanie_acts a "
+            "JOIN delyanka d ON d.id = a.delyanka_id ORDER BY a.id DESC LIMIT 2"
         ).fetchall()
     except sqlite3.OperationalError:
         recent_acts = []
-
-    for lesnichestvo, data_vypolneniya in recent_acts:
+    st_acts = storonnyaya.load(conn, [r[1] for r in recent_acts]) if recent_acts else {}
+    for act_date, did, nazvanie in recent_acts:
         entries.append({
             "category": "Акты",
+            "timestamp": str(act_date or "—"),
+            "title": f"Акт освидетельствования: «{nazvanie or '—'}»{storonnyaya.podpis(st_acts.get(did))}",
+            "description": "Акт сформирован на экране Инспекции.",
+            "severity": "info",
+        })
+
+    try:
+        recent_works = conn.execute(
+            "SELECT lesnichestvo, data_vypolneniya, tip_raboty FROM completed_works "
+            "ORDER BY id DESC LIMIT 2"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        recent_works = []
+    for lesnichestvo, data_vypolneniya, tip in recent_works:
+        entries.append({
+            "category": "Работы",
             "timestamp": str(data_vypolneniya or "—"),
-            "title": f"Создан акт выполненных работ ({lesnichestvo or '—'})",
-            "description": "Новый акт зафиксирован в журнале выполненных работ.",
+            "title": f"{tip or 'Работа'} ({lesnichestvo or '—'})",
+            "description": "Отчёт с телефона одобрен и записан в журнал выполненных работ.",
             "severity": "info",
         })
 
@@ -342,7 +414,7 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
             "category": "Статус",
             "timestamp": "сейчас",
             "title": "Критичных событий нет",
-            "description": "Делянок у лимита, отчётов в очереди и новых актов нет.",
+            "description": "Делянок у лимита, отчётов в очереди, актов и новых работ нет.",
             "severity": "info",
         })
 
@@ -368,12 +440,7 @@ def _build_harvest_chart(conn: sqlite3.Connection) -> dict:
             plan_by_month[year_month] = value or 0.0
 
     try:
-        rows = conn.execute(
-            "SELECT strftime('%Y-%m', n.data) AS ym, SUM(p.obyom) "
-            "FROM raskhod_pozitsiya p JOIN raskhod_naryad n ON p.naryad_id = n.id "
-            "WHERE n.data IS NOT NULL GROUP BY ym"
-        ).fetchall()
-        for year_month, total in rows:
+        for year_month, total in _naryady_po_mesyacam(conn).items():
             if year_month in fact_by_month:
                 fact_by_month[year_month] = total or 0.0
     except sqlite3.OperationalError:

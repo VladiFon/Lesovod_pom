@@ -203,11 +203,14 @@ export default function Dashboard({ onOpenTab }) {
 
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
+  // период для «Выполнено работ» и «Заготовлено за год»: год или всё время
+  const tekGod = new Date().getFullYear();
+  const [god, setGod] = useState(String(tekGod));
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get("/dashboard/summary");
+      const data = await api.get(`/dashboard/summary?god=${encodeURIComponent(god)}`);
       setSummary(data);
       setLoadError(null);
     } catch (err) {
@@ -215,7 +218,7 @@ export default function Dashboard({ onOpenTab }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [god]);
 
   useEffect(() => {
     loadSummary();
@@ -267,13 +270,26 @@ export default function Dashboard({ onOpenTab }) {
         </Card>
       )}
 
+      <div className="flex items-center justify-end gap-2 -mb-1 text-sm text-muted">
+        <span>Период:</span>
+        <select className="bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-8 text-[13px] text-ink outline-none" value={god} onChange={(e) => setGod(e.target.value)}>
+          <option value={String(tekGod)}>{tekGod} год</option>
+          <option value={String(tekGod - 1)}>{tekGod - 1} год</option>
+          <option value="vse">Всё время</option>
+        </select>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <StatCard icon="🌳" title="Делянки в работе" value={loading ? "…" : String(metrics?.delyanki_count ?? 0)} caption={[
             metrics?.storonnie_count ? `из них ${metrics.storonnie_count} рубят другие` : "Активные делянки",
             metrics?.chernoviki_count ? `ещё ${metrics.chernoviki_count} в черновиках` : null,
           ].filter(Boolean).join(" · ")} />
-        <StatCard icon="✅" title="Выполнено работ" value={loading ? "…" : String(metrics?.completed_count ?? 0)} caption="Все зафиксированные работы" />
-        <StatCard icon="🪵" title="Заготовлено по нарядам, м³" value={loading ? "…" : metrics?.volume_m3_fmt ?? "0"} caption={metrics?.volume_egais_m3_fmt != null ? `По ЕГАИС (активные делянки): ${metrics.volume_egais_m3_fmt} м³` : "ЕГАИС ещё не загружен"} />
+        <StatCard icon="✅" title="Выполнено работ" value={loading ? "…" : String(metrics?.completed_count ?? 0)} caption={god === "vse" ? "Журнал работ за всё время" : `Журнал работ за ${god} год`} />
+        <StatCard icon="🪵" title="Заготовлено на активных делянках, м³" value={loading ? "…" : metrics?.volume_m3_fmt ?? "0"} caption={[
+            "по нарядам",
+            metrics?.volume_egais_m3_fmt != null ? `по ЕГАИС ${metrics.volume_egais_m3_fmt}` : "ЕГАИС не загружен",
+            god === "vse" ? `всего по нарядам ${metrics?.volume_god_m3_fmt ?? "0"}` : `за ${god} год ${metrics?.volume_god_m3_fmt ?? "0"}`,
+          ].join(" · ")} />
         <StatCard
           icon="🚨"
           title="Очередь ИИ"

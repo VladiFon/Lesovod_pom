@@ -102,6 +102,26 @@ def proverit_osvoenie(conn, delyanki):
     return sozdano
 
 
+def _sroki_akta_po_ploshadi(conn):
+    """{delyanka_id: (срок акта, дата закрытия площади)} для активных
+    делянок, у которых площадь пройдена по нарядам (или по справке
+    заготовителя), а акта после этого ещё нет — тот же расчёт, что в списке
+    Инспекции (inspection._ploshad_po_naryadam)."""
+    try:
+        from app.routers import inspection
+        out = {}
+        for r in inspection.list_inspection(conn=conn):
+            if r.get("zakryta") or r.get("akt_po_ploshadi_sostavlen") or not r.get("akt_po_ploshadi_do"):
+                continue
+            srok = _parse(r["akt_po_ploshadi_do"])
+            if srok:
+                out[r["id"]] = (srok, r.get("ploshad_zakryta") or "")
+        return out
+    except Exception as exc:  # noqa: BLE001 — напоминание не должно ронять остальные
+        print(f"❌ Срок акта по площади: {exc}")
+        return {}
+
+
 def proverit_sroki(conn, segodnya=None):
     segodnya = segodnya or date.today()
     rows = conn.execute(
@@ -116,6 +136,7 @@ def proverit_sroki(conn, segodnya=None):
     except Exception:  # noqa: BLE001 — старая база без таблицы актов
         s_aktom = set()
     chuzhie = storonnyaya.load(conn)
+    po_ploshadi = _sroki_akta_po_ploshadi(conn)
     sozdano = 0
     for did, nazvanie, zag, vyv in rows:
         nazvanie = f"{nazvanie}{storonnyaya.podpis(chuzhie.get(did))}"
@@ -126,6 +147,11 @@ def proverit_sroki(conn, segodnya=None):
             ("osvid", "освидетельствование",
              vyv_d + timedelta(days=30) if vyv_d and did not in s_aktom else None),
         ]
+        # Срок акта от закрытия площади по нарядам (+30 дней), который
+        # показывает Инспекция, — раньше колокольчик его не знал (Б3).
+        pl = po_ploshadi.get(did)
+        if pl:
+            sroki.append(("osvid_pl", "акт освидетельствования (площадь пройдена " + pl[1] + ")", pl[0]))
         for kod, chto, srok in sroki:
             if srok is None:
                 continue
