@@ -30,6 +30,7 @@ import { poVidu } from "./vid.jsx";
 import UhodyIgra from "./pages/UhodyIgra.jsx";
 import FrontRabot from "./pages/FrontRabot.jsx";
 import OhotaAktov from "./pages/OhotaAktov.jsx";
+import VyvozkaIgra from "./pages/VyvozkaIgra.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -52,6 +53,11 @@ const Tabel = makeMergedScreen("tabel", [
   // обычного ввода; обычный ввод никуда не делся.
   { key: "vvod", label: "Ввод табеля", Page: poVidu(TabelRuchnoy, TabelIgra) },
   { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
+]);
+// Игровой вид «Расхода / ЕГАИС» (03.11.2026): «Вывозка» + обычный Расход.
+const RaskhodIgra = makeMergedScreen("raskhod", [
+  { key: "vyvozka", label: "🚛 Вывозка", Page: VyvozkaIgra },
+  { key: "raskhod", label: "Расход", Page: Raskhod },
 ]);
 // Игровой вид «Инспекции» (03.11.2026): «Охота на акты» + обычный список
 // (форма акта — там же, «Составить акт» открывает вкладку «Список»).
@@ -90,7 +96,7 @@ const READY_SCREENS = {
   forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: poVidu(Lesokultury, LesokulturyIgra) },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
   tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса по приказу №130: прил. 1–15", Page: TekushchieIzmeneniya },
-  raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: Raskhod },
+  raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: poVidu(Raskhod, RaskhodIgra) },
   inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: poVidu(Inspection, InspectionIgra) },
   // C.3 плана — независимые пробы рубок ухода (не привязаны к делянке,
   // см. docstring backend/legacy/uhody.py): своя ведомость перечёта и
