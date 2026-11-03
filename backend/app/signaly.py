@@ -177,10 +177,14 @@ def proverit_sroki(conn, segodnya=None):
 
 def proverit_egais_posle_akta(conn):
     """Закрытая (архив) делянка с актом освидетельствования, а по её складам
-    ЕГАИС после даты акта пришли новые операции — либо склад привязан не
-    туда, либо работа шла на уже освидетельствованной делянке. Лучше узнать
-    от Лесовода, чем от проверяющих (анализ 03.11.2026). Одно уведомление
-    на делянку и дату последней такой операции."""
+    ЕГАИС после даты акта ОПРИХОДОВАН новый лес — либо склад привязан не
+    туда, либо заготовка шла на уже освидетельствованной делянке. Лучше
+    узнать от Лесовода, чем от проверяющих (анализ 03.11.2026). Одно
+    уведомление на делянку и дату последней такой операции.
+
+    Расход (вывозка с ПЛС, перемещение, реализация) после акта — норма: лес
+    вывозят и после освидетельствования, склад остаётся за делянкой
+    (уточнение Влада 03.11.2026). Поэтому смотрим только «Приход»."""
     try:
         akty = {}
         for did, act_date in conn.execute(
@@ -206,7 +210,7 @@ def proverit_egais_posle_akta(conn):
                 conn, {"id": item_id}, ["data_dokumenta_sort", "tip_dokumenta", "obyom"], resolution
             ):
                 d = _parse(r.get("data_dokumenta_sort"))
-                if d and d > akt:
+                if d and d > akt and (r.get("tip_dokumenta") or "").strip() == raskhod_v2._EGAIS_DOC_TYPE_PRIHOD:
                     posle.append((d, r.get("tip_dokumenta") or "", float(r.get("obyom") or 0)))
         if not posle:
             continue
@@ -216,9 +220,10 @@ def proverit_egais_posle_akta(conn):
         _otmetit(conn, "egais_posle_akta", did, poslednyaya.isoformat())
         conn.commit()
         obyom = sum(p[2] for p in posle)
-        text = (f"ЕГАИС после акта: «{nazvanie}» закрыта (акт {akt:%d.%m.%Y}), а по её складам после этой "
-                f"даты {len(posle)} операц. на {_m3(obyom)} м³ (последняя {poslednyaya:%d.%m.%Y}). "
-                "Проверьте привязку складов в «Разборе ЕГАИС».")
+        text = (f"Приход ЕГАИС после акта: «{nazvanie}» закрыта (акт {akt:%d.%m.%Y}), а на её склады после "
+                f"этой даты оприходовано ещё {_m3(obyom)} м³ ({len(posle)} док., последний "
+                f"{poslednyaya:%d.%m.%Y}). Заготовки после освидетельствования быть не должно — проверьте "
+                "привязку складов в «Разборе ЕГАИС». Вывозка (расход) после акта — нормально.")
         webext.notify(conn, "egais_posle_akta", text, related_id=did)
         sozdano += 1
     return sozdano
