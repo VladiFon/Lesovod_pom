@@ -199,7 +199,7 @@ function ReviewPanel({ report, onDone }) {
   );
 }
 
-function RawReportsTab() {
+export function RawReportsTab() {
   const toast = useToast();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -259,7 +259,7 @@ function RawReportsTab() {
   );
 }
 
-function CompletedTab() {
+export function CompletedTab() {
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);

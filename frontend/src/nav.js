@@ -8,6 +8,24 @@ import { useEffect, useState } from "react";
 const params = {}; // экран -> { d: "5", ... }
 const EVENT = "lesovod-nav";
 
+// Старые экраны, которые стали вкладками объединённых (шаг 4 разбора
+// 03.11.2026): ссылки, закладки и колокольчик со старыми адресами
+// по-прежнему работают.
+export const ALIASES = {
+  ai_log: { screen: "telefon", tab: "otchety" },
+  worker_notes: { screen: "telefon", tab: "zametki" },
+  attendance: { screen: "tabel", tab: "prisutstvie" },
+  work_plan: { screen: "zadachi", tab: "plan" },
+  calendar: { screen: "zadachi", tab: "kalendar" },
+};
+
+/** Старый адрес экрана → новый экран + параметры вкладки. */
+export function resolveScreen(screen, p = {}) {
+  const a = ALIASES[screen];
+  return a ? { screen: a.screen, params: { tab: a.tab, ...p } } : { screen, params: p };
+}
+
+
 export function readHash() {
   const raw = window.location.hash.replace(/^#\/?/, "");
   const [path, q] = raw.split("?");
@@ -33,8 +51,10 @@ export function syncHash(screen, { push = false } = {}) {
 
 // Начальные параметры из адреса при загрузке страницы.
 (() => {
-  const { screen, params: p } = readHash();
-  if (screen) params[screen] = p;
+  const h = readHash();
+  if (!h.screen) return;
+  const { screen, params: p } = resolveScreen(h.screen, h.params);
+  params[screen] = p;
 })();
 
 /**
@@ -63,8 +83,9 @@ export function useScreenParam(screen, key) {
 
 /** Адрес поменяли снаружи (кнопка «Назад», вставили ссылку) — подхватить. */
 export function applyHash() {
-  const { screen, params: p } = readHash();
-  if (!screen) return null;
+  const h = readHash();
+  if (!h.screen) return null;
+  const { screen, params: p } = resolveScreen(h.screen, h.params);
   params[screen] = p;
   window.dispatchEvent(new CustomEvent(EVENT, { detail: { screen, params: { d: "", ...p } } }));
   return screen;
@@ -76,7 +97,8 @@ export function setScreenOpener(fn) {
 }
 
 /** Открыть экран (вкладку) с параметрами — для перекрёстных ссылок. */
-export function openScreen(screen, p = {}) {
+export function openScreen(screen0, p0 = {}) {
+  const { screen, params: p } = resolveScreen(screen0, p0);
   params[screen] = { ...(params[screen] || {}), ...Object.fromEntries(Object.entries(p).map(([k, v]) => [k, v == null ? "" : String(v)])) };
   opener?.(screen);
   window.dispatchEvent(new CustomEvent(EVENT, { detail: { screen, params: params[screen] } }));

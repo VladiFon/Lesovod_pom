@@ -6,6 +6,7 @@ import DataTable from "../components/DataTable.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { api, API_BASE_URL } from "../api/client.js";
 import { useToast } from "../components/Toast.jsx";
+import { useScreenParam } from "../nav.js";
 
 /**
  * pages/Documents.jsx — Этап 5 плана переноса, часть 2 (фронтенд).
@@ -144,11 +145,20 @@ export default function Documents() {
     date_to: "",
   });
 
+  // Документы одной делянки — по кнопке «Документы» из карточки, Расхода
+  // или Инспекции (#/documents?d=5, шаг 4 разбора 03.11.2026).
+  const [delyankaParam, setDelyankaParam] = useScreenParam("documents", "d");
+  const [delyankaNazv, setDelyankaNazv] = useState("");
+  useEffect(() => {
+    setDelyankaNazv("");
+    if (delyankaParam) api.get(`/delyanki/${delyankaParam}`).then((r) => setDelyankaNazv(r?.delyanka?.nazvanie || "")).catch(() => {});
+  }, [delyankaParam]);
+
   const statusesRef = useRef({}); // id -> предыдущий статус, для детекта перехода
 
   const load = useCallback(async () => {
     const params = Object.fromEntries(
-      Object.entries(filters).filter(([, v]) => v !== "")
+      Object.entries({ ...filters, delyanka_id: delyankaParam || "" }).filter(([, v]) => v !== "")
     );
     const rows = await api.get("/documents/", params);
 
@@ -180,7 +190,7 @@ export default function Documents() {
 
     setDocs(rows);
     return rows;
-  }, [filters, toast]);
+  }, [filters, toast, delyankaParam]);
 
   useEffect(() => {
     setLoading(true);
@@ -188,7 +198,7 @@ export default function Documents() {
       .catch((e) => toast.show({ tone: "danger", title: "Не удалось загрузить документы", description: e.message }))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [filters, delyankaParam]);
 
   useEffect(() => {
     api.get("/documents/authors").then(setAuthors).catch(() => {});
@@ -390,6 +400,16 @@ export default function Documents() {
   return (
     <div className="p-[18px] flex flex-col gap-[14px]">
       <Card title="Документы" subtitle="Все документы, сгенерированные по делянкам">
+        {delyankaParam && (
+          <div className="mb-3 flex items-center gap-2 text-sm">
+            <span className="rounded-full bg-mint-soft text-pine font-semibold px-3 py-1">
+              Только делянка {delyankaNazv ? `«${delyankaNazv}»` : `№${delyankaParam}`}
+            </span>
+            <button type="button" className="text-pine hover:underline" onClick={() => setDelyankaParam("")}>
+              показать все
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div>
             <label className="block text-[11.5px] font-semibold text-muted mb-1">

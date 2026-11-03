@@ -26,7 +26,7 @@ import db as legacy_db
 import delyanka
 import tehkarta_generator
 
-from app import korzina, storonnyaya
+from app import etap, korzina, storonnyaya
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
 from app.paths import UPLOADS_DIR
@@ -45,8 +45,12 @@ def list_delyanki(status: Optional[str] = None, conn=Depends(get_conn)):
     # «Рубит …» — сторонняя заготовка (app/storonnyaya.py), чтобы любой
     # список делянок на сайте мог пометить чужую делянку.
     st = storonnyaya.load(conn)
+    # Этап (В работе / Дорублена / Освидетельствована …) — один бейдж на
+    # всех экранах (app/etap.py).
+    et = etap.etapy(conn, rows)
     for r in rows:
         r["storonnyaya"] = storonnyaya.kratko(st.get(r["id"]))
+        r["etap"] = et.get(r["id"])
     return rows
 
 
@@ -175,6 +179,7 @@ def get_delyanka(delyanka_id: int, conn=Depends(get_conn)):
         it["vid_rubki_avto_kod"] = avto["vid_rubki_kod"]
         it["gruppa_avto"] = avto["gruppa_label"] if avto["gruppa"] else ""
     d["storonnyaya"] = storonnyaya.kratko(storonnyaya.load(conn, [delyanka_id]).get(delyanka_id))
+    d["etap"] = etap.odna(conn, delyanka_id)
     return {"delyanka": d, "items": items}
 
 

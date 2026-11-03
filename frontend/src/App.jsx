@@ -19,14 +19,36 @@ import Attendance from "./pages/Attendance.jsx";
 import WorkerNotes from "./pages/WorkerNotes.jsx";
 import Archive from "./pages/Archive.jsx";
 import CalendarScreen from "./pages/Calendar.jsx";
-import AiLog from "./pages/AiLog.jsx";
+import { RawReportsTab, CompletedTab } from "./pages/AiLog.jsx";
+import { makeMergedScreen } from "./components/MergedScreen.jsx";
 import Settings from "./pages/Settings.jsx";
 import ComponentGallery from "./pages/ComponentGallery.jsx";
 import Korzina from "./pages/Korzina.jsx";
 import { UserProvider } from "./auth.jsx";
-import { applyHash, readHash, setScreenOpener, syncHash } from "./nav.js";
+import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
 import { api } from "./api/client.js";
+
+const Padded = (Inner) => function PaddedTab() {
+  return <div className="p-[18px] flex flex-col gap-[14px]"><Inner /></div>;
+};
+
+// Шаг 4 разбора (03.11.2026): похожие пункты меню слиты в один экран с
+// вкладками. Старые ключи (ai_log, worker_notes, attendance, work_plan,
+// calendar) — алиасы в nav.js, ссылки на них не ломаются.
+const Telefon = makeMergedScreen("telefon", [
+  { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
+  { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
+  { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
+]);
+const Tabel = makeMergedScreen("tabel", [
+  { key: "vvod", label: "Ввод табеля", Page: TabelRuchnoy },
+  { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
+]);
+const Zadachi = makeMergedScreen("zadachi", [
+  { key: "plan", label: "План работ", Page: PlanRabot },
+  { key: "kalendar", label: "Календарь", Page: CalendarScreen },
+]);
 
 // Этап 4: экраны переписываются по одному, от простого к сложному
 // (план, порядок 1→10). Готовы: "settings" (реальный backend) и
@@ -56,11 +78,11 @@ const READY_SCREENS = {
   uhody: { title: "Рубки ухода", subtitle: "Пробы, обмер укладок хвороста, ведомость перечёта", Page: RubkiUhoda },
   // Фаза 4 плана доработки — постановка задач сотрудникам (work_plan),
   // веб-половина уже существующей мобильной функции (см. app/routers/bot.py).
-  work_plan: { title: "План работ", subtitle: "Постановка задач сотрудникам: дата, делянка, статус", Page: PlanRabot },
+  zadachi: { title: "Задачи", subtitle: "План работ сотрудникам и рабочий календарь", Page: Zadachi },
   // Ручной ввод табеля (просьба пользователя, 24.09.2026) — пока рядовые
   // рабочие не отмечаются в мобильном приложении сами, лесничий расставляет
   // за них статус, место и вид работы построчно на день. См. app/routers/tabel.py.
-  tabel: { title: "Табель — ручной ввод", subtitle: "Кто где работал: статус, делянка/участок, вид работы, комментарий", Page: TabelRuchnoy },
+  tabel: { title: "Табель", subtitle: "Кто где работал: ввод по дням и отметки рабочих с телефона", Page: Tabel },
   // Перенесено из Settings.jsx (WorkersCard) — тот же /api/auth/workers,
   // полноценный экран вместо блока внутри "Настроек".
   sotrudniki: { title: "Сотрудники", subtitle: "Справочник работников: ФИО, должность, участок", Page: Sotrudniki },
@@ -71,11 +93,8 @@ const READY_SCREENS = {
   raspredelenie: { title: "Распределение бригад", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: RaspredelenieBrigad },
   // Односторонние ленты "рабочий -> мастер" (мобильное приложение ->
   // веб), см. app/routers/attendance.py и app/routers/notes.py.
-  attendance: { title: "Присутствие", subtitle: "Кто сегодня работал — отметки из мобильного приложения", Page: Attendance },
-  worker_notes: { title: "Заметки", subtitle: "Заметки рабочих начальнику — лента, непрочитанные наверху", Page: WorkerNotes },
+  telefon: { title: "С телефона", subtitle: "Отчёты рабочих на проверку, заметки, журнал выполненных работ", Page: Telefon },
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
-  calendar: { title: "Календарь", subtitle: "Рабочий календарь: разовые и периодические задачи", Page: CalendarScreen },
-  ai_log: { title: "ИИ-журнал", subtitle: "Разбор отчётов с телефона и журнал выполненных работ", Page: AiLog },
   // Удалённые делянки/участки лежат здесь 30 дней (app/korzina.py).
   korzina: { title: "Корзина", subtitle: "Удалённые делянки и участки — можно вернуть в течение 30 дней", Page: Korzina },
   settings: { title: "Настройки", subtitle: "Ключи доступа и данные лесничего — общие для всех", Page: Settings },
@@ -102,16 +121,26 @@ export default function App() {
   // необязательная правая — rightId.
   // Стартовая вкладка — из адреса (#/raskhod?d=5), чтобы F5 и
   // пересланная ссылка открывали тот же экран.
-  const [tabState, dispatch] = useReducer(tabsReducer, null, () => {
-    const { screen } = readHash();
+  const [tabState, rawDispatch] = useReducer(tabsReducer, null, () => {
+    const screen = readHash().screen ? resolveScreen(readHash().screen).screen : null;
     if (screen && READY_SCREENS[screen] && screen !== "dashboard") {
       return { tabs: ["dashboard", screen], activeId: screen, rightId: null };
     }
     return { tabs: ["dashboard"], activeId: "dashboard", rightId: null };
   });
 
+  // Открытие старого экрана (алиаса) — через openScreen, чтобы выбрать
+  // нужную вкладку объединённого экрана.
+  const dispatch = React.useCallback((action) => {
+    if (action?.type === "open" && ALIASES[action.id]) {
+      openScreen(action.id);
+      return;
+    }
+    rawDispatch(action);
+  }, []);
+
   useEffect(() => {
-    setScreenOpener((id) => dispatch({ type: "open", id }));
+    setScreenOpener((id) => rawDispatch({ type: "open", id }));
     const onPop = () => {
       const screen = applyHash();
       if (screen && READY_SCREENS[screen]) dispatch({ type: "open", id: screen });

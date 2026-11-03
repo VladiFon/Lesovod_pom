@@ -301,12 +301,12 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
         chuzhie = {}
     nazvaniya = {r[0]: (r[1] or "—") + storonnyaya.podpis(chuzhie.get(r[0])) for r in delyanka_rows}
     flagged = [
-        (nazvaniya[d], o) for d, o in osvoenie.items()
+        (nazvaniya[d], o, d) for d, o in osvoenie.items()
         if o.get("pct") is not None and o["level"] in ("vnimanie", "preduprezhdenie", "pererub")
     ]
     flagged.sort(key=lambda row: row[1]["pct"], reverse=True)
 
-    for nazvanie, o in flagged[:5]:
+    for nazvanie, o, did in flagged[:5]:
         pct = o["pct"]
         if o["level"] == "pererub":
             title = f"Переруб: «{nazvanie or '—'}» — {pct:.0f}% лимита"
@@ -327,6 +327,9 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
             "title": title,
             "description": description,
             "severity": severity,
+            # клик по строке открывает Расход этой делянки (шаг 4 разбора)
+            "screen": "raskhod",
+            "params": {"d": did},
         })
 
     try:
@@ -346,6 +349,7 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
             "category": "Бригады",
             "timestamp": "сейчас",
             "title": f"{pending_brigady} {delyanka_word} {blizki_word} к завершению без плана бригады",
+            "screen": "raspredelenie",
             "description": (
                 "Откройте «Распределение бригад», чтобы назначить, куда "
                 "направить освобождающиеся бригады."
@@ -366,8 +370,10 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
             "category": "Проверка",
             "timestamp": "сейчас",
             "title": f"На проверке {pending_count} отчёт(ов)",
+            "screen": "telefon",
+            "params": {"tab": "otchety"},
             "description": (
-                "Есть необработанные отчёты рабочих. Откройте Журнал ИИ, "
+                "Есть необработанные отчёты рабочих. Откройте «С телефона → Отчёты», "
                 "чтобы подтвердить или отклонить их."
             ),
             "severity": "warning",
@@ -389,6 +395,8 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
             "category": "Акты",
             "timestamp": str(act_date or "—"),
             "title": f"Акт освидетельствования: «{nazvanie or '—'}»{storonnyaya.podpis(st_acts.get(did))}",
+            "screen": "inspection",
+            "params": {"d": did},
             "description": "Акт сформирован на экране Инспекции.",
             "severity": "info",
         })
@@ -403,6 +411,8 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
     for lesnichestvo, data_vypolneniya, tip in recent_works:
         entries.append({
             "category": "Работы",
+            "screen": "telefon",
+            "params": {"tab": "zhurnal"},
             "timestamp": str(data_vypolneniya or "—"),
             "title": f"{tip or 'Работа'} ({lesnichestvo or '—'})",
             "description": "Отчёт с телефона одобрен и записан в журнал выполненных работ.",

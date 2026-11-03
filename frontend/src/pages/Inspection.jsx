@@ -12,6 +12,7 @@ import Modal from "../components/Modal.jsx";
 import DateField from "../components/DateField.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { useScreenParam } from "../nav.js";
+import DelyankaNav from "../components/DelyankaNav.jsx";
 import StoronnyayaBlock from "../components/StoronnyayaBlock.jsx";
 
 /**
@@ -845,6 +846,7 @@ function InspectionDetail({ row, onChanged }) {
             <Button variant="primary" size="sm" onClick={() => setActModalOpen(true)}>Акт освидетельствования</Button>
           </div>
         </div>
+        <DelyankaNav delyankaId={row.id} current="inspection" className="-mt-2" />
 
         {row.zakryta ? (
           <div className="rounded-[10px] border border-border bg-hover px-3.5 py-2.5 flex items-center justify-between gap-2 flex-wrap">

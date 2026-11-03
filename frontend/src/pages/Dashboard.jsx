@@ -9,6 +9,7 @@ import Modal from "../components/Modal.jsx";
 import BarChart from "../components/BarChart.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { api, ApiError } from "../api/client.js";
+import { openScreen } from "../nav.js";
 
 /**
  * Dashboard — экран "Главная (Дашборд)" (Этап 4, второй переписанный
@@ -67,11 +68,20 @@ const FIRE_CLASSES = {
   5: { bg: "#ffb3ab", fg: "#7a0000", text: "Чрезвычайная. Лесозаготовительные работы приостановлены." },
 };
 
-function InsightEntry({ category, timestamp, title, description, severity }) {
+// Строка ленты с screen/params открывает нужный экран (шаг 4 разбора
+// 03.11.2026): переруб — Расход делянки, бригады — Распределение и т.д.
+function InsightEntry({ category, timestamp, title, description, severity, screen, params }) {
   const color =
     severity === "critical" ? "var(--color-error, #ba1a1a)" : severity === "warning" ? "var(--color-oak)" : "var(--color-pine)";
+  const Tag = screen ? "button" : "div";
   return (
-    <div className="border-l-4 pl-3 py-0.5" style={{ borderLeftColor: color }}>
+    <Tag
+      type={screen ? "button" : undefined}
+      onClick={screen ? () => openScreen(screen, params || {}) : undefined}
+      className={["border-l-4 pl-3 py-0.5 text-left w-full", screen ? "rounded-r-md hover:bg-hover cursor-pointer" : ""].join(" ")}
+      style={{ borderLeftColor: color }}
+      title={screen ? "Открыть" : undefined}
+    >
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-bold tracking-wide uppercase" style={{ color }}>
           {category}
@@ -79,8 +89,8 @@ function InsightEntry({ category, timestamp, title, description, severity }) {
         <span className="text-faint text-xs shrink-0">{timestamp}</span>
       </div>
       <div className="font-semibold text-ink text-sm mt-0.5">{title}</div>
-      <div className="text-muted text-sm">{description}</div>
-    </div>
+      <div className="text-muted text-sm">{description}{screen && <span className="text-pine font-semibold"> → открыть</span>}</div>
+    </Tag>
   );
 }
 

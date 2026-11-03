@@ -47,6 +47,7 @@ from app.routers import (
     trelevka,
     uhody,
     work_plan,
+    zhdet,
 )
 
 app = FastAPI(
@@ -121,3 +122,4 @@ app.include_router(notifications.router)
 app.include_router(trelevka.router)
 app.include_router(korzina_router.router)
 app.include_router(proby.router)
+app.include_router(zhdet.router)
