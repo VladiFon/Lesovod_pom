@@ -147,7 +147,7 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
                 type="button"
                 aria-pressed={vid === k}
                 onClick={() => setVid(k)}
-                title={k === "igra" ? "Игровой вид: Табель-перекличка, Огород уходов, Фронт работ, Охота на акты, Вывозка, квесты" : "Обычный вид всех экранов"}
+                title={k === "igra" ? "Игровой вид: Штаб, Табель-перекличка, Огород уходов, Фронт работ, Охота на акты, Вывозка, квесты" : "Обычный вид всех экранов"}
                 style={{
                   padding: "0 10px", border: 0, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
                   background: vid === k ? (k === "igra" ? "#fbf1d6" : "#eaf7ec") : "#fff",

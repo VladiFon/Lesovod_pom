@@ -38,6 +38,7 @@ from app.routers import (
     uhody_igra,
     front_rabot,
     vyvozka_igra,
+    shtab,
     lesokultury,
     map as map_router,
     notes,
@@ -135,3 +136,4 @@ app.include_router(tabel_igra.router)
 app.include_router(uhody_igra.router)
 app.include_router(front_rabot.router)
 app.include_router(vyvozka_igra.router)
+app.include_router(shtab.router)

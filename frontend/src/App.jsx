@@ -31,6 +31,7 @@ import UhodyIgra from "./pages/UhodyIgra.jsx";
 import FrontRabot from "./pages/FrontRabot.jsx";
 import OhotaAktov from "./pages/OhotaAktov.jsx";
 import VyvozkaIgra from "./pages/VyvozkaIgra.jsx";
+import Shtab from "./pages/Shtab.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -53,6 +54,11 @@ const Tabel = makeMergedScreen("tabel", [
   // обычного ввода; обычный ввод никуда не делся.
   { key: "vvod", label: "Ввод табеля", Page: poVidu(TabelRuchnoy, TabelIgra) },
   { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
+]);
+// Игровой вид Дашборда (03.11.2026): «Штаб» — карта всех игровых экранов.
+const DashboardIgra = makeMergedScreen("dashboard", [
+  { key: "shtab", label: "🏰 Штаб", Page: Shtab },
+  { key: "obzor", label: "Обзор", Page: Dashboard },
 ]);
 // Игровой вид «Расхода / ЕГАИС» (03.11.2026): «Вывозка» + обычный Расход.
 const RaskhodIgra = makeMergedScreen("raskhod", [
@@ -81,7 +87,7 @@ const Zadachi = makeMergedScreen("zadachi", [
 // "dashboard"/"gallery" (моковые, из Этапа 3). Остальные пункты Sidebar
 // пока ведут на заглушку со ссылкой "что уже готово".
 const READY_SCREENS = {
-  dashboard: { title: "Дашборд", subtitle: "Обзор по всем делянкам за текущий период", Page: Dashboard, search: true, primaryAction: true },
+  dashboard: { title: "Дашборд", subtitle: "Обзор по всем делянкам за текущий период", Page: poVidu(Dashboard, DashboardIgra), search: true, primaryAction: true },
   // Плоты сами управляют своим тулбаром (поиск, "Показывать архивные",
   // "Импорт МДО" в левой колонке) — по аналогии с Settings/Dashboard,
   // TopBar здесь без search/primaryAction, чтобы не дублировать поиск.
