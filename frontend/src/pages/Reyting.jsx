@@ -18,8 +18,8 @@ const PODIUM = [
   { h: 92, bg: "#d5d8dc", medal: "🥈" },
   { h: 72, bg: "#e0a76a", medal: "🥉" },
 ];
-const RAZBIVKA = [["dni", "дни"], ["kuby", "м³"], ["zadachi", "задачи"], ["trelevka", "трелёвка"], ["universal", "универсал"]];
-const RAZBIVKA_CVET = { dni: C.leaf, kuby: C.wood, zadachi: C.sky, trelevka: "#7a5a9a", universal: C.gold };
+const RAZBIVKA = [["dni", "дни"], ["kuby", "м³"], ["zadachi", "задачи"], ["trelevka", "трелёвка"], ["smena", "смена"], ["universal", "универсал"]];
+const RAZBIVKA_CVET = { dni: C.leaf, kuby: C.wood, zadachi: C.sky, trelevka: "#7a5a9a", smena: "#c06a2b", universal: C.gold };
 
 function inicialy(fio) {
   const p = (fio || "").split(/\s+/);
@@ -87,7 +87,7 @@ export default function Reyting() {
         <div style={{ fontSize: 14, color: C.muted, maxWidth: 820 }}>
           <b style={{ color: C.pine }}>🏆 Рейтинг рабочих</b> за {ruDate(d.ot)}–{ruDate(d.do)}. Очки: день в табеле +{pr.den},
           м³ по нарядам +{pr.m3} (кубы делянки за день делятся поровну на всех, кто по табелю работал там), задача из плана +{pr.zadacha},
-          трелёвка +{pr.trelevka} за м³, {pr.universal_vidov}+ видов работ +{pr.universal}. Для азарта, а не для зарплаты 😉
+          трелёвка +{pr.trelevka} за м³, из «Отчёта за смену»: уход/почва +{pr.ga} за га, населению +{pr.naseleniyu} за м³, ремонт +{pr.remont_chas} за час, {pr.universal_vidov}+ видов работ +{pr.universal}. Для азарта, а не для зарплаты 😉
         </div>
         <div className="flex" style={{ gap: 4, background: "#f3f1ec", padding: 3, borderRadius: 10 }}>
           {Object.entries(d.periody).map(([k, l]) => (

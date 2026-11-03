@@ -44,6 +44,8 @@ from app.routers import (
     put_delyanki,
     geroi,
     chellendzhi,
+    smena,
+    igra_bot,
     lesokultury,
     map as map_router,
     notes,
@@ -147,3 +149,6 @@ app.include_router(gazeta.router)
 app.include_router(put_delyanki.router)
 app.include_router(geroi.router)
 app.include_router(chellendzhi.router)
+app.include_router(smena.router)
+app.include_router(smena.web_router)
+app.include_router(igra_bot.router)

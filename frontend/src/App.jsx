@@ -17,6 +17,7 @@ import TabelRuchnoy from "./pages/TabelRuchnoy.jsx";
 import Sotrudniki from "./pages/Sotrudniki.jsx";
 import Attendance from "./pages/Attendance.jsx";
 import WorkerNotes from "./pages/WorkerNotes.jsx";
+import OtchetySmeny from "./pages/OtchetySmeny.jsx";
 import Archive from "./pages/Archive.jsx";
 import CalendarScreen from "./pages/Calendar.jsx";
 import { RawReportsTab, CompletedTab } from "./pages/AiLog.jsx";
@@ -52,6 +53,7 @@ const Padded = (Inner) => function PaddedTab() {
 // calendar) — алиасы в nav.js, ссылки на них не ломаются.
 const Telefon = makeMergedScreen("telefon", [
   { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
+  { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
   { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
   { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
 ]);
@@ -59,6 +61,7 @@ const Telefon = makeMergedScreen("telefon", [
 const TelefonIgra = makeMergedScreen("telefon", [
   { key: "pochta", label: "📬 Почта гонцов", Page: Pochta },
   { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
+  { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
   { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
   { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
 ]);

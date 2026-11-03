@@ -28,6 +28,11 @@ OCHKI_ZADACHA = 5
 OCHKI_TRELEVKA = 0.5
 OCHKI_UNIVERSAL = 15
 UNIVERSAL_VIDOV = 3
+# «Отчёт за смену» с телефона (03.11.2026): уход/подготовка почвы — за га,
+# вывозка населению — за м³, ремонт — за час. Напарникам — так же, как автору.
+OCHKI_GA = 5
+OCHKI_NASELENIYU = 0.5
+OCHKI_REMONT_CHAS = 1
 
 PERIODY = {"nedelya": "Неделя", "mesyac": "Месяц", "proshlyy": "Прошлый месяц", "god": "Год"}
 
@@ -65,7 +70,8 @@ def poschitat(conn, ot, do):
     out = {}
 
     def p(sid):
-        return out.setdefault(sid, {"dni": 0, "kuby": 0.0, "zadachi": 0, "trelevka": 0.0, "vidy": set(), "propuskov": 0})
+        return out.setdefault(sid, {"dni": 0, "kuby": 0.0, "zadachi": 0, "trelevka": 0.0, "vidy": set(), "propuskov": 0,
+                                    "smena": 0.0})
 
     kto_gde = {}  # (data_iso, delyanka_id) -> [sid]
     for sid, data, status, did, vid in conn.execute(
@@ -111,6 +117,20 @@ def poschitat(conn, ot, do):
     except Exception:  # noqa: BLE001
         pass
 
+    try:
+        for oid, sid, vid, obyom, ga, chasy in conn.execute(
+            "SELECT id, sotrudnik_id, vid, obyom, ga, chasy FROM otchet_smeny WHERE deleted=0 AND data >= ? AND data <= ?",
+                (ot_s, do_s)).fetchall():
+            o = (ga or 0) * OCHKI_GA if vid in ("uhod", "pochva") else (obyom or 0) * OCHKI_NASELENIYU if vid == "naseleniyu" \
+                else (chasy or 0) * OCHKI_REMONT_CHAS if vid == "remont" else 0
+            if not o:
+                continue
+            kto = {sid} | {r[0] for r in conn.execute("SELECT sotrudnik_id FROM otchet_smeny_uchastnik WHERE otchet_id=?", (oid,))}
+            for s_ in kto:
+                p(s_)["smena"] += o
+    except Exception:  # noqa: BLE001 — таблицы ещё нет (отчётов за смену не было)
+        pass
+
     for x in out.values():
         x["universal"] = len(x["vidy"]) >= UNIVERSAL_VIDOV
         x["vidov"] = len(x["vidy"])
@@ -121,10 +141,12 @@ def poschitat(conn, ot, do):
             "zadachi": x["zadachi"] * OCHKI_ZADACHA,
             "trelevka": round(x["trelevka"] * OCHKI_TRELEVKA),
             "universal": OCHKI_UNIVERSAL if x["universal"] else 0,
+            "smena": round(x["smena"]),
         }
         x["ochki"] = sum(x["ochki_po"].values())
         x["kuby"] = round(x["kuby"], 1)
         x["trelevka"] = round(x["trelevka"], 1)
+        x["smena"] = round(x["smena"])
     return out, round(nichyi, 1)
 
 
@@ -215,6 +237,7 @@ def sobrat(conn, period="mesyac", segodnya=None):
         "pravila": {
             "den": OCHKI_DEN, "m3": OCHKI_M3, "zadacha": OCHKI_ZADACHA, "trelevka": OCHKI_TRELEVKA,
             "universal": OCHKI_UNIVERSAL, "universal_vidov": UNIVERSAL_VIDOV,
+            "ga": OCHKI_GA, "naseleniyu": OCHKI_NASELENIYU, "remont_chas": OCHKI_REMONT_CHAS,
         },
     }
 
