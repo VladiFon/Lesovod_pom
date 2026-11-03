@@ -26,6 +26,7 @@ import ComponentGallery from "./pages/ComponentGallery.jsx";
 import Korzina from "./pages/Korzina.jsx";
 import Kvesty from "./pages/Kvesty.jsx";
 import TabelIgra from "./pages/TabelIgra.jsx";
+import { poVidu } from "./vid.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -44,10 +45,10 @@ const Telefon = makeMergedScreen("telefon", [
   { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
 ]);
 const Tabel = makeMergedScreen("tabel", [
-  { key: "vvod", label: "Ввод табеля", Page: TabelRuchnoy },
+  // Игровой вид (переключатель в шапке/Настройках) — «Перекличка» вместо
+  // обычного ввода; обычный ввод никуда не делся.
+  { key: "vvod", label: "Ввод табеля", Page: poVidu(TabelRuchnoy, TabelIgra) },
   { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
-  // Игровой ввод табеля (03.11.2026): звенья, «как в прошлый раз», XP.
-  { key: "pereklichka", label: "🎮 Перекличка", Page: TabelIgra },
 ]);
 const Zadachi = makeMergedScreen("zadachi", [
   { key: "plan", label: "План работ", Page: PlanRabot },

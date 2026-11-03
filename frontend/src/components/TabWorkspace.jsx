@@ -3,6 +3,7 @@ import { NAV_GROUPS } from "./Sidebar.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import SlovarButton from "./Slovar.jsx";
 import ZhdetMenya from "./ZhdetMenya.jsx";
+import { useVid } from "../vid.jsx";
 
 const MONO = "'JetBrains Mono', monospace";
 const MAX_TABS = 8;
@@ -22,6 +23,7 @@ NAV_GROUPS.forEach((g) => g.items.forEach(([k, label]) => (GROUP_OF[k] = { label
 export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatch, currentUser }) {
   const [palette, setPalette] = useState(false);
   const [query, setQuery] = useState("");
+  const [vid, setVid] = useVid();
 
   useEffect(() => {
     const onKey = (e) => {
@@ -132,21 +134,47 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
         <div className="flex items-center shrink-0" style={{ gap: 8, paddingBottom: 7 }}>
           <SlovarButton />
           <ZhdetMenya />
-          <button
-            type="button"
-            onClick={toggleKvesty}
-            aria-pressed={kvestyOn}
-            title={kvestyOn ? "Закрыть квесты" : "Режим квестов: дела дня с опытом — рядом с обычным экраном"}
-            className="hover:!border-[#b07d0c]"
-            style={{
-              height: 30, padding: "0 10px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-              border: `1px solid ${kvestyOn ? "#b07d0c" : "#e5e2db"}`,
-              background: kvestyOn ? "#fbf1d6" : "#fff",
-              color: kvestyOn ? "#7a5600" : "#414944",
-            }}
+          {/* Вид интерфейса: обычный / игровой (у экранов с игровым вариантом) */}
+          <div
+            role="group"
+            aria-label="Вид интерфейса"
+            className="flex shrink-0"
+            style={{ height: 30, border: `1px solid ${vid === "igra" ? "#b07d0c" : "#e5e2db"}`, borderRadius: 8, overflow: "hidden" }}
           >
-            🎯 Квесты
-          </button>
+            {[["obychnyy", "Обычный"], ["igra", "🎮 Игровой"]].map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={vid === k}
+                onClick={() => setVid(k)}
+                title={k === "igra" ? "Игровой вид: Табель-перекличка, квесты" : "Обычный вид всех экранов"}
+                style={{
+                  padding: "0 10px", border: 0, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                  background: vid === k ? (k === "igra" ? "#fbf1d6" : "#eaf7ec") : "#fff",
+                  color: vid === k ? (k === "igra" ? "#7a5600" : "#1a4331") : "#8a938c",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {vid === "igra" && (
+            <button
+              type="button"
+              onClick={toggleKvesty}
+              aria-pressed={kvestyOn}
+              title={kvestyOn ? "Закрыть квесты" : "Квесты дня — рядом с обычным экраном"}
+              className="hover:!border-[#b07d0c]"
+              style={{
+                height: 30, padding: "0 10px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                border: `1px solid ${kvestyOn ? "#b07d0c" : "#e5e2db"}`,
+                background: kvestyOn ? "#fbf1d6" : "#fff",
+                color: kvestyOn ? "#7a5600" : "#414944",
+              }}
+            >
+              🎯 Квесты
+            </button>
+          )}
           <NotificationBell onNavigate={(id) => dispatch({ type: "open", id })} />
           <button
             type="button"

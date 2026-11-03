@@ -3,9 +3,10 @@ import { api } from "../api/client.js";
 import { useToast } from "../components/Toast.jsx";
 
 /**
- * «Перекличка» — игровой ввод табеля (просьба Влада 03.11.2026). Вкладка
- * экрана «Табель» рядом с обычным вводом; пишет в тот же tabel_zapis через
- * POST /api/tabel/day.
+ * «Перекличка» — игровой ввод табеля (просьба Влада 03.11.2026). Показывается
+ * в экране «Табель» вместо обычного ввода, когда включён игровой вид
+ * (переключатель в шапке / Настройках, src/vid.jsx); пишет в тот же
+ * tabel_zapis через POST /api/tabel/day.
  *
  * Место НЕ берётся из распределения бригад (у Влада бригада работает на
  * разных делянках, а пара-тройка людей всё время вместе и делает разное).
@@ -424,6 +425,10 @@ export default function TabelIgra() {
         @media (prefers-reduced-motion: reduce) { .pk-pop { animation: none; opacity: 0 } }
         .pk-card:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px }
       `}</style>
+
+      <div style={{ fontSize: 12.5, color: C.muted }}>
+        <b style={{ color: C.pine }}>🎮 Перекличка</b> — игровой вид табеля. Обычный ввод: «Обычный» в переключателе сверху.
+      </div>
 
       {/* шапка: дата, прогресс, серия */}
       <div className="flex flex-wrap items-center" style={{ gap: 10 }}>

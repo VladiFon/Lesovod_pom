@@ -7,6 +7,7 @@ import Modal from "../components/Modal.jsx";
 import DataTable from "../components/DataTable.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { api, ApiError, API_BASE_URL } from "../api/client.js";
+import { useVid } from "../vid.jsx";
 
 /**
  * Settings — экран "Настройки" (Этап 4, первый переписанный экран).
@@ -203,6 +204,30 @@ function LibreOfficeCard({ status, onSave, onReset, onTest, saving, testing, tes
             Сбросить на автопоиск
           </Button>
         )}
+      </div>
+    </Card>
+  );
+}
+
+// Вид интерфейса (03.11.2026): то же, что переключатель в шапке.
+function VidCard() {
+  const [vid, setVid] = useVid();
+  const vybor = [
+    ["obychnyy", "Обычный", "Привычные экраны, как всегда."],
+    ["igra", "🎮 Игровой", "Табель — «Перекличка» (звенья, «как в прошлый раз», серия), в шапке кнопка «🎯 Квесты». Остальные экраны пока обычные."],
+  ];
+  return (
+    <Card title="Вид интерфейса" subtitle="запоминается в этом браузере · то же переключается сверху в шапке">
+      <div className="flex flex-col gap-2">
+        {vybor.map(([k, label, opis]) => (
+          <label key={k} className="flex items-start gap-2.5 cursor-pointer">
+            <input type="radio" name="vid-interfeysa" id={`vid-${k}`} checked={vid === k} onChange={() => setVid(k)} className="mt-1" />
+            <span>
+              <span className="block font-semibold text-ink text-[14px]">{label}</span>
+              <span className="block text-muted text-[12.5px]">{opis}</span>
+            </span>
+          </label>
+        ))}
       </div>
     </Card>
   );
@@ -866,6 +891,8 @@ export default function Settings({ currentUser }) {
           💾 Сохранить данные лесничего
         </Button>
       </Card>
+
+      <VidCard />
 
       <MobileCard />
 
