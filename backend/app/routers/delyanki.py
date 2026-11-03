@@ -48,10 +48,39 @@ def list_delyanki(status: Optional[str] = None, conn=Depends(get_conn)):
     # Этап (В работе / Дорублена / Освидетельствована …) — один бейдж на
     # всех экранах (app/etap.py).
     et = etap.etapy(conn, rows)
+    poisk = _dlya_poiska(conn)
     for r in rows:
         r["storonnyaya"] = storonnyaya.kratko(st.get(r["id"]))
         r["etap"] = et.get(r["id"])
+        r.update(poisk.get(r["id"], {}))
     return rows
+
+
+def _dlya_poiska(conn) -> dict:
+    """Для поиска и пометки дублей на экране «Делянки»: выделы (квартал,
+    выдел, № лесосеки), лесничество, № билета, сколько актов и нарядов.
+    Отказоустойчиво: в старой базе без какой-то таблицы — просто без этого."""
+    out: Dict[int, Dict[str, Any]] = {}
+
+    def q(sql):
+        try:
+            return conn.execute(sql).fetchall()
+        except Exception:  # noqa: BLE001
+            return []
+
+    for did, kv, vd, ls, lesn in q("SELECT delyanka_id, kvartal, vydel, lesoseka_nomer, lesnichestvo "
+                                   "FROM delyanka_item ORDER BY delyanka_id, poryadok, id"):
+        o = out.setdefault(did, {"vydely": [], "lesnichestvo": ""})
+        o["vydely"].append({"kv": str(kv or "").strip(), "vd": str(vd or "").strip(), "ls": str(ls or "").strip()})
+        if lesn and not o["lesnichestvo"]:
+            o["lesnichestvo"] = str(lesn).strip()
+    for did, bilet in q("SELECT id, nomer_lesorubochnogo_bileta FROM delyanka"):
+        out.setdefault(did, {})["bilet"] = str(bilet or "").strip()
+    for did, n in q("SELECT delyanka_id, COUNT(*) FROM osvidetelstvovanie_acts GROUP BY delyanka_id"):
+        out.setdefault(did, {})["n_aktov"] = n
+    for did, n in q("SELECT delyanka_id, COUNT(*) FROM raskhod_naryad GROUP BY delyanka_id"):
+        out.setdefault(did, {})["n_naryadov"] = n
+    return out
 
 
 class ManualDelyankaIn(BaseModel):

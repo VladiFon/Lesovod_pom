@@ -1290,12 +1290,78 @@ function PlotDetail({ delyankaId, onListChanged }) {
   );
 }
 
+// ---- Поиск делянок (просьба Влада 03.11.2026: «сделай удобно окно поиска») ----
+const norm = (v) => String(v ?? "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+const nomera = (v) => (String(v ?? "").match(/\d+[а-яa-z]?/gi) || []).map((x) => x.toLowerCase());
+
+// «71/2», «71 2», «кв71 выд2», «71-2» — квартал и выдел.
+function razobratZapros(q) {
+  const t = norm(q).replace(/кв\.?|выд\.?|квартал|выдел/g, " ").trim();
+  const m = t.match(/^(\d+)\s*[/\s.,:-]\s*(\d+[а-яa-z]?)$/i);
+  if (m) return { kv: m[1], vd: m[2].toLowerCase() };
+  return null;
+}
+
+// Насколько делянка подходит под запрос (0 — не подходит; больше — выше в списке).
+function ochki(d, q) {
+  if (!q) return 1;
+  const kvvd = razobratZapros(q);
+  const vydely = d.vydely || [];
+  if (kvvd) {
+    return vydely.some((v) => v.kv === kvvd.kv && nomera(v.vd).includes(kvvd.vd)) ? 10 : 0;
+  }
+  const t = norm(q);
+  if (/^\d+$/.test(t)) {
+    let o = 0;
+    if (vydely.some((v) => v.kv === t)) o = Math.max(o, 9);
+    if (vydely.some((v) => v.ls === t)) o = Math.max(o, 6);
+    if (vydely.some((v) => nomera(v.vd).includes(t))) o = Math.max(o, 4);
+    if (d.bilet && norm(d.bilet).includes(t)) o = Math.max(o, 5);
+    if (String(d.id) === t) o = Math.max(o, 3);
+    if (!o && norm(d.nazvanie).includes(t)) o = 2;
+    return o;
+  }
+  const slova = t.split(" ").filter(Boolean);
+  const tekst = norm([d.nazvanie, d.lesnichestvo, d.bilet, d.kategorii, d.storonnyaya?.zagotovitel, d.etap?.label].join(" "));
+  return slova.every((w) => tekst.includes(w)) ? 5 : 0;
+}
+
+function klyuchDublya(d) {
+  const v = (d.vydely || []).map((x) => `${x.kv}/${nomera(x.vd).join(",")}/${x.ls}`).sort().join(";");
+  return v ? `${norm(d.lesnichestvo)}|${v}` : `n|${norm(d.nazvanie)}`;
+}
+
+const FILTRY = [
+  ["rabochie", "Рабочие", (d) => d.status !== "архив"],
+  ["chernovik", "Черновики", (d) => d.status === "черновик"],
+  ["aktivna", "Активные", (d) => d.status === "активна"],
+  ["zakryta", "Закрытые", (d) => d.status === "архив"],
+  ["vse", "Все", () => true],
+];
+
 export default function Plots() {
   const toast = useToast();
   const [delyanki, setDelyanki] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
+  const [filtr, setFiltr] = useState("rabochie");
+  const [tolkoDubli, setTolkoDubli] = useState(false);
+  const searchRef = React.useRef(null);
+
+  // «/» или Ctrl+K — сразу в поиск.
+  useEffect(() => {
+    const h = (e) => {
+      const tag = (e.target?.tagName || "").toLowerCase();
+      const vPole = tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable;
+      if ((e.key === "/" && !vPole) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
   // Выбранная делянка — в адресе (#/plots?d=5): переживает F5, ссылку
   // можно переслать.
   const [selectedParam, setSelectedParam] = useScreenParam("plots", "d");
@@ -1319,19 +1385,28 @@ export default function Plots() {
     loadList();
   }, [loadList]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return delyanki
-      .filter((d) => showArchived || d.status !== "архив")
-      .filter((d) => !q || (d.nazvanie || "").toLowerCase().includes(q));
-  }, [delyanki, showArchived, search]);
-
-  // Одинаковые названия — почти всегда один МДО, загруженный дважды.
+  // Те же выделы и лесосека дважды — почти всегда один МДО, загруженный два раза.
   const dubli = useMemo(() => {
     const n = {};
-    delyanki.forEach((d) => { const k = (d.nazvanie || "").trim().toLowerCase(); if (k) n[k] = (n[k] || 0) + 1; });
+    delyanki.forEach((d) => { const k = klyuchDublya(d); n[k] = (n[k] || 0) + 1; });
     return n;
   }, [delyanki]);
+  const estDubl = (d) => dubli[klyuchDublya(d)] > 1;
+  const nDublei = delyanki.filter(estDubl).length;
+
+  // Поиск идёт по всем делянкам: если по запросу нашлось только в другом
+  // фильтре (например, в Закрытых) — подскажем.
+  const filterFn = (FILTRY.find((f) => f[0] === filtr) || FILTRY[0])[2];
+  const { filtered, vDrugih } = useMemo(() => {
+    const q = search.trim();
+    const scored = delyanki
+      .map((d) => ({ d, o: ochki(d, q) }))
+      .filter((x) => x.o > 0 && (!tolkoDubli || estDubl(x.d)));
+    const tut = scored.filter((x) => filterFn(x.d));
+    if (q) tut.sort((a, b) => b.o - a.o || b.d.id - a.d.id);
+    return { filtered: tut.map((x) => x.d), vDrugih: q ? scored.length - tut.length : 0 };
+  }, [delyanki, filtr, search, tolkoDubli, dubli]); // eslint-disable-line react-hooks/exhaustive-deps
+  const schet = (f) => delyanki.filter(f[2]).length;
 
   const handleListChanged = (removed) => {
     if (removed) setSelectedId(null);
@@ -1350,16 +1425,72 @@ export default function Plots() {
               карта" (LiveMap.jsx) — экран убран из меню по решению
               пользователя (карты ведутся в самом QGIS), backend-эндпоинт
               не трогали. */}
-          <TextField placeholder="Поиск: название, квартал…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
+          <div className="relative">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-2 text-sm pointer-events-none">🔍</span>
             <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-              className="h-4 w-4 rounded border-2 border-pine accent-pine cursor-pointer"
+              ref={searchRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setSearch("");
+                if (e.key === "Enter" && filtered.length) setSelectedId(filtered[0].id);
+              }}
+              placeholder="71/2, кв 71, № билета, лесничество…"
+              className="w-full bg-surface border border-border focus:border-pine rounded-[10px] pl-8 pr-8 h-9 text-[13.5px] text-ink outline-none"
             />
-            Показывать архивные
-          </label>
+            {search ? (
+              <button
+                type="button"
+                onClick={() => { setSearch(""); searchRef.current?.focus(); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full text-muted hover:bg-hover"
+                title="Очистить (Esc)"
+              >
+                ×
+              </button>
+            ) : (
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10.5px] font-mono text-muted-2 border border-border rounded px-1" title="Нажмите / или Ctrl+K, чтобы искать">/</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {FILTRY.map((f) => (
+              <button
+                key={f[0]}
+                type="button"
+                onClick={() => setFiltr(f[0])}
+                className={[
+                  "px-2 h-7 rounded-full text-[12px] border transition-colors",
+                  filtr === f[0] ? "bg-pine text-white border-pine" : "border-border text-muted hover:bg-hover",
+                ].join(" ")}
+              >
+                {f[1]} <span className="opacity-70">{schet(f)}</span>
+              </button>
+            ))}
+            {nDublei > 0 && (
+              <button
+                type="button"
+                onClick={() => setTolkoDubli((v) => !v)}
+                className={[
+                  "px-2 h-7 rounded-full text-[12px] border transition-colors",
+                  tolkoDubli ? "bg-error text-white border-error" : "border-error text-error hover:bg-error-soft",
+                ].join(" ")}
+                title="Одни и те же выделы и лесосека заведены несколько раз"
+              >
+                ⚠ Дубли {nDublei}
+              </button>
+            )}
+          </div>
+          <div className="text-[11.5px] text-muted">
+            {search.trim() ? `Найдено: ${filtered.length}` : `Показано: ${filtered.length}`}
+            {vDrugih > 0 && (
+              <>
+                {" · "}
+                <button type="button" className="text-pine font-semibold hover:underline" onClick={() => setFiltr("vse")}>
+                  ещё {vDrugih} в других (показать все)
+                </button>
+              </>
+            )}
+            {search.trim() && filtered.length > 0 && <span className="text-muted-2"> · Enter — открыть первую</span>}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto max-h-[calc(100vh-280px)] p-2.5">
@@ -1371,8 +1502,10 @@ export default function Plots() {
             <div className="p-3">
               <EmptyState
                 icon="🗺️"
-                title="Делянок пока нет"
-                description="Импортируйте файл МДО, чтобы создать первую делянку."
+                title={delyanki.length ? "Ничего не нашлось" : "Делянок пока нет"}
+                description={delyanki.length
+                  ? (vDrugih ? "Есть в других фильтрах — нажмите «показать все» выше." : "Попробуйте «71/2» (квартал/выдел), номер билета или лесничество.")
+                  : "Импортируйте файл МДО, чтобы создать первую делянку."}
               />
             </div>
           ) : (
@@ -1399,9 +1532,10 @@ export default function Plots() {
                         рубит {d.storonnyaya.zagotovitel}
                       </div>
                     )}
-                    {dubli[(d.nazvanie || "").trim().toLowerCase()] > 1 && (
+                    {estDubl(d) && (
                       <div className="text-[10.5px] text-error font-semibold mt-0.5 truncate" title="Такая же делянка заведена ещё раз — лишнюю удалите (кнопка «Удалить» в карточке, попадёт в Корзину)">
-                        ⚠ дубль · запись №{d.id}
+                        ⚠ дубль · №{d.id} · заведена {formatDate(d.created_at)}
+                        {" · "}{d.n_aktov ? `актов ${d.n_aktov}` : "без акта"}, {d.n_naryadov ? `нарядов ${d.n_naryadov}` : "без нарядов"}
                       </div>
                     )}
                   </button>
