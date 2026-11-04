@@ -94,7 +94,7 @@ const DOROZHKI = [
     k: "les", title: "🌲 Лес", sub: "выдел → культуры → уходы → отчётность",
     uzly: [
       {
-        id: "tax", emoji: "🔎", title: "Таксация · жизнь выдела", screen: "taxation", kto: ["les", "mas"],
+        id: "tax", emoji: "🔎", title: "Выдел: таксация и жизнь", screen: "taxation", kto: ["les", "mas"],
         chto: "Карточка выдела и всё, что на нём было: рубки, культуры, пробы, кто работал.",
         beret: "ГИСлесхоз, все разделы", kormit: "поиск 71/2 (Ctrl+K)",
         cifry: () => [],
@@ -135,7 +135,7 @@ const DOROZHKI = [
     k: "lyudi", title: "👥 Люди", sub: "кто, где, что сделал",
     uzly: [
       {
-        id: "sotr", emoji: "👥", title: "Сотрудники и бригады", screen: "sotrudniki", params: { tab: "spisok" }, kto: ["les"],
+        id: "sotr", emoji: "👥", title: "Люди и бригады", screen: "sotrudniki", params: { tab: "spisok" }, kto: ["les"],
         chto: "Справочник людей, бригады, закреплённая техника, логины для телефона.",
         beret: "—", kormit: "всё ниже",
         cifry: (u) => [u.lyudey != null && { t: `${u.lyudey} чел.`, tone: "muted" }, u.brigad && { t: `${u.brigad} бригад`, tone: "muted" }],
@@ -147,7 +147,7 @@ const DOROZHKI = [
         cifry: (u) => [u.zadach_aktivnyh != null && { t: `${u.zadach_aktivnyh} активных`, tone: "info" }, u.zadach_prosrocheno && { t: `${u.zadach_prosrocheno} просрочено`, tone: "bad" }],
       },
       {
-        id: "tel", emoji: "📱", title: "Телефон", screen: "telefon", kto: ["rab"],
+        id: "tel", emoji: "📱", title: "Телефон → Входящие", screen: "telefon", kto: ["rab"],
         chto: "Отметка «на работе», отчёт за смену, заметки, фото проб, топливо.",
         beret: "задачи, делянки, пробы", kormit: "табель, Расход, рубки ухода",
         cifry: (u, z) => [u.otmetok_segodnya != null && { t: `${u.otmetok_segodnya} отметились`, tone: "ok" }, z.otchety && { t: `${z.otchety.count} на проверку`, tone: "warn" }, z.zametki && { t: `${z.zametki.count} заметок`, tone: "info" }],

@@ -140,7 +140,7 @@ function Kartochka({ id }) {
                 </button>
               ))}
               {d.tehnika.map((t) => (
-                <button key={t.id} type="button" onClick={() => openSsylka({ screen: "telefon", params: { tab: "tehnika" } })}
+                <button key={t.id} type="button" onClick={() => openSsylka({ screen: "tehnika", params: { tab: "tehnika" } })}
                   className="text-pine hover:underline decoration-dotted underline-offset-2">
                   🚜 {t.nazvanie}{t.nomer ? ` (${t.nomer})` : ""}
                 </button>
@@ -185,7 +185,7 @@ function Kartochka({ id }) {
         subtitle={`${ruData(d.ot)} — ${ruData(d.do)} · табель, отчёты с телефона, журнал работ, лесокультуры, рубки ухода`}
         actions={
           <div className="flex gap-1 items-center">
-            <button type="button" onClick={() => openScreen("raboty", { s: d.id, kv: "", vyd: "" })}
+            <button type="button" onClick={() => openScreen("raboty", { tab: "lenta", s: d.id, kv: "", vyd: "" })}
               className="mr-1 text-[12.5px] text-pine hover:underline" title="Все работы человека в «Журнале работ»">📒 в журнале →</button>
             {[[7, "Неделя"], [31, "Месяц"], [92, "3 мес."]].map(([n, t]) => (
               <button key={n} type="button" onClick={() => setDney(n)}
@@ -283,7 +283,7 @@ function Kartochka({ id }) {
               <div key={x.id}><span className="text-muted">{ruData(x.data)} · </span>«{x.fio}» — {x.chto}</div>
             ))}
             <div className="text-muted-2 text-xs mt-1">
-              Исправьте ФИО в «С телефона → Журнал выполненных работ», и запись появится в ленте.
+              Исправьте ФИО в «Журнал работ → Журнал выполненных работ», и запись появится в ленте.
             </div>
           </div>
         </Card>

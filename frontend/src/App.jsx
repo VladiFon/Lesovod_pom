@@ -56,23 +56,28 @@ const Padded = (Inner) => function PaddedTab() {
 // Шаг 4 разбора (03.11.2026): похожие пункты меню слиты в один экран с
 // вкладками. Старые ключи (ai_log, worker_notes, attendance, work_plan,
 // calendar) — алиасы в nav.js, ссылки на них не ломаются.
+// «Входящие» (бывшее «С телефона», шаг 4 разбора 04.11.2026): только то,
+// что ждёт проверки. Отчёты за смену и журнал выполненных работ — во
+// вкладках «Журнала работ», техника и топливо — свой экран (алиасы в nav.js).
 const Telefon = makeMergedScreen("telefon", [
   { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
-  { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
-  { key: "toplivo", label: "⛽ Топливо", Page: Toplivo },
-  { key: "tehnika", label: "🚜 Техника", Page: Tehnika },
   { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
-  { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
 ]);
-// Игровой вид «С телефона» (03.11.2026): «Почта гонцов» + обычные вкладки.
+// Игровой вид «Входящих» (03.11.2026): «Почта гонцов» + обычные вкладки.
 const TelefonIgra = makeMergedScreen("telefon", [
   { key: "pochta", label: "📬 Почта гонцов", Page: Pochta },
   { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
-  { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
-  { key: "toplivo", label: "⛽ Топливо", Page: Toplivo },
-  { key: "tehnika", label: "🚜 Техника", Page: Tehnika },
   { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
-  { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
+]);
+// «Журнал работ»: общая лента + исходные журналы вкладками.
+const Raboty = makeMergedScreen("raboty", [
+  { key: "lenta", label: "📒 Вся лента", Page: ZhurnalRabot },
+  { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
+  { key: "zhurnal", label: "✅ Журнал выполненных работ", Page: Padded(CompletedTab) },
+]);
+const TehnikaToplivo = makeMergedScreen("tehnika", [
+  { key: "tehnika", label: "🚜 Техника", Page: Tehnika },
+  { key: "toplivo", label: "⛽ Топливо", Page: Toplivo },
 ]);
 const Tabel = makeMergedScreen("tabel", [
   // Игровой вид (переключатель в шапке/Настройках) — «Перекличка» вместо
@@ -140,7 +145,7 @@ const READY_SCREENS = {
   // "Живая карта" (LiveMap.jsx, react-leaflet + импорт слоя из QGIS) убрана
   // из меню по решению пользователя — карты ведутся в самом QGIS, экран не
   // нужен. Backend (app/routers/map.py) не трогали, файл страницы удалён.
-  taxation: { title: "Таксация", subtitle: "Поиск участка по кварталу/выделу и карточка-досье", Page: Taxation },
+  taxation: { title: "Выдел", subtitle: "Таксация выдела и его жизнь: делянки, культуры, рубки ухода, кто работал", Page: Taxation },
   forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: poVidu(Lesokultury, LesokulturyIgra) },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
   tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса по приказу №130: прил. 1–15", Page: TekushchieIzmeneniya },
@@ -159,18 +164,19 @@ const READY_SCREENS = {
   tabel: { title: "Табель", subtitle: "Кто где работал: ввод по дням и отметки рабочих с телефона", Page: Tabel },
   // Перенесено из Settings.jsx (WorkersCard) — тот же /api/auth/workers,
   // полноценный экран вместо блока внутри "Настроек".
-  sotrudniki: { title: "Сотрудники", subtitle: "Карточка человека: табель, работы, задачи, техника — и справочник", Page: poVidu(SotrudnikiObych, SotrudnikiIgra) },
+  sotrudniki: { title: "Люди", subtitle: "Карточка человека: табель, работы, задачи, техника — и справочник", Page: poVidu(SotrudnikiObych, SotrudnikiIgra) },
   // Планирование распределения бригад (см. backend/legacy/brigada.py) —
   // сигнал "делянка близка к завершению" (те же % освоения лимита/срок
   // вывозки, что и в "Инспекции") + состав бригад + назначение/
   // перемещение на делянку с диапазоном дат.
-  raspredelenie: { title: "Распределение бригад", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: poVidu(RaspredelenieBrigad, FrontRabot) },
+  raspredelenie: { title: "Бригады", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: poVidu(RaspredelenieBrigad, FrontRabot) },
   // Односторонние ленты "рабочий -> мастер" (мобильное приложение ->
   // веб), см. app/routers/attendance.py и app/routers/notes.py.
-  telefon: { title: "С телефона", subtitle: "Отчёты рабочих на проверку, заметки, журнал выполненных работ", Page: poVidu(Telefon, TelefonIgra) },
+  telefon: { title: "Входящие", subtitle: "Ждёт проверки: отчёты рабочих с телефона и их заметки", Page: poVidu(Telefon, TelefonIgra) },
   // Шаг 3 разбора «сайт разбросан» (04.11.2026): единый журнал работ и
   // живая схема «как работает сайт» (что от чего зависит, что висит).
-  raboty: { title: "Журнал работ", subtitle: "Всё, что сделано: смены с телефона, культуры, рубки ухода, табель — одной лентой", Page: ZhurnalRabot },
+  raboty: { title: "Журнал работ", subtitle: "Всё, что сделано: смены с телефона, культуры, рубки ухода, табель — одной лентой", Page: Raboty },
+  tehnika: { title: "Техника и топливо", subtitle: "Машины, закрепление за людьми, заправки и расход топлива", Page: TehnikaToplivo },
   skhema: { title: "Как работает сайт", subtitle: "Схема: откуда что берётся, кто что делает и что висит прямо сейчас", Page: Skhema },
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
   // Удалённые делянки/участки лежат здесь 30 дней (app/korzina.py).
@@ -206,7 +212,7 @@ export default function App() {
   // Стартовая вкладка — из адреса (#/raskhod?d=5), чтобы F5 и
   // пересланная ссылка открывали тот же экран.
   const [tabState, rawDispatch] = useReducer(tabsReducer, null, () => {
-    const screen = readHash().screen ? resolveScreen(readHash().screen).screen : null;
+    const screen = readHash().screen ? resolveScreen(readHash().screen, readHash().params).screen : null;
     if (screen && READY_SCREENS[screen] && screen !== "dashboard") {
       return { tabs: ["dashboard", screen], activeId: screen, rightId: null };
     }

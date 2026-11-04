@@ -156,7 +156,7 @@ function VydelHistory({ history }) {
         <div className="text-[14px] font-extrabold text-pine">Жизнь выдела</div>
         <span className="text-muted-2 text-xs">делянки → лесные культуры → рубки ухода → работы; всё кликается</span>
         {history._kv && (
-          <button type="button" onClick={() => openScreen("raboty", { kv: history._kv, vyd: history._vyd, s: "" })}
+          <button type="button" onClick={() => openScreen("raboty", { tab: "lenta", kv: history._kv, vyd: history._vyd, s: "" })}
             className="ml-auto text-[12.5px] text-pine hover:underline">📒 все работы на выделе в журнале →</button>
         )}
       </div>

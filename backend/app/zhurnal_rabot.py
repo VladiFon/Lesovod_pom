@@ -82,7 +82,7 @@ def sobrat(conn, ot: str, do: str, istochniki=None):
                            {"screen": "forestry", "params": {"u": r["lesokultury_uchastok_id"]}}
                            if r.get("lesokultury_uchastok_id") else
                            {"screen": "uhody", "params": {"p": r["uhody_proba_id"]}} if r.get("uhody_proba_id") else
-                           {"screen": "telefon", "params": {"tab": "smena"}}),
+                           {"screen": "raboty", "params": {"tab": "smena"}}),
             })
 
     if "lk" in nuzhno and rs._est_tablica(conn, "lesokultury_meropriyatiya"):
@@ -128,7 +128,7 @@ def sobrat(conn, ot: str, do: str, istochniki=None):
                     "kluch": f"cw-{cid}", "istochnik": "zhurnal", "data": str(d)[:10], "emoji": "✅",
                     "chto": tip or "Работа", "gde": _sk(f"кв.{kv}" if kv else None, f"выд.{vd}" if vd else None, les),
                     "kvartal": kv, "vydel": vd, "lesnichestvo": les, "skolko": None, "opisanie": op or None,
-                    "lyudi": [], "ssylka": ssylka or {"screen": "telefon", "params": {"tab": "zhurnal"}},
+                    "lyudi": [], "ssylka": ssylka or {"screen": "raboty", "params": {"tab": "zhurnal"}},
                 }
                 out.append(g)
             if fio:
