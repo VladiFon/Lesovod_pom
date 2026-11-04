@@ -48,6 +48,7 @@ import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
 import { api } from "./api/client.js";
+import { skryt } from "./izdanie.js";
 
 const Padded = (Inner) => function PaddedTab() {
   return <div className="p-[18px] flex flex-col gap-[14px]"><Inner /></div>;
@@ -213,7 +214,7 @@ export default function App() {
   // пересланная ссылка открывали тот же экран.
   const [tabState, rawDispatch] = useReducer(tabsReducer, null, () => {
     const screen = readHash().screen ? resolveScreen(readHash().screen, readHash().params).screen : null;
-    if (screen && READY_SCREENS[screen] && screen !== "dashboard") {
+    if (screen && READY_SCREENS[screen] && !skryt(screen) && screen !== "dashboard") {
       return { tabs: ["dashboard", screen], activeId: screen, rightId: null };
     }
     return { tabs: ["dashboard"], activeId: "dashboard", rightId: null };
@@ -222,6 +223,9 @@ export default function App() {
   // Открытие старого экрана (алиаса) — через openScreen, чтобы выбрать
   // нужную вкладку объединённого экрана.
   const dispatch = React.useCallback((action) => {
+    // Экран, которого нет в издании сервера (лесопункт без лесокультур и
+    // т.п.), не открываем ни из меню, ни по ссылке, ни из колокольчика.
+    if ((action?.type === "open" || action?.type === "openSide") && skryt(action.id)) return;
     if (action?.type === "open" && ALIASES[action.id]) {
       openScreen(action.id);
       return;
@@ -230,7 +234,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setScreenOpener((id) => rawDispatch({ type: "open", id }));
+    setScreenOpener((id) => !skryt(id) && rawDispatch({ type: "open", id }));
     const onPop = () => {
       const screen = applyHash();
       if (screen && READY_SCREENS[screen]) dispatch({ type: "open", id: screen });

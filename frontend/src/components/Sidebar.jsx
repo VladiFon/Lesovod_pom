@@ -1,5 +1,6 @@
 import React from "react";
 import { useVid } from "../vid.jsx";
+import { podpis, skryt } from "../izdanie.js";
 
 // Группы и подписи — из дизайна «Вкладки - новый дизайн»: тёмно-зелёная
 // узкая колонка; клик по пункту открывает (или фокусирует) вкладку.
@@ -49,17 +50,17 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
       <div style={{ padding: "18px 16px 14px" }}>
         <div style={{ fontWeight: 800, fontSize: 17, color: "#fff", lineHeight: 1.1 }}>Лесовод</div>
         <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".14em", textTransform: "uppercase", color: "#bcefc5", marginTop: 3 }}>
-          рабочий стол
+          {podpis("рабочий стол")}
         </div>
       </div>
 
       <div className="flex flex-col flex-1" style={{ gap: 14, padding: "0 8px 16px" }}>
-        {NAV_GROUPS.map((group) => (
+        {NAV_GROUPS.filter((group) => group.items.some(([key]) => !skryt(key))).map((group) => (
           <div key={group.title} className="flex flex-col" style={{ gap: 2 }}>
             <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "#8fb79f", padding: "6px 8px 4px" }}>
               {group.title}
             </div>
-            {group.items.filter(([key]) => (!NAV_PERMISSION[key] || permissions.includes(NAV_PERMISSION[key])) && (vid === "igra" || !TOLKO_IGRA.has(key))).map(([key, label]) => {
+            {group.items.filter(([key]) => !skryt(key) && (!NAV_PERMISSION[key] || permissions.includes(NAV_PERMISSION[key])) && (vid === "igra" || !TOLKO_IGRA.has(key))).map(([key, label]) => {
               const isActive = key === activeKey;
               const isOpen = openKeys.includes(key);
               return (
