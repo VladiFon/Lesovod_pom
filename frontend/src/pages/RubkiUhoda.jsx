@@ -688,12 +688,21 @@ export default function RubkiUhoda() {
   };
 
   // ---- Фаза 2 плана доработки: отметка "выполнено" + исполнители ---- //
-  const openCompleteModal = () => {
+  const openCompleteModal = async () => {
     setPickedSotrudnikIds(ispolniteli.filter((i) => i.id != null).map((i) => i.id));
     setStoronnie(ispolniteli.filter((i) => i.id == null).map((i) => i.fio));
     setIspolnSearch("");
     setStoronniyInput("");
     setCompleteModalOpen(true);
+    if (ispolniteli.length) return;
+    // кто работал — подтягиваем из «Выполнения» (отчёты с телефона + ручные строки)
+    try {
+      const r = await api.get(`/uhody/proby/${selectedId}/ispolniteli-iz-vypolneniya`);
+      setPickedSotrudnikIds(r.sotrudnik_ids || []);
+      setStoronnie(r.storonnie || []);
+    } catch {
+      /* не страшно — выберут руками */
+    }
   };
 
   const addStoronniy = () => {
@@ -732,7 +741,7 @@ export default function RubkiUhoda() {
       setCompletedAt(record.completed_at);
       setIspolniteli(record.ispolniteli || []);
       setCompleteModalOpen(false);
-      toast.show({ tone: "success", title: "Проба отмечена выполненной", description: "Выдел подсветится на Живой карте." });
+      toast.show({ tone: "success", title: "Проба закрыта", description: "Работы закончены, выдел подсветится на Живой карте." });
       reloadProby();
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось отметить пробу", description: e.message });
@@ -741,13 +750,27 @@ export default function RubkiUhoda() {
     }
   };
 
+  // после строки «Выполнения» проба могла закрыться сама — подтянем отметку
+  const onVypolnenieChanged = async (sv) => {
+    reloadProby();
+    if (sv && Boolean(sv.zakryta) !== Boolean(completedAt)) {
+      try {
+        const record = await getProba(selectedId);
+        setCompletedAt(record.completed_at || null);
+        setIspolniteli(record.ispolniteli || []);
+      } catch {
+        /* список всё равно обновится */
+      }
+    }
+  };
+
   const handleUncomplete = async () => {
-    if (!window.confirm("Снять отметку «выполнено»? Подсветка на карте тоже пропадёт.")) return;
+    if (!window.confirm("Открыть пробу снова? Она вернётся в работу и в список на телефоне, подсветка на карте пропадёт.")) return;
     try {
       const record = await api.post(`/uhody/proby/${selectedId}/uncomplete`);
       setCompletedAt(record.completed_at);
       setIspolniteli(record.ispolniteli || []);
-      toast.show({ tone: "info", title: "Отметка снята" });
+      toast.show({ tone: "info", title: "Проба снова в работе" });
       reloadProby();
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось снять отметку", description: e.message });
@@ -869,7 +892,7 @@ export default function RubkiUhoda() {
                   >
                     <div className="text-base">
                       кв. {p.kvartal} / выд. {p.vydel}
-                      {p.completed_at && <span className="ml-1.5 text-pine">✓</span>}
+                      {!p.delyanka_id && <ProbaStatus p={p} />}
                     </div>
                     <div className="text-xs text-muted mt-0.5 truncate">
                       {p.data_zamera || "дата не указана"}
@@ -910,7 +933,7 @@ export default function RubkiUhoda() {
             }}
           />
         )}
-        {isEditing && !hvDelyanka.id && <UhodyVypolnenie probaId={selectedId} onChanged={reloadProby} />}
+        {isEditing && !hvDelyanka.id && <UhodyVypolnenie probaId={selectedId} onChanged={onVypolnenieChanged} />}
         {/* Поиск участка */}
         <Card title="Участок" subtitle="Поиск по кварталу/выделу — предзаполняет лесничество, категорию, состав и полноту; если на выделе есть лесные культуры — данные берутся из них">
           <div className="flex items-end gap-4 flex-wrap">
@@ -1357,12 +1380,12 @@ export default function RubkiUhoda() {
           </Button>
           {isEditing && !completedAt && (
             <Button variant="secondary" onClick={openCompleteModal}>
-              ✅ Отметить выполненной
+              🏁 Закрыть пробу (работы закончены)
             </Button>
           )}
           {isEditing && completedAt && (
             <Button variant="secondary" onClick={handleUncomplete}>
-              ✓ Выполнено ({ispolniteli.map((i) => i.fio).join(", ")}) — снять отметку
+              ✅ Закрыта ({ispolniteli.map((i) => i.fio).join(", ")}) — открыть снова
             </Button>
           )}
           {isEditing && (
@@ -1373,7 +1396,10 @@ export default function RubkiUhoda() {
         </div>
       </div>
 
-      <Modal open={completeModalOpen} onClose={() => setCompleteModalOpen(false)} title="Кто выполнил работу?">
+      <Modal open={completeModalOpen} onClose={() => setCompleteModalOpen(false)} title="Закрыть пробу — кто работал?">
+        <div className="text-sm text-muted mb-3">
+          Обычно проба закрывается сама, когда по «Выполнению» пройдена вся площадь. Люди ниже подставлены из отчётов — поправь, если надо.
+        </div>
         <TextField
           placeholder="🔍 Поиск по ФИО, должности, участку"
           value={ispolnSearch}
@@ -1455,10 +1481,21 @@ export default function RubkiUhoda() {
             Отмена
           </Button>
           <Button variant="primary" loading={completing} onClick={handleConfirmComplete}>
-            Отметить выполненной
+            Закрыть пробу
           </Button>
         </div>
       </Modal>
     </div>
   );
+}
+
+// Жизнь пробы: заложена → в работе (идут отчёты) → закрыта (площадь пройдена или руками)
+function ProbaStatus({ p }) {
+  if (p.completed_at) return <span className="ml-1.5 text-xs text-pine" title={`закрыта ${p.completed_at}`}>✅ закрыта</span>;
+  const v = p.vypolnenie;
+  if (v && v.sdelano_ga > 0) {
+    const pct = v.ploshad ? Math.min(100, Math.round((v.sdelano_ga / v.ploshad) * 100)) : null;
+    return <span className="ml-1.5 text-xs text-amber-700">⏳ в работе{pct != null ? ` ${pct}%` : ""}</span>;
+  }
+  return <span className="ml-1.5 text-xs text-muted">📝 заложена</span>;
 }

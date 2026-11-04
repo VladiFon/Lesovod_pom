@@ -551,7 +551,11 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
 
     zakryt = None
     if po_probe:
-        zakryt = None  # учёт по пробе — в «Выполнении» (сделано из площади пробы)
+        # учёт по пробе — в «Выполнении»; сделана вся площадь — проба закрывается сама
+        from app import uhody_vypolnenie
+        if uhody_vypolnenie.proverit_zakrytie(conn, b.uhody_proba_id):
+            zakryt = {"meropriyatie_id": None, "tip": "Проба рубок ухода закрыта — площадь пройдена",
+                      "sdelano": None, "ploshad": None}
     elif uch:
         zakryt = _zakryt_esli_proyden(conn, oid, b.lesokultury_uchastok_id, b.vid, d, sid, b.uchastok_proyden)
     elif b.vid in PO_ITEM_GA:

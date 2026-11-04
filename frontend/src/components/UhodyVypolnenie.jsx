@@ -80,9 +80,13 @@ export default function UhodyVypolnenie({ probaId, onChanged }) {
     }
     setSaving(true);
     try {
-      setD(await api.post(`/uhody/proby/${probaId}/vypolnenie`, { ...nov, ga }));
+      const r = await api.post(`/uhody/proby/${probaId}/vypolnenie`, { ...nov, ga });
+      setD(r);
       setNov((n) => ({ ...n, ga: "", kommentariy: "" }));
-      onChanged?.();
+      if (r.zakryli_seychas) {
+        toast.show({ tone: "success", title: "🏁 Проба закрыта", description: "Вся площадь пройдена — проба ушла из списка на телефоне." });
+      }
+      onChanged?.(r);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось добавить", description: e.message });
     } finally {
@@ -91,8 +95,9 @@ export default function UhodyVypolnenie({ probaId, onChanged }) {
   };
   const del = async (id) => {
     try {
-      setD(await api.delete(`/uhody/vypolnenie/${id}`));
-      onChanged?.();
+      const r = await api.delete(`/uhody/vypolnenie/${id}`);
+      setD(r);
+      onChanged?.(r);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
     }
@@ -114,6 +119,15 @@ export default function UhodyVypolnenie({ probaId, onChanged }) {
         {d.ostatok_ga !== null && <div>Осталось: <b>{f1(d.ostatok_ga)} га</b></div>}
         <div>Кубов: <b>{f1(d.kubov)}</b>{d.kubov_vsego ? ` из ${f1(d.kubov_vsego)} м³` : " м³"}</div>
         <div className="text-muted">{f1(d.zapas_na_1ga)} м³/га по пробе</div>
+      </div>
+      <div className="text-xs mb-2">
+        {d.zakryta ? (
+          <span className="text-pine">✅ Проба закрыта {ruDate(d.zakryta_data)}</span>
+        ) : d.ploshad ? (
+          <span className="text-muted">Проба закроется сама, когда будет сделана вся площадь (или кнопкой «🏁 Закрыть пробу» внизу).</span>
+        ) : (
+          <span className="text-muted">Площадь выдела не указана — закрой пробу кнопкой «🏁 Закрыть пробу», когда закончите.</span>
+        )}
       </div>
       {d.ploshad ? (
         <div className="h-2 rounded-full bg-hover overflow-hidden mb-3">

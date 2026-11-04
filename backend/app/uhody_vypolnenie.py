@@ -192,7 +192,9 @@ def svodka(conn, proba_id):
         x["kubov"] = _r(x["ga"] * p["zapas_na_1ga"])
     for x in r:
         x["kubov"] = _r(x["ga"] * p["zapas_na_1ga"])
-    return {"proba_id": proba_id, **_itog(p, o, r), "otchety": o, "ruchnye": r}
+    zak = conn.execute("SELECT completed_at FROM uhody_proby WHERE id=?", (proba_id,)).fetchone()
+    return {"proba_id": proba_id, **_itog(p, o, r), "otchety": o, "ruchnye": r,
+            "zakryta": bool(zak and zak[0]), "zakryta_data": zak[0] if zak else None}
 
 
 def dobavit(conn, proba_id, data, ga, ispolnitel=None, kommentariy=None, created_by=None):
@@ -233,6 +235,8 @@ def dlya_telefona(conn, sid=None):
     out = []
     for p in _proby(conn):
         dj, completed, uids, dz = info.get(p["id"], (None, None, None, None))
+        if completed:  # закрыта (работы закончены) — на телефоне не нужна
+            continue
         try:
             data = json.loads(dj) if dj else {}
         except (TypeError, ValueError):
@@ -252,3 +256,60 @@ def dlya_telefona(conn, sid=None):
         })
     out.sort(key=lambda x: (x["gotovo"], x["nedavno"] is None, -(x["id"])))
     return out
+
+
+ZAKRYT_DOLYA = 0.98  # как у циклов отчёта смены: округления га
+
+
+def ispolniteli(conn, proba_id):
+    """Кто работал на пробе: (ids сотрудников из отчётов — авторы и
+    напарники — и из ручных строк, если ФИО нашлось в справочнике;
+    сторонние ФИО из ручных строк)."""
+    ensure(conn)
+    from app.routers import smena
+    smena.ensure(conn)
+    otch = [r["id"] for r in raspredelit(conn).get(proba_id, [])]
+    ids = []
+    if otch:
+        ph = ",".join("?" * len(otch))
+        for (sid,) in conn.execute(
+                f"""SELECT sotrudnik_id FROM otchet_smeny WHERE id IN ({ph})
+                    UNION SELECT sotrudnik_id FROM otchet_smeny_uchastnik WHERE otchet_id IN ({ph})""",
+                otch + otch).fetchall():
+            if sid not in ids:
+                ids.append(sid)
+    po_fio = {}
+    for sid, fio in conn.execute("SELECT id, fio FROM sotrudniki").fetchall():
+        po_fio.setdefault(_norm(fio), sid)
+    storonnie = []
+    for r in _ruchnye(conn, [proba_id]).get(proba_id, []):
+        name = " ".join((r.get("ispolnitel") or "").split())
+        if not name:
+            continue
+        sid = po_fio.get(_norm(name))
+        if sid:
+            if sid not in ids:
+                ids.append(sid)
+        elif name.casefold() not in {n.casefold() for n in storonnie}:
+            storonnie.append(name)
+    return ids, storonnie
+
+
+def proverit_zakrytie(conn, proba_id):
+    """Сделана вся площадь пробы (≥98%) — закрываем её сами («выполнена»,
+    исполнители — кто работал). Возвращает True, если закрыли сейчас."""
+    import db as legacy_db
+    r = conn.execute("SELECT completed_at, delyanka_id FROM uhody_proby WHERE id=?", (proba_id,)).fetchone()
+    if not r or r[0] or r[1]:
+        return False
+    sv = svodka(conn, proba_id)
+    if not sv or not sv.get("ploshad") or sv["sdelano_ga"] < sv["ploshad"] * ZAKRYT_DOLYA:
+        return False
+    ids, storonnie = ispolniteli(conn, proba_id)
+    if not ids and not storonnie:
+        return False
+    try:
+        legacy_db.mark_uhody_proba_completed(conn, proba_id, ids, storonnie=storonnie)
+    except ValueError:
+        return False
+    return True

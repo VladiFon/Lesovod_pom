@@ -448,7 +448,16 @@ def add_vypolnenie(proba_id: int, body: VypolnenieIn, user=Depends(require_permi
         raise HTTPException(status_code=400, detail="Дата — в формате ДД.ММ.ГГГГ или ГГГГ-ММ-ДД.")
     uhody_vypolnenie.dobavit(conn, proba_id, uhody_vypolnenie._data(body.data).isoformat(), body.ga,
                              body.ispolnitel, body.kommentariy, user.get("login"))
-    return uhody_vypolnenie.svodka(conn, proba_id) or {}
+    zakryli = uhody_vypolnenie.proverit_zakrytie(conn, proba_id)
+    return {**(uhody_vypolnenie.svodka(conn, proba_id) or {}), "zakryli_seychas": zakryli}
+
+
+@router.get("/proby/{proba_id}/ispolniteli-iz-vypolneniya")
+def ispolniteli_iz_vypolneniya(proba_id: int, user=Depends(require_permission("uhody.edit")),
+                               conn=Depends(get_conn)) -> dict:
+    """Кто работал на пробе (по отчётам и ручным строкам) — подставить при закрытии."""
+    ids, storonnie = uhody_vypolnenie.ispolniteli(conn, proba_id)
+    return {"sotrudnik_ids": ids, "storonnie": storonnie}
 
 
 @router.delete("/vypolnenie/{vid}")
