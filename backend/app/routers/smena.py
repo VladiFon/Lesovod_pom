@@ -130,6 +130,18 @@ PO_UCHASTKU = ("uhod", "pochva", "posadka")
 PO_ITEM_GA = ("rubka_uhoda", "sanrubka", "ochistka")
 # Работы по делянке с кубами.
 PO_DELYANKE = ("trelevka", "naseleniyu", "harvester", "rubka_gp") + PO_ITEM_GA
+# Работы, которые можно вести и по выделу делянки, и по участку лесных
+# культур (рубка ухода в культурах): если в отчёте пришёл участок — цикл
+# копится по участку, иначе по выделу делянки.
+UCHASTOK_ILI_DELYANKA = ("rubka_uhoda",)
+CIKLY_UCHASTKA = PO_UCHASTKU + UCHASTOK_ILI_DELYANKA
+# Запись в журнал участка при закрытии цикла для видов без своей «meropriyatie».
+MEROPR_NA_UCHASTKE = {"rubka_uhoda": "Уход (рубки ухода)"}
+
+
+def po_uchastku(vid, uchastok_id):
+    """Отчёт копит га по участку лесных культур?"""
+    return vid in PO_UCHASTKU or (vid in UCHASTOK_ILI_DELYANKA and bool(uchastok_id))
 # Что видит какая профессия (телефон строит кнопки по этому списку).
 VIDY_PROFESSII = {
     "traktorist": ["trelevka", "naseleniyu", "uhod", "pochva", "remont"],
@@ -185,11 +197,11 @@ def cikly(conn, uchastok_ids=None):
     "posledniy": дата, "zakryto_raz": n, "zakryt": дата последнего закрытия}}"""
     ensure(conn)
     q = ("SELECT lesokultury_uchastok_id, vid, ga, zakryl_cikl, data FROM otchet_smeny "
-         "WHERE deleted=0 AND lesokultury_uchastok_id IS NOT NULL AND vid IN ('uhod','pochva','posadka')")
-    args = []
+         f"WHERE deleted=0 AND lesokultury_uchastok_id IS NOT NULL AND vid IN ({','.join('?' * len(CIKLY_UCHASTKA))})")
+    args = list(CIKLY_UCHASTKA)
     if uchastok_ids:
         q += f" AND lesokultury_uchastok_id IN ({','.join('?' * len(uchastok_ids))})"
-        args = list(uchastok_ids)
+        args += list(uchastok_ids)
     out = {}
     # По порядку ввода: закрытие цикла — событие в момент отправки отчёта.
     for uid, vid, ga, zakryl, data in conn.execute(q + " ORDER BY id", args).fetchall():
@@ -317,7 +329,7 @@ def spravochnik(conn, sid):
            ORDER BY lesnichestvo, CAST(kvartal AS INTEGER), kvartal, vydel""").fetchall():
         x = {"id": uid, "kvartal": kv, "vydel": vd, "ploshad": pl, "label": _label_uch(lesn, kv, vd, por, god),
              "nedavno": moi_uch.get(uid)}
-        for vid in PO_UCHASTKU:
+        for vid in CIKLY_UCHASTKA:
             cy = c.get((uid, vid))
             if cy and cy["otchetov"]:
                 x[vid] = {"sdelano": _r(cy["sdelano"]), "ostatok": _ostatok(pl, cy["sdelano"]), "otchetov": cy["otchetov"],
@@ -430,14 +442,15 @@ def _proverit(conn, b: SmenaIn, segodnya):
             raise HTTPException(400, f"{nazv} — от 0 до {MAX_LITROV} л")
     if b.tehnika_id and not conn.execute("SELECT 1 FROM tehnika WHERE id=?", (b.tehnika_id,)).fetchone():
         raise HTTPException(404, "Техника не найдена")
-    if b.vid in PO_DELYANKE:
+    uch = po_uchastku(b.vid, b.lesokultury_uchastok_id)
+    if b.vid in PO_DELYANKE and not uch:
         if not b.delyanka_item_id:
             raise HTTPException(400, "Выбери делянку")
         if not conn.execute("SELECT 1 FROM delyanka_item WHERE id=?", (b.delyanka_item_id,)).fetchone():
             raise HTTPException(404, "Делянка не найдена")
     if b.vid in ("harvester",) and (not b.obyom or b.obyom <= 0):
         raise HTTPException(400, "Укажи кубы")
-    if b.vid in ("rubka_uhoda", "ochistka") and (b.ga is None or b.ga <= 0) and not b.uchastok_proyden:
+    if b.vid in ("rubka_uhoda", "ochistka") and not uch and (b.ga is None or b.ga <= 0) and not b.uchastok_proyden:
         raise HTTPException(400, "Укажи, сколько га сделал")
     if b.vid == "sanrubka" and not ((b.ga or 0) > 0 or (b.obyom or 0) > 0 or b.uchastok_proyden):
         raise HTTPException(400, "Укажи га или кубы")
@@ -450,7 +463,7 @@ def _proverit(conn, b: SmenaIn, segodnya):
             raise HTTPException(400, "Рейсы — не меньше нуля")
         if b.vid == "naseleniyu" and not (b.poluchatel or "").strip():
             raise HTTPException(400, "Укажи, кому везли")
-    if b.vid in PO_UCHASTKU:
+    if uch:
         if not b.lesokultury_uchastok_id:
             raise HTTPException(400, "Выбери участок")
         if not conn.execute("SELECT 1 FROM lesokultury_uchastok WHERE id=?", (b.lesokultury_uchastok_id,)).fetchone():
@@ -469,6 +482,7 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
     ensure(conn)
     segodnya = segodnya or date.today()
     d = _proverit(conn, b, segodnya)
+    uch = po_uchastku(b.vid, b.lesokultury_uchastok_id)
     if b.client_id:
         est = conn.execute("SELECT id FROM otchet_smeny WHERE sotrudnik_id=? AND client_id=?", (sid, b.client_id)).fetchone()
         if est:  # повтор из очереди без сети — уже записан
@@ -488,8 +502,8 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
         """INSERT INTO otchet_smeny (sotrudnik_id, data, vid, delyanka_item_id, lesokultury_uchastok_id, reysov, obyom, ga,
            chasy, poluchatel, tehnika, kommentariy, client_id, tehnika_id, toplivo, toplivo_rashod, zapravka)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (sid, d.isoformat(), b.vid, b.delyanka_item_id if b.vid in PO_DELYANKE else None,
-         b.lesokultury_uchastok_id if b.vid in PO_UCHASTKU else None, b.reysov, b.obyom, b.ga, b.chasy,
+        (sid, d.isoformat(), b.vid, b.delyanka_item_id if (b.vid in PO_DELYANKE and not uch) else None,
+         b.lesokultury_uchastok_id if uch else None, b.reysov, b.obyom, b.ga, b.chasy,
          (b.poluchatel or "").strip()[:120] or None, teh_naz,
          (b.kommentariy or "").strip()[:1000] or None, b.client_id, b.tehnika_id, toplivo,
          b.toplivo_rashod or None, b.zapravka or None))
@@ -515,7 +529,7 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
     conn.commit()
 
     zakryt = None
-    if b.vid in PO_UCHASTKU:
+    if uch:
         zakryt = _zakryt_esli_proyden(conn, oid, b.lesokultury_uchastok_id, b.vid, d, sid, b.uchastok_proyden)
     elif b.vid in PO_ITEM_GA:
         zakryt = _zakryt_item(conn, oid, b.delyanka_item_id, b.vid, b.uchastok_proyden)
@@ -535,19 +549,20 @@ def _zakryt_esli_proyden(conn, oid, uid, vid, d, sid, rukami):
              AND o.id > (SELECT COALESCE(MAX(id), 0) FROM otchet_smeny WHERE deleted=0 AND zakryl_cikl=1
                          AND lesokultury_uchastok_id=? AND vid=?)""", (uid, vid, uid, vid)).fetchall()]
     sdelano = cy["sdelano"]
-    if not VIDY[vid].get("meropriyatie"):  # посадка: тип записи в журнале выбирает мастер — только закрываем цикл
+    tip_mer = VIDY[vid].get("meropriyatie") or MEROPR_NA_UCHASTKE.get(vid)
+    if not tip_mer:  # посадка: тип записи в журнале выбирает мастер — только закрываем цикл
         conn.execute("UPDATE otchet_smeny SET zakryl_cikl=1 WHERE id=?", (oid,))
         conn.commit()
         return {"meropriyatie_id": None, "tip": VIDY[vid]["title"], "sdelano": _r(sdelano), "ploshad": pl}
     mid = legacy_db.add_lesokultury_meropriyatie(
-        conn, uid, VIDY[vid]["meropriyatie"], d.strftime("%d.%m.%Y"),
+        conn, uid, tip_mer, d.strftime("%d.%m.%Y"),
         primechaniya=f"По отчётам за смену с телефона: {sdelano:g} га" + (f" из {pl:g}" if pl else "")
                      + (f"; работали: {', '.join(fio)}" if fio else ""),
         dannye={"istochnik": "otchet_smeny", "ga": sdelano}, sotrudnik_id=sid)
     # Закрывающий отчёт входит в закрытый цикл; новый цикл — со следующего отчёта.
     conn.execute("UPDATE otchet_smeny SET zakryl_cikl=1, meropriyatie_id=? WHERE id=?", (mid, oid))
     conn.commit()
-    return {"meropriyatie_id": mid, "tip": VIDY[vid]["meropriyatie"], "sdelano": _r(sdelano), "ploshad": pl}
+    return {"meropriyatie_id": mid, "tip": tip_mer, "sdelano": _r(sdelano), "ploshad": pl}
 
 
 def _zakryt_item(conn, oid, iid, vid, rukami):
@@ -569,7 +584,7 @@ def _posle(conn, oid):
         pl = _f(pl[0]) if pl else None
         cy = cikly_items(conn, [r[2]]).get((r[2], r[1])) or {"sdelano": 0.0}
         return {"ostatok": _ostatok(pl, cy["sdelano"]), "sdelano_v_cikle": _r(cy["sdelano"]), "ploshad": pl}
-    if not r or not r[0] or r[1] not in PO_UCHASTKU:
+    if not r or not r[0] or r[1] not in CIKLY_UCHASTKA:
         return {}
     pl = conn.execute("SELECT ploshad FROM lesokultury_uchastok WHERE id=?", (r[0],)).fetchone()
     cy = cikly(conn, [r[0]]).get((r[0], r[1])) or {"sdelano": 0.0}
