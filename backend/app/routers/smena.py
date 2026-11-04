@@ -585,6 +585,23 @@ def _zakryt_esli_proyden(conn, oid, uid, vid, d, sid, rukami):
     # Закрывающий отчёт входит в закрытый цикл; новый цикл — со следующего отчёта.
     conn.execute("UPDATE otchet_smeny SET zakryl_cikl=1, meropriyatie_id=? WHERE id=?", (mid, oid))
     conn.commit()
+    # Кто делал — в журнал участка и «Журнал выполненных работ».
+    ids = [r[0] for r in conn.execute(
+        """SELECT DISTINCT x FROM (
+             SELECT o.sotrudnik_id AS x FROM otchet_smeny o
+              WHERE o.deleted=0 AND o.lesokultury_uchastok_id=? AND o.vid=?
+                AND o.id > (SELECT COALESCE(MAX(id), 0) FROM otchet_smeny WHERE deleted=0 AND zakryl_cikl=1
+                            AND lesokultury_uchastok_id=? AND vid=? AND id<>?)
+             UNION
+             SELECT u.sotrudnik_id FROM otchet_smeny_uchastnik u JOIN otchet_smeny o ON o.id=u.otchet_id
+              WHERE o.deleted=0 AND o.lesokultury_uchastok_id=? AND o.vid=?
+                AND o.id > (SELECT COALESCE(MAX(id), 0) FROM otchet_smeny WHERE deleted=0 AND zakryl_cikl=1
+                            AND lesokultury_uchastok_id=? AND vid=? AND id<>?))""",
+        (uid, vid, uid, vid, oid, uid, vid, uid, vid, oid)).fetchall()]
+    try:
+        legacy_db.set_meropriyatie_ispolniteli(conn, mid, ids)
+    except Exception:  # noqa: BLE001 — журнал уже записан, исполнители — бонус
+        pass
     return {"meropriyatie_id": mid, "tip": tip_mer, "sdelano": _r(sdelano), "ploshad": pl}
 
 

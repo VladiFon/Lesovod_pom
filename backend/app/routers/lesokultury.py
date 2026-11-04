@@ -236,6 +236,8 @@ def add_meropriyatie(
     sostav_fakt: str = "",
     primechaniya: str = "",
     dannye: Optional[Dict[str, Any]] = Body(None, embed=True),
+    ispolniteli_ids: Optional[List[int]] = Body(None, embed=True),
+    storonnie: Optional[List[str]] = Body(None, embed=True),
     conn=Depends(get_conn), _user=Depends(require_permission("lesokultury.edit")),
 ):
     """dannye (необязательно, в теле запроса) — поля мероприятия для
@@ -248,7 +250,26 @@ def add_meropriyatie(
         prizhivaemost_pct=prizhivaemost_pct, kolichestvo_na_ga=kolichestvo_na_ga,
         sostav_fakt=sostav_fakt, primechaniya=primechaniya, dannye=dannye,
     )
+    # Кто сделал → журнал и «Журнал выполненных работ» (completed_works).
+    if ispolniteli_ids or storonnie:
+        legacy_db.set_meropriyatie_ispolniteli(conn, meropriyatie_id, ispolniteli_ids, storonnie)
     return {"id": meropriyatie_id}
+
+
+class IspolniteliIn(BaseModel):
+    sotrudnik_ids: List[int] = []
+    storonnie: List[str] = []
+
+
+@router.put("/meropriyatiya/{meropriyatie_id}/ispolniteli")
+def set_ispolniteli(meropriyatie_id: int, body: IspolniteliIn, conn=Depends(get_conn),
+                    _user=Depends(require_permission("lesokultury.edit"))):
+    """Поменять / дописать, кто сделал запись журнала (и в старых записях)."""
+    try:
+        return {"ispolniteli": legacy_db.set_meropriyatie_ispolniteli(conn, meropriyatie_id, body.sotrudnik_ids,
+                                                                       body.storonnie)}
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
 
 
 # --------------------------------------------------------------------------- #
@@ -537,6 +558,8 @@ def _record_field_card(conn, uchastok_id: int, user: dict, body: FieldCardBase, 
         primechaniya=_summary_text(body, calc, reshenie),
         dannye=dannye, sotrudnik_id=sotrudnik_id,
     )
+    if sotrudnik_id:
+        legacy_db.set_meropriyatie_ispolniteli(conn, meropriyatie_id, [sotrudnik_id])
 
     # пробы с карты, ещё не привязанные к участку, — теперь его (учёт на них
     # был по этому участку)

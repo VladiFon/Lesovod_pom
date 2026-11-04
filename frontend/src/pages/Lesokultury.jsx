@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState, useMemo } from "react";
+import IspolniteliPicker from "../components/IspolniteliPicker.jsx";
 import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
@@ -353,6 +354,7 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
   const [sostavFakt, setSostavFakt] = useState("");
   const [primechaniya, setPrimechaniya] = useState("");
   const [extra, setExtra] = useState({});
+  const [ispolniteli, setIspolniteli] = useState({ ids: [], storonnie: [] });
   const [submitting, setSubmitting] = useState(false);
 
   const isInventory = INVENTORY_TYPES.has(tip);
@@ -366,7 +368,12 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
     setSubmitting(true);
     try {
       const dannye = dannyeFromExtra(tip, extra);
-      await api.post(`/lesokultury/uchastki/${uchastokId}/meropriyatiya`, dannye ? { dannye } : undefined, {
+      const telo = {
+        ...(dannye ? { dannye } : {}),
+        ...(ispolniteli.ids.length ? { ispolniteli_ids: ispolniteli.ids } : {}),
+        ...(ispolniteli.storonnie.length ? { storonnie: ispolniteli.storonnie } : {}),
+      };
+      await api.post(`/lesokultury/uchastki/${uchastokId}/meropriyatiya`, Object.keys(telo).length ? telo : undefined, {
         tip,
         data: data.trim(),
         prizhivaemost_pct: isInventory && prizhivaemost !== "" ? Number(prizhivaemost) : undefined,
@@ -386,6 +393,7 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
       setSostavFakt("");
       setPrimechaniya("");
       setExtra({});
+      setIspolniteli({ ids: [], storonnie: [] });
       onAdded();
       if (STATUS_TRIGGER_TYPES[tip]) onStatusChanged();
     } catch (e) {
@@ -451,10 +459,49 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
           </div>
         </div>
       )}
+      <IspolniteliPicker value={ispolniteli} onChange={setIspolniteli} label="Кто делал (попадёт в «Журнал выполненных работ»)" />
       <TextAreaField label="Примечания" rows={2} value={primechaniya} onChange={(e) => setPrimechaniya(e.target.value)} />
       <div>
         <Button variant="secondary" size="sm" onClick={handleAdd} loading={submitting}>Добавить запись</Button>
       </div>
+    </div>
+  );
+}
+
+/** Ячейка «Кто делал»: список + правка (и для старых записей). */
+function IspolniteliYacheyka({ zapis, onSaved }) {
+  const toast = useToast();
+  const [edit, setEdit] = useState(false);
+  const [val, setVal] = useState({ ids: [], storonnie: [] });
+  const isp = zapis.ispolniteli || [];
+  const nachat = () => {
+    setVal({ ids: isp.filter((i) => i.id).map((i) => i.id), storonnie: isp.filter((i) => !i.id).map((i) => i.fio) });
+    setEdit(true);
+  };
+  const save = async () => {
+    try {
+      await api.put(`/lesokultury/meropriyatiya/${zapis.id}/ispolniteli`, { sotrudnik_ids: val.ids, storonnie: val.storonnie });
+      setEdit(false);
+      onSaved();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    }
+  };
+  if (edit) {
+    return (
+      <div className="min-w-[220px] flex flex-col gap-1.5">
+        <IspolniteliPicker value={val} onChange={setVal} label="" />
+        <div className="flex gap-1.5">
+          <Button size="sm" variant="primary" onClick={save}>Сохранить</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEdit(false)}>Отмена</Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="text-sm">
+      {isp.length ? isp.map((i) => <div key={i.fio}>👷 {i.fio}</div>) : <span className="text-muted">—</span>}
+      <button className="text-xs text-pine hover:underline" onClick={nachat}>{isp.length ? "изменить" : "＋ указать"}</button>
     </div>
   );
 }
@@ -611,6 +658,9 @@ function UchastokDetail({ uchastokId, onListChanged }) {
                 { key: "prizhivaemost_pct", header: "Приживаемость, %", render: (r) => r.prizhivaemost_pct ?? "—" },
                 { key: "kolichestvo_na_ga", header: "Шт/га", render: (r) => r.kolichestvo_na_ga ?? "—" },
                 { key: "sostav_fakt", header: "Состав факт.", render: (r) => r.sostav_fakt || "—" },
+                { key: "ispolniteli", header: "Кто делал", render: (r) => (
+                  <IspolniteliYacheyka zapis={r} onSaved={loadLog} />
+                ) },
                 { key: "primechaniya", header: "Примечания", render: (r) => (
                   <div>
                     <div>{r.primechaniya || "—"}</div>
