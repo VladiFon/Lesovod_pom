@@ -261,3 +261,28 @@ def udalit_zveno(zid: int, user=Depends(require_office_or_master), conn=Depends(
     conn.execute("DELETE FROM tabel_zveno WHERE id=?", (zid,))
     conn.commit()
     return {"ok": True}
+
+
+class SteretIn(BaseModel):
+    data: str
+    sotrudnik_ids: List[int] = []
+    ves_den: bool = False
+
+
+@router.post("/steret")
+def steret(body: SteretIn, user=Depends(require_office_or_master), conn=Depends(get_conn)):
+    """Стереть отметки (Влад, 04.11.2026: «накосячил — нет возможности
+    стереть»): выделенных людей или весь день целиком. Отмена — тот же
+    POST /api/tabel/day со стёртыми записями (телефон/сайт держит их у себя)."""
+    d = _iso(body.data)
+    if body.ves_den:
+        cur = conn.execute("DELETE FROM tabel_zapis WHERE data = ?", (d.isoformat(),))
+    else:
+        ids = sorted({int(i) for i in body.sotrudnik_ids})
+        if not ids:
+            raise HTTPException(400, "Никто не выбран")
+        cur = conn.execute(
+            f"DELETE FROM tabel_zapis WHERE data = ? AND sotrudnik_id IN ({','.join('?' * len(ids))})",
+            [d.isoformat(), *ids])
+    conn.commit()
+    return {"udaleno": cur.rowcount}

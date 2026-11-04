@@ -152,7 +152,7 @@ export default function Gazeta() {
           <Rubrika title="Передовица">
             {!p ? <Pusto>Цифры не сошлись — редакция разбирается.</Pusto> : (
               <>
-                Нарублено по нарядам <b>{m3(p.kuby)}</b><Strelka pct={p.kuby_pct} />, вывезено по ЕГАИС <b>{m3(p.vyvezeno)}</b>
+                Заготовлено {d.istochnik_zagotovki === "ЕГАИС" ? "по ЕГАИС" : "по нарядам"} <b>{m3(p.kuby)}</b><Strelka pct={p.kuby_pct} />, вывезено по ЕГАИС <b>{m3(p.vyvezeno)}</b>
                 <Strelka pct={p.vyvezeno_pct} />.{" "}
                 В лесу отработано <b>{p.chelovekodni}</b> человеко-дн. (на прошлой неделе за те же дни {p.chelovekodni_prosh}).
                 {(p.bolnichnyh > 0 || p.otpusk > 0) && <> На больничном {p.bolnichnyh} дн., в отпуске {p.otpusk} дн. — выздоравливайте и отдыхайте!</>}
@@ -250,7 +250,7 @@ export default function Gazeta() {
         </div>
 
         <footer style={{ borderTop: `4px double ${P.rule}`, marginTop: 18, paddingTop: 6, fontSize: 11, color: P.muted, fontFamily: SERIF, textAlign: "center" }}>
-          Номер собран программой «Лесовод» из нарядов, табеля, ЕГАИС, актов и журнала лесокультур. Главный редактор — робот, корректор — Влад.
+          Номер собран программой «Лесовод» из ЕГАИС, нарядов, табеля, актов и журнала лесокультур. Главный редактор — робот, корректор — Влад.
           {d.oshibki && <span> Не сверстались рубрики: {Object.keys(d.oshibki).join(", ")}.</span>}
         </footer>
       </article>

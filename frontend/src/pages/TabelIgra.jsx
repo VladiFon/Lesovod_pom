@@ -100,7 +100,7 @@ function Btn({ children, onClick, tone = "plain", disabled, title, style }) {
 }
 
 /** Панель «миссии» для выделенных людей: статус, где, что. */
-function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros }) {
+function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros, onSteret }) {
   const toast = useToast();
   const [status, setStatus] = useState("работал");
   const [mesto, setMesto] = useState(null); // {delyanka_item_id|lesokultury_uchastok_id, mesto}
@@ -267,6 +267,9 @@ function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros }) {
       )}
 
       <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
+        {vybrany.some((id) => lyudi.find((l) => l.sotrudnik_id === id)?.zapis_id) && (
+          <Btn onClick={onSteret} title="Убрать отметку у выделенных — как будто их ещё не отмечали">🧽 Стереть отметку</Btn>
+        )}
         <Btn tone="gold" onClick={() => onPrimenit({ status, mesto: status === "работал" ? mesto : null, vid: status === "работал" ? vid : null })}>
           ✅ Отметить {vybrany.length > 1 ? `всех ${vybrany.length}` : ""}
         </Btn>
@@ -301,6 +304,8 @@ export default function TabelIgra() {
   const [xp, setXp] = useState(0);
   const [pop, setPop] = useState(null);
   const [zanyat, setZanyat] = useState(false);
+  const [otmena, setOtmena] = useState(null); // {text, vernut: [entries], ubrat: [ids]}
+  const otmenaTimer = useRef(null);
   const bylPolnyy = useRef(false);
 
   const load = useCallback(async (d = data) => {
@@ -329,13 +334,67 @@ export default function TabelIgra() {
   const vsego = lyudi.length;
   const pct = vsego ? Math.round((otmecheno / vsego) * 100) : 0;
 
-  const sohranit = async (entries) => {
+  // Снимок «как было» у тех, кого сейчас поменяем — для кнопки «↩ Отменить».
+  const snimok = (ids, text) => {
+    const bylo = ids.map((id) => lyudi.find((l) => l.sotrudnik_id === id)).filter(Boolean);
+    return {
+      text,
+      vernut: bylo.filter((l) => l.zapis_id).map((l) => ({
+        sotrudnik_id: l.sotrudnik_id, status: l.status, delyanka_item_id: l.delyanka_item_id || null,
+        lesokultury_uchastok_id: l.lesokultury_uchastok_id || null, vid_raboty_id: l.vid_raboty_id || null,
+        kommentariy: l.kommentariy || "",
+      })),
+      ubrat: bylo.filter((l) => !l.zapis_id).map((l) => l.sotrudnik_id),
+    };
+  };
+  const pokazatOtmenu = (o) => {
+    clearTimeout(otmenaTimer.current);
+    setOtmena(o);
+    otmenaTimer.current = setTimeout(() => setOtmena(null), 15000);
+  };
+  const otmenit = async () => {
+    const o = otmena;
+    if (!o) return;
+    setOtmena(null);
+    setZanyat(true);
+    try {
+      if (o.ubrat.length) await api.post("/tabel-igra/steret", { data, sotrudnik_ids: o.ubrat });
+      if (o.vernut.length) await api.post("/tabel/day", { data, entries: o.vernut });
+      await load(data);
+      toast.show({ tone: "success", title: "Отменено ↩", description: o.text });
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не отменилось", description: e.message });
+    } finally {
+      setZanyat(false);
+    }
+  };
+  const steret = async (ids, vesDen = false) => {
+    const o = snimok(vesDen ? lyudi.map((l) => l.sotrudnik_id) : ids, vesDen ? "день очищен" : `стёрто: ${ids.length}`);
+    setZanyat(true);
+    try {
+      await api.post("/tabel-igra/steret", vesDen ? { data, ves_den: true } : { data, sotrudnik_ids: ids });
+      await load(data);
+      setVybrany([]);
+      pokazatOtmenu(o);
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не стёрлось", description: e.message });
+    } finally {
+      setZanyat(false);
+    }
+  };
+  const ochistitDen = () => {
+    if (window.confirm(`Стереть ВСЕ отметки за ${krasivo(data)} (${otmecheno} чел.)? Можно будет отменить в течение 15 секунд.`)) steret([], true);
+  };
+
+  const sohranit = async (entries, otmenaText) => {
     if (!entries.length) return;
+    const o = snimok(entries.map((e) => e.sotrudnik_id), otmenaText || `отмечено: ${entries.length}`);
     setZanyat(true);
     try {
       const novyh = entries.filter((e) => !lyudi.find((l) => l.sotrudnik_id === e.sotrudnik_id)?.zapis_id).length;
       await api.post("/tabel/day", { data, entries });
       const r = await load(data);
+      pokazatOtmenu(o);
       if (novyh) {
         setXp((x) => x + novyh * XP_ZA_STROKU);
         setPop(`+${novyh * XP_ZA_STROKU} XP`);
@@ -442,6 +501,7 @@ export default function TabelIgra() {
         />
         <Btn onClick={() => setData(sdvig(data, 1))} title="Следующий день">▶</Btn>
         {data !== segodnya() && <Btn onClick={() => setData(segodnya())}>Сегодня</Btn>}
+        {otmecheno > 0 && <Btn onClick={ochistitDen} disabled={zanyat} title="Стереть все отметки за этот день">🧹 Очистить день</Btn>}
         <span style={{ fontWeight: 800, color: C.pine, fontSize: 15 }}>{krasivo(data)}</span>
         <span style={{ flex: 1 }} />
         <span
@@ -462,6 +522,13 @@ export default function TabelIgra() {
         </span>
         {pop && <span className="pk-pop" style={{ position: "absolute", right: 0, top: -14, fontFamily: MONO, fontWeight: 800, color: C.gold }}>{pop}</span>}
       </div>
+
+      {otmena && (
+        <div className="flex items-center" style={{ gap: 10, background: C.pine, color: "#fff", borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
+          <span style={{ flex: 1 }}>Готово — {otmena.text}. Ошибся?</span>
+          <button type="button" onClick={otmenit} disabled={zanyat} style={{ background: "#fff", color: C.pine, borderRadius: 8, padding: "4px 12px", fontWeight: 800 }}>↩ Отменить</button>
+        </div>
+      )}
 
       {/* быстрые комбо */}
       {pustye.length > 0 && (
@@ -554,7 +621,8 @@ export default function TabelIgra() {
       </div>
 
       {vybrany.length > 0 && (
-        <Missiya den={den} vybrany={vybrany} lyudi={lyudi} onPrimenit={primenit} onZveno={(n) => sozdatZveno(n)} onSbros={() => setVybrany([])} />
+        <Missiya den={den} vybrany={vybrany} lyudi={lyudi} onPrimenit={primenit} onZveno={(n) => sozdatZveno(n)} onSbros={() => setVybrany([])}
+          onSteret={() => steret(vybrany.filter((id) => lyudi.find((l) => l.sotrudnik_id === id)?.zapis_id))} />
       )}
 
       {/* отряд */}
