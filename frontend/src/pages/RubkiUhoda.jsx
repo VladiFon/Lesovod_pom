@@ -24,6 +24,8 @@ import AuthImage from "../components/AuthImage.jsx";
 import { useToast } from "../components/Toast.jsx";
 import UhodyVypolnenie from "../components/UhodyVypolnenie.jsx";
 import HvorostProba from "../components/HvorostProba.jsx";
+import { useScreenParam } from "../nav.js";
+import { ChelovekList } from "../components/ChelovekLink.jsx";
 
 /**
  * Экран "Рубки ухода" (C.3 плана) — независимые пробы (не привязаны к
@@ -609,6 +611,16 @@ export default function RubkiUhoda() {
       toast.show({ tone: "danger", title: "Не удалось открыть пробу", description: e.message });
     }
   };
+
+  // Ссылка снаружи (#/uhody?p=3 — карточка человека, журнал работ): открыть пробу.
+  const [pParam, setPParam] = useScreenParam("uhody", "p");
+  useEffect(() => {
+    if (pParam) {
+      setVkladka("uhod");
+      openProba(Number(pParam));
+      setPParam("");
+    }
+  }, [pParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------------------- //
   //   Таблица укладок
@@ -1387,6 +1399,9 @@ export default function RubkiUhoda() {
             <Button variant="secondary" onClick={handleUncomplete}>
               ✅ Закрыта ({ispolniteli.map((i) => i.fio).join(", ")}) — открыть снова
             </Button>
+          )}
+          {isEditing && completedAt && ispolniteli.length > 0 && (
+            <span className="text-sm text-muted self-center">Работали: <ChelovekList people={ispolniteli} /></span>
           )}
           {isEditing && (
             <Button variant="danger" onClick={handleDelete}>

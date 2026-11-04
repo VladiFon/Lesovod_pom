@@ -13,6 +13,8 @@ import { useToast } from "../components/Toast.jsx";
 import KonturBlock from "../components/KonturBlock.jsx";
 import ProbyBlock from "../components/ProbyBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
+import { useScreenParam } from "../nav.js";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 
 /**
  * Экран "Лесные культуры" (screens/lesokultury/) — Этап 8 плана.
@@ -562,7 +564,7 @@ function IspolniteliYacheyka({ zapis, onSaved }) {
   }
   return (
     <div className="text-sm">
-      {isp.length ? isp.map((i) => <div key={i.fio}>👷 {i.fio}</div>) : <span className="text-muted">—</span>}
+      {isp.length ? isp.map((i) => <div key={i.fio}>👷 <ChelovekLink id={i.id} fio={i.fio} className="font-normal" />{!i.id && <span className="text-muted-2 text-xs"> (сторонний)</span>}</div>) : <span className="text-muted">—</span>}
       <button className="text-xs text-pine hover:underline" onClick={nachat}>{isp.length ? "изменить" : "＋ указать"}</button>
     </div>
   );
@@ -1296,6 +1298,15 @@ export default function Lesokultury() {
   const [loading, setLoading] = useState(true);
   const [includeSpisannye, setIncludeSpisannye] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  // Ссылка снаружи (#/forestry?u=5 — карточка человека, журнал работ):
+  // открыть участок сразу.
+  const [uParam, setUParam] = useScreenParam("forestry", "u");
+  useEffect(() => {
+    if (uParam) {
+      setSelectedId(Number(uParam));
+      setUParam("");
+    }
+  }, [uParam]); // eslint-disable-line react-hooks/exhaustive-deps
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [kartochkiOpen, setKartochkiOpen] = useState(false);

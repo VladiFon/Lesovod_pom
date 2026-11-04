@@ -6,6 +6,7 @@ import Modal from "../components/Modal.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { api, ApiError } from "../api/client.js";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 
 /**
  * Экран "Сотрудники" — справочник работников, полноценным разделом (был
@@ -46,7 +47,7 @@ function WorkerCard({ worker, onSetActive, onResetPin, onEdit }) {
           {initial}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="font-ui font-bold text-ink text-base truncate">{worker.fio}</div>
+          <div className="font-ui text-base truncate"><ChelovekLink id={worker.id} fio={worker.fio} className="font-bold" /></div>
           <div className="text-muted text-sm truncate">{worker.dolzhnost || "Должность не указана"}</div>
           {worker.data_uvolneniya && (
             <div className="text-error text-xs font-semibold mt-0.5">

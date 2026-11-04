@@ -20,6 +20,7 @@ import config as legacy_config
 
 from app import signaly
 from app.database import get_connection, init_db
+from app.routers import chelovek as chelovek_router
 from app.routers import (
     ai_log,
     archive,
@@ -156,3 +157,4 @@ app.include_router(smena.web_router)
 app.include_router(tehnika.router)
 app.include_router(hvorost.router)
 app.include_router(igra_bot.router)
+app.include_router(chelovek_router.router)

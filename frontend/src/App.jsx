@@ -15,6 +15,7 @@ import RaspredelenieBrigad from "./pages/RaspredelenieBrigad.jsx";
 import PlanRabot from "./pages/PlanRabot.jsx";
 import TabelRuchnoy from "./pages/TabelRuchnoy.jsx";
 import Sotrudniki from "./pages/Sotrudniki.jsx";
+import Chelovek from "./pages/Chelovek.jsx";
 import Attendance from "./pages/Attendance.jsx";
 import WorkerNotes from "./pages/WorkerNotes.jsx";
 import OtchetySmeny from "./pages/OtchetySmeny.jsx";
@@ -107,6 +108,13 @@ const PlotsIgra = makeMergedScreen("plots", [
 // Игровой вид «Сотрудников» (03.11.2026): «Карточки героев» + справочник.
 const SotrudnikiIgra = makeMergedScreen("sotrudniki", [
   { key: "geroi", label: "🧑‍🌾 Карточки героев", Page: Geroi },
+  { key: "kartochka", label: "👤 Люди", Page: Chelovek },
+  { key: "spisok", label: "Справочник", Page: Sotrudniki },
+]);
+// Карточка человека (04.11.2026, «сайт разбросан»): всё о человеке в одном
+// месте — первая вкладка «Сотрудников»; справочник (правка, PIN) — вторая.
+const SotrudnikiObych = makeMergedScreen("sotrudniki", [
+  { key: "kartochka", label: "👤 Люди", Page: Chelovek },
   { key: "spisok", label: "Справочник", Page: Sotrudniki },
 ]);
 const Zadachi = makeMergedScreen("zadachi", [
@@ -149,7 +157,7 @@ const READY_SCREENS = {
   tabel: { title: "Табель", subtitle: "Кто где работал: ввод по дням и отметки рабочих с телефона", Page: Tabel },
   // Перенесено из Settings.jsx (WorkersCard) — тот же /api/auth/workers,
   // полноценный экран вместо блока внутри "Настроек".
-  sotrudniki: { title: "Сотрудники", subtitle: "Справочник работников: ФИО, должность, участок", Page: poVidu(Sotrudniki, SotrudnikiIgra) },
+  sotrudniki: { title: "Сотрудники", subtitle: "Карточка человека: табель, работы, задачи, техника — и справочник", Page: poVidu(SotrudnikiObych, SotrudnikiIgra) },
   // Планирование распределения бригад (см. backend/legacy/brigada.py) —
   // сигнал "делянка близка к завершению" (те же % освоения лимита/срок
   // вывозки, что и в "Инспекции") + состав бригад + назначение/

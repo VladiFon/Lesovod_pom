@@ -8,6 +8,7 @@ import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { useToast } from "../components/Toast.jsx";
 import AuthImage from "../components/AuthImage.jsx";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 
 /**
  * Экран "ИИ-журнал" (screens/ai_log/) — Этап 13 плана, последний обычный
@@ -340,7 +341,7 @@ export function CompletedTab() {
           loading={loading}
           columns={[
             { key: "data_vypolneniya", header: "Дата" },
-            { key: "ispolnitel_fio", header: "Исполнитель", render: (r) => r.ispolnitel_fio || "—" },
+            { key: "ispolnitel_fio", header: "Исполнитель", render: (r) => <ChelovekLink id={r.sotrudnik_id} fio={r.ispolnitel_fio || "—"} className="font-normal" /> },
             { key: "dolzhnost", header: "Должность", render: (r) => r.dolzhnost || "—" },
             { key: "kvartal", header: "Квартал", render: (r) => r.kvartal || "—" },
             { key: "vydel", header: "Выдел", render: (r) => r.vydel || "—" },
