@@ -54,7 +54,7 @@ import time
 import traceback
 from pathlib import Path
 
-VERSIYA = "3.0"
+VERSIYA = "3.0.1"
 PAPKA = Path(__file__).resolve().parent
 NASTROYKI = PAPKA / "nastroyki.ini"
 SOSTOYANIE = PAPKA / "sostoyanie.json"
@@ -1412,12 +1412,15 @@ def progon(cfg, bez_zagruzki=False):
 # --------------------------------------------------------------------------- #
 #   Расписание (Планировщик заданий Windows)
 # --------------------------------------------------------------------------- #
-def _zapustit(komanda, kodirovka="cp866", timeout=60):
+def _zapustit(komanda, kodirovka="cp866", timeout=60, tolko_stdout=False):
     """Запустить консольную команду Windows и вернуть (код, вывод)."""
     try:
         r = subprocess.run(komanda, capture_output=True, timeout=timeout,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        vyvod = (r.stdout + r.stderr).decode(kodirovka, errors="replace")
+        # PowerShell сыплет в stderr служебный «#< CLIXML» (прогресс загрузки
+        # модулей) — для JSON его нельзя смешивать с ответом (ПК Влада 04.11)
+        vyvod = (r.stdout if tolko_stdout and r.stdout.strip() else r.stdout + r.stderr).decode(
+            kodirovka, errors="replace")
         return r.returncode, vyvod.strip()
     except Exception as e:  # noqa: BLE001
         return -1, str(e)
@@ -1427,10 +1430,10 @@ def _powershell(skript, timeout=60):
     """Скрипт PowerShell через -EncodedCommand: так кавычки внутри скрипта
     не ломаются при передаче через командную строку Windows."""
     import base64
-    kod = base64.b64encode(("[Console]::OutputEncoding=[Text.Encoding]::UTF8;" + skript)
+    kod = base64.b64encode(("[Console]::OutputEncoding=[Text.Encoding]::UTF8;$ProgressPreference='SilentlyContinue';" + skript)
                            .encode("utf-16-le")).decode("ascii")
-    return _zapustit(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", kod],
-                     kodirovka="utf-8", timeout=timeout)
+    return _zapustit(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                      "-EncodedCommand", kod], kodirovka="utf-8", timeout=timeout, tolko_stdout=True)
 
 
 def xml_zadachi(vremya, polzovatel, bat, papka, segodnya=None):
@@ -1586,9 +1589,11 @@ def proverit_zadachu(punkty):
               f"xml=(Export-ScheduledTask -TaskPath '\\{papka_z}\\' -TaskName '{imya_z}')}}|ConvertTo-Json -Compress")
     kod, vyvod = _powershell(skript)
     try:
-        d = json.loads(vyvod[vyvod.index("{"):])
-    except Exception:  # noqa: BLE001
-        punkty.append((None, "Задача в Планировщике", f"не смог прочитать (PowerShell: {vyvod[:300]})"))
+        # raw_decode: берём первый JSON-объект и не спотыкаемся о хвост после него
+        d, _ = json.JSONDecoder().raw_decode(vyvod[vyvod.index("{"):])
+    except Exception as e:  # noqa: BLE001
+        punkty.append((False, "Задача в Планировщике",
+                       f"не смог прочитать ({e}); PowerShell ответил: {vyvod[:200]} … {vyvod[-200:]}"))
         return
     if not d.get("est"):
         punkty.append((False, "Задача в Планировщике",
