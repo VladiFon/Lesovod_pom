@@ -936,6 +936,24 @@ def popravki(conn, god: int) -> Dict[Tuple[int, str], Dict[int, str]]:
     return out
 
 
+def ensure_skrytye(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tek_izm_skrytye ("
+        " god INTEGER NOT NULL,"
+        " prilozhenie INTEGER NOT NULL,"
+        " klyuch TEXT NOT NULL,"
+        " created_at TEXT DEFAULT (datetime('now', 'localtime')),"
+        " PRIMARY KEY (god, prilozhenie, klyuch))"
+    )
+
+
+def skrytye(conn, god: int) -> set:
+    """Автоматические строки, убранные из ведомости вручную: {(прил, ключ)}."""
+    ensure_skrytye(conn)
+    return {(p, k) for p, k in conn.execute(
+        "SELECT prilozhenie, klyuch FROM tek_izm_skrytye WHERE god = ?", (god,)).fetchall()}
+
+
 def save_popravka(conn, god: int, prilozhenie: int, klyuch: str, values: List[str], lesnichestvo: str = "") -> None:
     """Сохраняет только графы, отличающиеся от автоматических значений
     (чтобы исправление данных в программе не перекрывалось старой правкой)."""
@@ -1018,8 +1036,24 @@ def build(conn, god: int, lesnichestvo: str = "", s_popravkami: bool = True) -> 
     _rubki_uhoda(conn, god, lesnichestvo, result, taxation)
     _novye_vydely(result, taxation)
     popr = popravki(conn, god) if s_popravkami else {}
+    skryt = skrytye(conn, god) if s_popravkami else set()
     for n in NOMERA:
         res = result[n]
+        # Убранные вручную строки (кнопка «Убрать») — не в ведомость и не в сводную.
+        res.setdefault("dop", [""] * len(res["rows"]))
+        res["skrytye"] = []
+        if skryt:
+            ostavit = [i for i, k in enumerate(res["keys"]) if (n, k) not in skryt]
+            res["skrytye"] = [{"klyuch": res["keys"][i], "values": res["rows"][i]}
+                              for i, k in enumerate(res["keys"]) if (n, k) in skryt]
+            for name in ("rows", "keys", "dop", "vidy"):
+                if res.get(name) is not None and len(res[name]) == len(res["keys"]) and name != "keys":
+                    res[name] = [res[name][i] for i in ostavit]
+            res["keys"] = [res["keys"][i] for i in ostavit]
+            ubrany = {k for (pn, k) in skryt if pn == n}
+            res["warn_keys"] = [w for w in res["warn_keys"]
+                                if w[0] is None or not any(_key_matches(w[0], k) for k in ubrany)
+                                or any(_key_matches(w[0], k) for k in res["keys"])]
         # Дописанное вручную поверх автоматических значений.
         res["popravleno"] = []
         for i, key in enumerate(res["keys"]):

@@ -70,7 +70,8 @@ def preview(
              "popravleno": data[n]["popravleno"], "dop": data[n].get("dop", []),
              "dop_title": DOP_TITLE.get(n, ""), "chasti_info": data[n].get("chasti_info", {}),
              "warnings": data[n]["warnings"], "uchastki": data[n]["uchastki"],
-             "avto": data[n]["avto"], "ruchnye": data[n]["ruchnye"]}
+             "avto": data[n]["avto"], "ruchnye": data[n]["ruchnye"],
+             "skrytye": data[n].get("skrytye", [])}
             for n in ti.NOMERA
         ],
     }
@@ -158,6 +159,37 @@ def delete_popravka(god: int, prilozhenie: int, klyuch: str, conn=Depends(get_co
     """Вернуть строку к автоматическим значениям."""
     ti.ensure_popravki(conn)
     conn.execute("DELETE FROM tek_izm_popravki WHERE god = ? AND prilozhenie = ? AND klyuch = ?",
+                 (god, prilozhenie, klyuch))
+    conn.commit()
+    return {"ok": True}
+
+
+class SkrytayaIn(BaseModel):
+    god: int
+    prilozhenie: int
+    klyuch: str
+
+
+@router.put("/skrytye")
+def skryt_stroku(body: SkrytayaIn, conn=Depends(get_conn), _user=Depends(require_office_writer_or_master)):
+    """Убрать автоматическую строку из ведомости (в Word и сводную не идёт).
+    Данные в программе не трогаются; вернуть — DELETE /skrytye."""
+    _check_god(body.god)
+    if body.prilozhenie not in ti.COLUMNS or not body.klyuch.strip():
+        raise HTTPException(400, "Нет такой строки")
+    ti.ensure_skrytye(conn)
+    conn.execute("INSERT OR IGNORE INTO tek_izm_skrytye (god, prilozhenie, klyuch) VALUES (?, ?, ?)",
+                 (body.god, body.prilozhenie, body.klyuch.strip()))
+    conn.commit()
+    return {"ok": True}
+
+
+@router.delete("/skrytye")
+def vernut_stroku(god: int, prilozhenie: int, klyuch: str, conn=Depends(get_conn),
+                  _user=Depends(require_office_writer_or_master)):
+    """Вернуть убранную строку в ведомость."""
+    ti.ensure_skrytye(conn)
+    conn.execute("DELETE FROM tek_izm_skrytye WHERE god = ? AND prilozhenie = ? AND klyuch = ?",
                  (god, prilozhenie, klyuch))
     conn.commit()
     return {"ok": True}
