@@ -121,7 +121,7 @@ def poschitat(conn, ot, do):
         for oid, sid, vid, obyom, ga, chasy in conn.execute(
             "SELECT id, sotrudnik_id, vid, obyom, ga, chasy FROM otchet_smeny WHERE deleted=0 AND data >= ? AND data <= ?",
                 (ot_s, do_s)).fetchall():
-            o = (ga or 0) * OCHKI_GA if vid in ("uhod", "pochva") else (obyom or 0) * OCHKI_NASELENIYU if vid == "naseleniyu" \
+            o = (ga or 0) * OCHKI_GA if vid in ("uhod", "pochva", "posadka", "rubka_uhoda", "ochistka", "sanrubka") else (obyom or 0) * OCHKI_NASELENIYU if vid == "naseleniyu" \
                 else (chasy or 0) * OCHKI_REMONT_CHAS if vid == "remont" else 0
             if not o:
                 continue

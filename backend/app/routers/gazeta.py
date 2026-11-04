@@ -4,10 +4,12 @@
 
 Собирается сама из того, что уже есть в базе, за неделю пн–вс (текущая —
 по сегодня; сравнение с прошлой неделей за те же дни):
-  передовица — кубы по нарядам, вывезено по ЕГАИС, человеко-дни по табелю;
+  передовица — заготовлено (приход ЕГАИС; наряды пишутся раз в месяц —
+    Влад, 04.11.2026 — поэтому они только запасной источник), вывезено по ЕГАИС,
+    человеко-дни по табелю;
   герои недели — очки rejting.poschitat за неделю, рывок к прошлой неделе,
     звено недели;
-  лесоповал — где рубили (м³ по нарядам по делянкам), день-рекорд;
+  лесоповал — где рубили (м³ по приходу ЕГАИС по делянкам), день-рекорд;
   вывозка — расход ЕГАИС, кто оформил, куда ушло;
   инспекция — акты недели, «розыск» (просроченные, только текущая неделя);
   огород — мероприятия лесокультур по дате мероприятия;
@@ -106,6 +108,16 @@ def _naryady_po_dnyam(conn):
         dt = _d(data)
         if dt and v:
             out.append((dt, did, v))
+    return out
+
+
+def _prihod_po_dnyam(rows):
+    """[(date, delyanka_id, m3)] из прихода ЕГАИС (заготовка поступила на склад)."""
+    out = []
+    for r in rows:
+        dt = _d(r.get("data_iso"))
+        if dt and r.get("obyom"):
+            out.append((dt, r.get("delyanka_id"), r["obyom"]))
     return out
 
 
@@ -292,7 +304,7 @@ def _zagolovki(o):
         elif p["kuby"] and p["kuby_pct"] is not None and p["kuby_pct"] <= -15:
             z.append(f"Лес выдохнул: нарубили {p['kuby']:g} м³, на {-p['kuby_pct']}% меньше прошлой недели")
         elif p["kuby"]:
-            z.append(f"Ровный ход: {p['kuby']:g} м³ по нарядам за неделю")
+            z.append(f"Ровный ход: {p['kuby']:g} м³ за неделю")
     ins = o.get("inspekciya") or {}
     if ins.get("rozysk_vsego"):
         n = ins["rozysk_vsego"]
@@ -345,10 +357,22 @@ def sobrat(conn, nedelya=None, segodnya=None):
     except Exception as e:  # noqa: BLE001
         raskhod = []
         out.setdefault("oshibki", {})["egais"] = str(e)[:200]
+    # Заготовка по дням: наряды у Влада пишутся в последний день месяца
+    # одним разом — по ним неделя пустая, а потом всплеск. Берём приход
+    # ЕГАИС; наряды — только если прихода за эти две недели нет совсем.
+    zagotovka, istochnik = naryady, "наряды"
+    try:
+        conn.row_factory = rf
+        prihod = _prihod_po_dnyam(svodka_raskhod.egais_svodka(conn, "prihod")["rows"])
+        if any(ppn <= dt <= do for dt, _did, _v in prihod):
+            zagotovka, istochnik = prihod, "ЕГАИС"
+    except Exception as e:  # noqa: BLE001
+        out.setdefault("oshibki", {})["egais_prihod"] = str(e)[:200]
+    out["istochnik_zagotovki"] = istochnik
     for kl, fn in (
-        ("peredovica", lambda: _peredovica(conn, g, naryady, raskhod)),
+        ("peredovica", lambda: _peredovica(conn, g, zagotovka, raskhod)),
         ("geroi", lambda: _geroi(conn, g)),
-        ("lesopoval", lambda: _lesopoval(conn, g, naryady)),
+        ("lesopoval", lambda: _lesopoval(conn, g, zagotovka)),
         ("vyvozka", lambda: _vyvozka(g, raskhod)),
         ("inspekciya", lambda: _inspekciya(conn, g, segodnya)),
         ("ogorod", lambda: _ogorod(conn, g)),
