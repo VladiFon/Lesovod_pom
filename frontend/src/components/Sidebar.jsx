@@ -1,4 +1,5 @@
 import React from "react";
+import { useVid } from "../vid.jsx";
 
 // Группы и подписи — из дизайна «Вкладки - новый дизайн»: тёмно-зелёная
 // узкая колонка; клик по пункту открывает (или фокусирует) вкладку.
@@ -6,7 +7,7 @@ import React from "react";
 // ИИ-журнал) + заметки; «Табель» = ввод + присутствие; «Задачи» = план
 // работ + календарь (вкладки внутри экрана, см. App.jsx).
 export const NAV_GROUPS = [
-  { title: "обзор", items: [["dashboard", "Дашборд"], ["telefon", "С телефона"]] },
+  { title: "обзор", items: [["dashboard", "Дашборд"], ["telefon", "С телефона"], ["kvesty", "🎯 Квесты"], ["gazeta", "📰 Газета"]] },
   {
     title: "делянки",
     items: [["plots", "Делянки"], ["raskhod", "Расход / ЕГАИС"], ["inspection", "Инспекция"], ["documents", "Документы"]],
@@ -19,6 +20,8 @@ export const NAV_GROUPS = [
       ["raspredelenie", "Распределение бригад"],
       ["zadachi", "Задачи"],
       ["tabel", "Табель"],
+      ["reyting", "🏆 Рейтинг"],
+      ["chellendzhi", "🔥 Челленджи"],
     ],
   },
   { title: "прочее", items: [["archive", "Архив"], ["korzina", "Корзина"], ["settings", "Настройки"]] },
@@ -29,7 +32,11 @@ export const NAV_PERMISSION = { korzina: "korzina.view" };
 
 const MONO = "'JetBrains Mono', monospace";
 
+// Пункты только для игрового вида (переключатель в шапке / Настройках).
+const TOLKO_IGRA = new Set(["kvesty", "reyting", "gazeta", "chellendzhi"]);
+
 export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, onLogout, permissions = [] }) {
+  const [vid] = useVid();
   return (
     <nav className="w-[158px] shrink-0 h-screen flex flex-col overflow-y-auto" style={{ background: "#1a4331", color: "#eaf7ec" }}>
       <div style={{ padding: "18px 16px 14px" }}>
@@ -45,7 +52,7 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
             <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "#8fb79f", padding: "6px 8px 4px" }}>
               {group.title}
             </div>
-            {group.items.filter(([key]) => !NAV_PERMISSION[key] || permissions.includes(NAV_PERMISSION[key])).map(([key, label]) => {
+            {group.items.filter(([key]) => (!NAV_PERMISSION[key] || permissions.includes(NAV_PERMISSION[key])) && (vid === "igra" || !TOLKO_IGRA.has(key))).map(([key, label]) => {
               const isActive = key === activeKey;
               const isOpen = openKeys.includes(key);
               return (

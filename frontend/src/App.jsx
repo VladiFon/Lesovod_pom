@@ -17,6 +17,7 @@ import TabelRuchnoy from "./pages/TabelRuchnoy.jsx";
 import Sotrudniki from "./pages/Sotrudniki.jsx";
 import Attendance from "./pages/Attendance.jsx";
 import WorkerNotes from "./pages/WorkerNotes.jsx";
+import OtchetySmeny from "./pages/OtchetySmeny.jsx";
 import Archive from "./pages/Archive.jsx";
 import CalendarScreen from "./pages/Calendar.jsx";
 import { RawReportsTab, CompletedTab } from "./pages/AiLog.jsx";
@@ -24,6 +25,20 @@ import { makeMergedScreen } from "./components/MergedScreen.jsx";
 import Settings from "./pages/Settings.jsx";
 import ComponentGallery from "./pages/ComponentGallery.jsx";
 import Korzina from "./pages/Korzina.jsx";
+import Kvesty from "./pages/Kvesty.jsx";
+import TabelIgra from "./pages/TabelIgra.jsx";
+import { poVidu } from "./vid.jsx";
+import UhodyIgra from "./pages/UhodyIgra.jsx";
+import FrontRabot from "./pages/FrontRabot.jsx";
+import OhotaAktov from "./pages/OhotaAktov.jsx";
+import VyvozkaIgra from "./pages/VyvozkaIgra.jsx";
+import Shtab from "./pages/Shtab.jsx";
+import Reyting from "./pages/Reyting.jsx";
+import Gazeta from "./pages/Gazeta.jsx";
+import PutDelyanki from "./pages/PutDelyanki.jsx";
+import Geroi from "./pages/Geroi.jsx";
+import Chellendzhi from "./pages/Chellendzhi.jsx";
+import Pochta from "./pages/Pochta.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
@@ -38,12 +53,55 @@ const Padded = (Inner) => function PaddedTab() {
 // calendar) — алиасы в nav.js, ссылки на них не ломаются.
 const Telefon = makeMergedScreen("telefon", [
   { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
+  { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
+  { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
+  { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
+]);
+// Игровой вид «С телефона» (03.11.2026): «Почта гонцов» + обычные вкладки.
+const TelefonIgra = makeMergedScreen("telefon", [
+  { key: "pochta", label: "📬 Почта гонцов", Page: Pochta },
+  { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
+  { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
   { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
   { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
 ]);
 const Tabel = makeMergedScreen("tabel", [
-  { key: "vvod", label: "Ввод табеля", Page: TabelRuchnoy },
+  // Игровой вид (переключатель в шапке/Настройках) — «Перекличка» вместо
+  // обычного ввода; обычный ввод никуда не делся.
+  { key: "vvod", label: "Ввод табеля", Page: poVidu(TabelRuchnoy, TabelIgra) },
   { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
+]);
+// Игровой вид Дашборда (03.11.2026): «Штаб» — карта всех игровых экранов.
+const DashboardIgra = makeMergedScreen("dashboard", [
+  { key: "shtab", label: "🏰 Штаб", Page: Shtab },
+  { key: "obzor", label: "Обзор", Page: Dashboard },
+]);
+// Игровой вид «Расхода / ЕГАИС» (03.11.2026): «Вывозка» + обычный Расход.
+const RaskhodIgra = makeMergedScreen("raskhod", [
+  { key: "vyvozka", label: "🚛 Вывозка", Page: VyvozkaIgra },
+  { key: "raskhod", label: "Расход", Page: Raskhod },
+]);
+// Игровой вид «Инспекции» (03.11.2026): «Охота на акты» + обычный список
+// (форма акта — там же, «Составить акт» открывает вкладку «Список»).
+const InspectionIgra = makeMergedScreen("inspection", [
+  { key: "ohota", label: "🏹 Охота на акты", Page: OhotaAktov },
+  { key: "spisok", label: "Список", Page: Inspection },
+]);
+// Игровой вид «Лесокультур» (03.11.2026): «Огород уходов» + обычный список
+// участков второй вкладкой.
+const LesokulturyIgra = makeMergedScreen("forestry", [
+  { key: "ogorod", label: "🌱 Огород уходов", Page: UhodyIgra },
+  { key: "uchastki", label: "Участки", Page: Lesokultury },
+]);
+// Игровой вид «Делянок» (03.11.2026): «Путь делянки» + обычный список.
+const PlotsIgra = makeMergedScreen("plots", [
+  { key: "put", label: "🧭 Путь делянки", Page: PutDelyanki },
+  { key: "spisok", label: "Список", Page: Plots },
+]);
+// Игровой вид «Сотрудников» (03.11.2026): «Карточки героев» + справочник.
+const SotrudnikiIgra = makeMergedScreen("sotrudniki", [
+  { key: "geroi", label: "🧑‍🌾 Карточки героев", Page: Geroi },
+  { key: "spisok", label: "Справочник", Page: Sotrudniki },
 ]);
 const Zadachi = makeMergedScreen("zadachi", [
   { key: "plan", label: "План работ", Page: PlanRabot },
@@ -55,11 +113,11 @@ const Zadachi = makeMergedScreen("zadachi", [
 // "dashboard"/"gallery" (моковые, из Этапа 3). Остальные пункты Sidebar
 // пока ведут на заглушку со ссылкой "что уже готово".
 const READY_SCREENS = {
-  dashboard: { title: "Дашборд", subtitle: "Обзор по всем делянкам за текущий период", Page: Dashboard, search: true, primaryAction: true },
+  dashboard: { title: "Дашборд", subtitle: "Обзор по всем делянкам за текущий период", Page: poVidu(Dashboard, DashboardIgra), search: true, primaryAction: true },
   // Плоты сами управляют своим тулбаром (поиск, "Показывать архивные",
   // "Импорт МДО" в левой колонке) — по аналогии с Settings/Dashboard,
   // TopBar здесь без search/primaryAction, чтобы не дублировать поиск.
-  plots: { title: "Делянки", subtitle: "Карточки делянок, документы, импорт из МДО", Page: Plots },
+  plots: { title: "Делянки", subtitle: "Карточки делянок, документы, импорт из МДО", Page: poVidu(Plots, PlotsIgra) },
   // Этап 5 (часть 2): сквозной список документов по всем делянкам, с
   // фильтрами и массовыми действиями — см. pages/Documents.jsx.
   documents: { title: "Документы", subtitle: "Все документы по всем делянкам: фильтры, массовые действия", Page: Documents },
@@ -67,11 +125,11 @@ const READY_SCREENS = {
   // из меню по решению пользователя — карты ведутся в самом QGIS, экран не
   // нужен. Backend (app/routers/map.py) не трогали, файл страницы удалён.
   taxation: { title: "Таксация", subtitle: "Поиск участка по кварталу/выделу и карточка-досье", Page: Taxation },
-  forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: Lesokultury },
+  forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: poVidu(Lesokultury, LesokulturyIgra) },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
   tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса по приказу №130: прил. 1–15", Page: TekushchieIzmeneniya },
-  raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: Raskhod },
-  inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: Inspection },
+  raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: poVidu(Raskhod, RaskhodIgra) },
+  inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: poVidu(Inspection, InspectionIgra) },
   // C.3 плана — независимые пробы рубок ухода (не привязаны к делянке,
   // см. docstring backend/legacy/uhody.py): своя ведомость перечёта и
   // обмера укладок хвороста, расчёт запаса, экспорт в Word/Excel.
@@ -85,18 +143,24 @@ const READY_SCREENS = {
   tabel: { title: "Табель", subtitle: "Кто где работал: ввод по дням и отметки рабочих с телефона", Page: Tabel },
   // Перенесено из Settings.jsx (WorkersCard) — тот же /api/auth/workers,
   // полноценный экран вместо блока внутри "Настроек".
-  sotrudniki: { title: "Сотрудники", subtitle: "Справочник работников: ФИО, должность, участок", Page: Sotrudniki },
+  sotrudniki: { title: "Сотрудники", subtitle: "Справочник работников: ФИО, должность, участок", Page: poVidu(Sotrudniki, SotrudnikiIgra) },
   // Планирование распределения бригад (см. backend/legacy/brigada.py) —
   // сигнал "делянка близка к завершению" (те же % освоения лимита/срок
   // вывозки, что и в "Инспекции") + состав бригад + назначение/
   // перемещение на делянку с диапазоном дат.
-  raspredelenie: { title: "Распределение бригад", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: RaspredelenieBrigad },
+  raspredelenie: { title: "Распределение бригад", subtitle: "Делянки, близкие к завершению — куда направить бригаду дальше", Page: poVidu(RaspredelenieBrigad, FrontRabot) },
   // Односторонние ленты "рабочий -> мастер" (мобильное приложение ->
   // веб), см. app/routers/attendance.py и app/routers/notes.py.
-  telefon: { title: "С телефона", subtitle: "Отчёты рабочих на проверку, заметки, журнал выполненных работ", Page: Telefon },
+  telefon: { title: "С телефона", subtitle: "Отчёты рабочих на проверку, заметки, журнал выполненных работ", Page: poVidu(Telefon, TelefonIgra) },
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
   // Удалённые делянки/участки лежат здесь 30 дней (app/korzina.py).
   korzina: { title: "Корзина", subtitle: "Удалённые делянки и участки — можно вернуть в течение 30 дней", Page: Korzina },
+  // Режим «Квесты» (03.11.2026): та же работа из «Ждёт меня» в виде квестов
+  // с опытом и серией — отдельная вкладка рядом с обычными экранами.
+  kvesty: { title: "🎯 Квесты", subtitle: "Дела дня как квесты: опыт, уровень, серия дней, свои галочки", Page: Kvesty },
+  gazeta: { title: "📰 Лесная правда", subtitle: "Газета недели: кто герой, сколько нарубили и вывезли, кого разыскивают", Page: Gazeta },
+  chellendzhi: { title: "🔥 Челленджи", subtitle: "Общие цели на всю команду: одна шкала, в конце звание", Page: Chellendzhi },
+  reyting: { title: "🏆 Рейтинг", subtitle: "Кто впереди: очки за дни, кубы, задачи и трелёвку; битва звеньев", Page: Reyting },
   settings: { title: "Настройки", subtitle: "Ключи доступа и данные лесничего — общие для всех", Page: Settings },
   gallery: { title: "Витрина компонентов", subtitle: "Все базовые компоненты дизайн-системы на моковых данных", Page: ComponentGallery },
 };

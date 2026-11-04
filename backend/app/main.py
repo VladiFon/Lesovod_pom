@@ -33,6 +33,19 @@ from app.routers import (
     documents,
     inspection,
     korzina as korzina_router,
+    kvesty,
+    tabel_igra,
+    uhody_igra,
+    front_rabot,
+    vyvozka_igra,
+    shtab,
+    reyting,
+    gazeta,
+    put_delyanki,
+    geroi,
+    chellendzhi,
+    smena,
+    igra_bot,
     lesokultury,
     map as map_router,
     notes,
@@ -125,3 +138,17 @@ app.include_router(korzina_router.router)
 app.include_router(proby.router)
 app.include_router(zhdet.router)
 app.include_router(otsrochka.router)
+app.include_router(kvesty.router)
+app.include_router(tabel_igra.router)
+app.include_router(uhody_igra.router)
+app.include_router(front_rabot.router)
+app.include_router(vyvozka_igra.router)
+app.include_router(shtab.router)
+app.include_router(reyting.router)
+app.include_router(gazeta.router)
+app.include_router(put_delyanki.router)
+app.include_router(geroi.router)
+app.include_router(chellendzhi.router)
+app.include_router(smena.router)
+app.include_router(smena.web_router)
+app.include_router(igra_bot.router)
