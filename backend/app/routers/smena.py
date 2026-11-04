@@ -105,6 +105,8 @@ NOVYE_KOLONKI = (
     ("toplivo", "TEXT"),
     ("toplivo_rashod", "REAL"),
     ("zapravka", "REAL"),
+    # рубка ухода по пробе экрана «Рубки ухода» (app/uhody_vypolnenie.py)
+    ("uhody_proba_id", "INTEGER"),
 )
 TOPLIVO = ("ДТ", "АИ-92")
 MAX_LITROV = 2000
@@ -289,7 +291,9 @@ def naparniki(conn, sid):
     return out
 
 
-def spravochnik(conn, sid):
+def spravochnik(conn, sid, vse_kultury=False):
+    """vse_kultury — телефон 0.11.2+: отдать и списанные / переведённые
+    участки культур (с полем status), прячет их телефон по переключателю."""
     ensure(conn)
     moi_items, moi_uch = {}, {}
     for iid, uid, data in conn.execute(
@@ -322,13 +326,14 @@ def spravochnik(conn, sid):
     delyanki.sort(key=lambda x: (x["nedavno"] is None, "" if x["nedavno"] is None else _neg(x["nedavno"]), x["label"]))
 
     c = cikly(conn)
+    statusy = dict(conn.execute("SELECT id, status FROM lesokultury_uchastok").fetchall())
     uchastki = []
     for uid, lesn, kv, vd, pl, por, god in conn.execute(
         """SELECT id, lesnichestvo, kvartal, vydel, ploshad, glavnaya_poroda, god_sozdaniya
-           FROM lesokultury_uchastok WHERE COALESCE(status,'активен') NOT IN ('списан','переведён','переведен')
-           ORDER BY lesnichestvo, CAST(kvartal AS INTEGER), kvartal, vydel""").fetchall():
+           FROM lesokultury_uchastok WHERE ? OR COALESCE(status,'активен') NOT IN ('списан','переведён','переведен')
+           ORDER BY lesnichestvo, CAST(kvartal AS INTEGER), kvartal, vydel""", (1 if vse_kultury else 0,)).fetchall():
         x = {"id": uid, "kvartal": kv, "vydel": vd, "ploshad": pl, "label": _label_uch(lesn, kv, vd, por, god),
-             "nedavno": moi_uch.get(uid)}
+             "nedavno": moi_uch.get(uid), "status": statusy.get(uid)}
         for vid in CIKLY_UCHASTKA:
             cy = c.get((uid, vid))
             if cy and cy["otchetov"]:
@@ -344,7 +349,9 @@ def spravochnik(conn, sid):
         "SELECT tehnika FROM otchet_smeny WHERE deleted=0 AND sotrudnik_id=? AND tehnika IS NOT NULL AND tehnika<>'' "
         "GROUP BY tehnika ORDER BY MAX(id) DESC LIMIT 10", (sid,)).fetchall()]
     mashiny, moya = spisok_tehniki(conn, sid)
-    return {"vidy": VIDY, "vidy_professii": VIDY_PROFESSII, "delyanki": delyanki, "uchastki": uchastki,
+    from app import uhody_vypolnenie
+    proby = uhody_vypolnenie.dlya_telefona(conn, sid)
+    return {"vidy": VIDY, "vidy_professii": VIDY_PROFESSII, "delyanki": delyanki, "uchastki": uchastki, "proby": proby,
             "naparniki": naparniki(conn, sid), "poluchateli": poluchateli, "tehnika": tehnika,
             "mashiny": mashiny, "moya_mashina_id": moya, "toplivo_vidy": list(TOPLIVO)}
 
@@ -421,6 +428,9 @@ class SmenaIn(BaseModel):
     zapravka: Optional[float] = None
     kommentariy: Optional[str] = None
     uchastok_proyden: bool = False
+    # Рубка ухода по пробе «Рубок ухода» (телефон 0.11.2+): место = проба,
+    # га идут в «Выполнение» пробы.
+    uhody_proba_id: Optional[int] = None
     naparniki: List[int] = []
     client_id: Optional[str] = None
 
@@ -443,14 +453,24 @@ def _proverit(conn, b: SmenaIn, segodnya):
     if b.tehnika_id and not conn.execute("SELECT 1 FROM tehnika WHERE id=?", (b.tehnika_id,)).fetchone():
         raise HTTPException(404, "Техника не найдена")
     uch = po_uchastku(b.vid, b.lesokultury_uchastok_id)
-    if b.vid in PO_DELYANKE and not uch:
+    po_probe = b.vid == "rubka_uhoda" and bool(b.uhody_proba_id)
+    if po_probe:
+        uch = False
+        r = conn.execute("SELECT delyanka_id FROM uhody_proby WHERE id=?", (b.uhody_proba_id,)).fetchone()
+        if not r:
+            raise HTTPException(404, "Проба не найдена")
+        if r[0]:
+            raise HTTPException(400, "Это проба хвороста делянки, а не рубки ухода")
+        if (b.ga is None or b.ga <= 0) and not b.uchastok_proyden:
+            raise HTTPException(400, "Укажи, сколько га сделал")
+    if b.vid in PO_DELYANKE and not uch and not po_probe:
         if not b.delyanka_item_id:
             raise HTTPException(400, "Выбери делянку")
         if not conn.execute("SELECT 1 FROM delyanka_item WHERE id=?", (b.delyanka_item_id,)).fetchone():
             raise HTTPException(404, "Делянка не найдена")
     if b.vid in ("harvester",) and (not b.obyom or b.obyom <= 0):
         raise HTTPException(400, "Укажи кубы")
-    if b.vid in ("rubka_uhoda", "ochistka") and not uch and (b.ga is None or b.ga <= 0) and not b.uchastok_proyden:
+    if b.vid in ("rubka_uhoda", "ochistka") and not uch and not po_probe and (b.ga is None or b.ga <= 0) and not b.uchastok_proyden:
         raise HTTPException(400, "Укажи, сколько га сделал")
     if b.vid == "sanrubka" and not ((b.ga or 0) > 0 or (b.obyom or 0) > 0 or b.uchastok_proyden):
         raise HTTPException(400, "Укажи га или кубы")
@@ -482,7 +502,8 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
     ensure(conn)
     segodnya = segodnya or date.today()
     d = _proverit(conn, b, segodnya)
-    uch = po_uchastku(b.vid, b.lesokultury_uchastok_id)
+    po_probe = b.vid == "rubka_uhoda" and bool(b.uhody_proba_id)
+    uch = po_uchastku(b.vid, b.lesokultury_uchastok_id) and not po_probe
     if b.client_id:
         est = conn.execute("SELECT id FROM otchet_smeny WHERE sotrudnik_id=? AND client_id=?", (sid, b.client_id)).fetchone()
         if est:  # повтор из очереди без сети — уже записан
@@ -500,13 +521,13 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
         toplivo = t[2]
     cur = conn.execute(
         """INSERT INTO otchet_smeny (sotrudnik_id, data, vid, delyanka_item_id, lesokultury_uchastok_id, reysov, obyom, ga,
-           chasy, poluchatel, tehnika, kommentariy, client_id, tehnika_id, toplivo, toplivo_rashod, zapravka)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (sid, d.isoformat(), b.vid, b.delyanka_item_id if (b.vid in PO_DELYANKE and not uch) else None,
+           chasy, poluchatel, tehnika, kommentariy, client_id, tehnika_id, toplivo, toplivo_rashod, zapravka, uhody_proba_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (sid, d.isoformat(), b.vid, b.delyanka_item_id if (b.vid in PO_DELYANKE and not uch and not po_probe) else None,
          b.lesokultury_uchastok_id if uch else None, b.reysov, b.obyom, b.ga, b.chasy,
          (b.poluchatel or "").strip()[:120] or None, teh_naz,
          (b.kommentariy or "").strip()[:1000] or None, b.client_id, b.tehnika_id, toplivo,
-         b.toplivo_rashod or None, b.zapravka or None))
+         b.toplivo_rashod or None, b.zapravka or None, b.uhody_proba_id if po_probe else None))
     oid = cur.lastrowid
     uchastniki = [sid] + nap
     trel_ids = {}
@@ -529,7 +550,9 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
     conn.commit()
 
     zakryt = None
-    if uch:
+    if po_probe:
+        zakryt = None  # учёт по пробе — в «Выполнении» (сделано из площади пробы)
+    elif uch:
         zakryt = _zakryt_esli_proyden(conn, oid, b.lesokultury_uchastok_id, b.vid, d, sid, b.uchastok_proyden)
     elif b.vid in PO_ITEM_GA:
         zakryt = _zakryt_item(conn, oid, b.delyanka_item_id, b.vid, b.uchastok_proyden)
@@ -578,7 +601,13 @@ def _zakryt_item(conn, oid, iid, vid, rukami):
 
 def _posle(conn, oid):
     """Что показать человеку после отправки: остаток по участку / выделу."""
-    r = conn.execute("SELECT lesokultury_uchastok_id, vid, delyanka_item_id FROM otchet_smeny WHERE id=?", (oid,)).fetchone()
+    r = conn.execute("SELECT lesokultury_uchastok_id, vid, delyanka_item_id, uhody_proba_id FROM otchet_smeny WHERE id=?",
+                     (oid,)).fetchone()
+    if r and r[3]:
+        from app import uhody_vypolnenie
+        sv = uhody_vypolnenie.svodka(conn, r[3]) or {}
+        return {"ostatok": sv.get("ostatok_ga"), "sdelano_v_cikle": sv.get("sdelano_ga"), "ploshad": sv.get("ploshad"),
+                "kubov": sv.get("kubov")}
     if r and r[2] and r[1] in PO_ITEM_GA:
         pl = conn.execute("SELECT ploshad FROM delyanka_item WHERE id=?", (r[2],)).fetchone()
         pl = _f(pl[0]) if pl else None
@@ -620,8 +649,9 @@ def _stroki(conn, where, args, limit=300):
         f"""SELECT o.id, o.sotrudnik_id, s.fio, o.data, o.vid, o.delyanka_item_id, di.kvartal, di.vydel, di.lesoseka_nomer,
                    d.nazvanie, o.lesokultury_uchastok_id, lu.kvartal, lu.vydel, lu.lesnichestvo, lu.ploshad, o.reysov,
                    o.obyom, o.ga, o.chasy, o.poluchatel, o.tehnika, o.kommentariy, o.zakryl_cikl, o.created_at,
-                   o.tehnika_id, o.toplivo, o.toplivo_rashod, o.zapravka
+                   o.tehnika_id, o.toplivo, o.toplivo_rashod, o.zapravka, o.uhody_proba_id, up.kvartal, up.vydel
             FROM otchet_smeny o
+            LEFT JOIN uhody_proby up ON up.id = o.uhody_proba_id
             JOIN sotrudniki s ON s.id = o.sotrudnik_id
             LEFT JOIN delyanka_item di ON di.id = o.delyanka_item_id
             LEFT JOIN delyanka d ON d.id = di.delyanka_id
@@ -641,6 +671,8 @@ def _stroki(conn, where, args, limit=300):
             mesto = _label_item(r[6], r[7], r[8], r[9])
         elif r[10]:
             mesto = _label_uch(r[13], r[11], r[12], None, None)
+        elif r[28]:
+            mesto = f"проба №{r[28]} · кв.{r[29] or '—'} выд.{r[30] or '—'}"
         out.append({
             "id": r[0], "sotrudnik_id": r[1], "fio": r[2], "data": r[3], "vid": r[4], "vid_title": VIDY.get(r[4], {}).get("title", r[4]),
             "emoji": VIDY.get(r[4], {}).get("emoji", "•"), "delyanka_item_id": r[5], "lesokultury_uchastok_id": r[10],
@@ -648,6 +680,7 @@ def _stroki(conn, where, args, limit=300):
             "poluchatel": r[19], "tehnika": r[20], "kommentariy": r[21], "zakryl_cikl": bool(r[22]), "created_at": r[23],
             "naparniki": [n for n in nap.get(r[0], []) if n["id"] != r[1]],
             "tehnika_id": r[24], "toplivo": r[25], "toplivo_rashod": r[26], "zapravka": r[27],
+            "uhody_proba_id": r[28],
         })
     return out
 
@@ -681,9 +714,9 @@ def _worker(user):
 
 
 @router.get("/spravochnik")
-def get_spravochnik(conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
+def get_spravochnik(vse: bool = False, conn=Depends(get_conn), user=Depends(require_permission("bot.access"))):
     _worker(user)
-    return spravochnik(conn, user["sotrudnik_id"])
+    return spravochnik(conn, user["sotrudnik_id"], vse_kultury=vse)
 
 
 @router.post("")

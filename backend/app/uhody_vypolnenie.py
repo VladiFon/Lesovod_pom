@@ -100,7 +100,8 @@ def _otchety(conn):
         """SELECT o.id, o.data, o.ga, s.fio, o.lesokultury_uchastok_id,
                   COALESCE(lu.kvartal, di.kvartal), COALESCE(lu.vydel, di.vydel),
                   COALESCE(lu.lesnichestvo, di.lesnichestvo),
-                  (SELECT COUNT(*) FROM otchet_smeny_uchastnik u WHERE u.otchet_id = o.id AND u.sotrudnik_id <> o.sotrudnik_id)
+                  (SELECT COUNT(*) FROM otchet_smeny_uchastnik u WHERE u.otchet_id = o.id AND u.sotrudnik_id <> o.sotrudnik_id),
+                  o.uhody_proba_id
            FROM otchet_smeny o
            JOIN sotrudniki s ON s.id = o.sotrudnik_id
            LEFT JOIN lesokultury_uchastok lu ON lu.id = o.lesokultury_uchastok_id
@@ -112,8 +113,13 @@ def _otchety(conn):
 def raspredelit(conn):
     """{proba_id: [отчёт, ...]} — к какой пробе относится каждый отчёт о рубке ухода."""
     proby = _proby(conn)
+    po_id = {p["id"]: p for p in proby}
     out = {}
-    for oid, d, ga, fio, uid, kv, vd, lesn, nap in _otchety(conn):
+    for oid, d, ga, fio, uid, kv, vd, lesn, nap, pid in _otchety(conn):
+        if pid:  # телефон 0.11.2+: отчёт сразу по пробе
+            if pid in po_id:
+                out.setdefault(pid, []).append({"id": oid, "data": d, "ga": _r(ga), "fio": fio, "naparnikov": nap or 0})
+            continue
         dd = _data(d)
         kv, vd, lesn = _norm(kv), _norm(vd), _norm_lesn(lesn)
         best = None
@@ -206,3 +212,43 @@ def udalit(conn, vid):
     conn.execute("DELETE FROM uhody_vypolnenie WHERE id=?", (vid,))
     conn.commit()
     return r[0]
+
+
+def dlya_telefona(conn, sid=None):
+    """Пробы рубок ухода для отчёта смены на телефоне: где сколько сделано и
+    осталось. Незаконченные сверху, свежие замеры раньше."""
+    ensure(conn)
+    po = raspredelit(conn)
+    ru = _ruchnye(conn)
+    info = {r[0]: r[1:] for r in conn.execute(
+        "SELECT id, data_json, completed_at, lesokultury_uchastok_ids_json, data_zamera FROM uhody_proby WHERE delyanka_id IS NULL"
+    ).fetchall()}
+    moi = {}
+    if sid:
+        for pid, d in conn.execute(
+                """SELECT uhody_proba_id, MAX(data) FROM otchet_smeny WHERE deleted=0 AND uhody_proba_id IS NOT NULL
+                   AND (sotrudnik_id=? OR id IN (SELECT otchet_id FROM otchet_smeny_uchastnik WHERE sotrudnik_id=?))
+                   GROUP BY uhody_proba_id""", (sid, sid)).fetchall():
+            moi[pid] = d
+    out = []
+    for p in _proby(conn):
+        dj, completed, uids, dz = info.get(p["id"], (None, None, None, None))
+        try:
+            data = json.loads(dj) if dj else {}
+        except (TypeError, ValueError):
+            data = {}
+        it = _itog(p, po.get(p["id"], []), ru.get(p["id"], []))
+        kv = conn.execute("SELECT kvartal, vydel FROM uhody_proby WHERE id=?", (p["id"],)).fetchone()
+        lesn = (data.get("lesnichestvo") or "").strip()
+        vid_rubki = (data.get("vid_rubki") or "").strip()
+        label = f"кв.{kv[0] or '—'} выд.{kv[1] or '—'}" + (f" · {lesn}" if lesn else "") + f" · проба №{p['id']}"
+        gotovo = bool(completed) or (it["ostatok_ga"] is not None and it["ostatok_ga"] <= 0 and it["sdelano_ga"] > 0)
+        out.append({
+            "id": p["id"], "kvartal": kv[0], "vydel": kv[1], "label": label, "vid_rubki": vid_rubki or None,
+            "data_zamera": dz, "ploshad": it["ploshad"], "zapas_na_1ga": it["zapas_na_1ga"],
+            "sdelano": it["sdelano_ga"], "ostatok": it["ostatok_ga"], "kubov": it["kubov"],
+            "gotovo": gotovo, "nedavno": moi.get(p["id"]),
+            "na_kulturah": bool(json.loads(uids) if uids else []),
+        })
+    out.sort(key=lambda x: (x["gotovo"], x["nedavno"] is None, -(x["id"])))
+    return out

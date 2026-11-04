@@ -16,6 +16,43 @@ const today = () => {
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
 };
 
+/** Поле «Кто делал» с поиском по справочнику сотрудников (можно и вписать
+ * стороннего человека руками). */
+function SotrudnikPoisk({ value, onChange, sotrudniki }) {
+  const [open, setOpen] = useState(false);
+  const q = value.trim().toLowerCase();
+  const naydeno = sotrudniki
+    .filter((s) => !q || `${s.fio} ${s.dolzhnost || ""}`.toLowerCase().includes(q))
+    .slice(0, 8);
+  return (
+    <div className="relative">
+      <TextField
+        label="Кто делал"
+        placeholder="Начни вводить фамилию…"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && naydeno.length > 0 && !(naydeno.length === 1 && naydeno[0].fio === value) && (
+        <ul className="absolute z-20 left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-md border border-border bg-surface shadow-lg">
+          {naydeno.map((s) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-hover"
+                onMouseDown={(e) => { e.preventDefault(); onChange(s.fio); setOpen(false); }}
+              >
+                {s.fio}{s.dolzhnost ? <span className="text-muted"> · {s.dolzhnost}</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** «Выполнение» по пробе рубок ухода (app/uhody_vypolnenie.py): сколько га
  * уже сделано по отчётам с телефона и вручную, кубы = м³/га пробы × га. */
 export default function UhodyVypolnenie({ probaId, onChanged }) {
@@ -23,6 +60,10 @@ export default function UhodyVypolnenie({ probaId, onChanged }) {
   const [d, setD] = useState(null);
   const [nov, setNov] = useState({ data: today(), ga: "", ispolnitel: "", kommentariy: "" });
   const [saving, setSaving] = useState(false);
+  const [sotrudniki, setSotrudniki] = useState([]);
+  useEffect(() => {
+    api.get("/uhody/sotrudniki").then(setSotrudniki).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setD(null);
@@ -109,7 +150,7 @@ export default function UhodyVypolnenie({ probaId, onChanged }) {
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-[150px]"><DateField label="Дата" value={nov.data} onChange={(v) => setNov((n) => ({ ...n, data: v }))} /></div>
         <div className="w-[90px]"><TextField label="Га" value={nov.ga} onChange={(e) => setNov((n) => ({ ...n, ga: e.target.value }))} /></div>
-        <div className="w-[180px]"><TextField label="Кто делал" value={nov.ispolnitel} onChange={(e) => setNov((n) => ({ ...n, ispolnitel: e.target.value }))} /></div>
+        <div className="w-[240px]"><SotrudnikPoisk value={nov.ispolnitel} sotrudniki={sotrudniki} onChange={(v) => setNov((n) => ({ ...n, ispolnitel: v }))} /></div>
         <div className="flex-1 min-w-[140px]"><TextField label="Примечание" value={nov.kommentariy} onChange={(e) => setNov((n) => ({ ...n, kommentariy: e.target.value }))} /></div>
         <Button variant="primary" onClick={add} disabled={saving}>＋ Добавить</Button>
       </div>
