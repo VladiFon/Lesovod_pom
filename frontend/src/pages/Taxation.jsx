@@ -155,6 +155,10 @@ function VydelHistory({ history }) {
       <div className="flex items-center gap-2 flex-wrap">
         <div className="text-[14px] font-extrabold text-pine">Жизнь выдела</div>
         <span className="text-muted-2 text-xs">делянки → лесные культуры → рубки ухода → работы; всё кликается</span>
+        {history._kv && (
+          <button type="button" onClick={() => openScreen("raboty", { kv: history._kv, vyd: history._vyd, s: "" })}
+            className="ml-auto text-[12.5px] text-pine hover:underline">📒 все работы на выделе в журнале →</button>
+        )}
       </div>
       {delyanki.length > 0 && (
         <div>
@@ -273,7 +277,7 @@ export default function Taxation() {
     setHistory(null);
     api
       .get("/taxation/vydel-history", { kvartal: kvartal.trim(), vydel: vydel.trim(), lesnichestvo: lesnichestvo || undefined })
-      .then(setHistory)
+      .then((h) => setHistory(h ? { ...h, _kv: kvartal.trim(), _vyd: vydel.trim() } : h))
       .catch(() => setHistory(null));
     try {
       const result = await api.get("/taxation/vydel", {

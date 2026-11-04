@@ -7,7 +7,7 @@ import { useVid } from "../vid.jsx";
 // ИИ-журнал) + заметки; «Табель» = ввод + присутствие; «Задачи» = план
 // работ + календарь (вкладки внутри экрана, см. App.jsx).
 export const NAV_GROUPS = [
-  { title: "обзор", items: [["dashboard", "Дашборд"], ["telefon", "С телефона"], ["kvesty", "🎯 Квесты"], ["gazeta", "📰 Газета"]] },
+  { title: "обзор", items: [["dashboard", "Дашборд"], ["skhema", "🗺 Схема сайта"], ["telefon", "С телефона"], ["kvesty", "🎯 Квесты"], ["gazeta", "📰 Газета"]] },
   {
     title: "делянки",
     items: [["plots", "Делянки"], ["raskhod", "Расход / ЕГАИС"], ["inspection", "Инспекция"], ["documents", "Документы"]],
@@ -17,6 +17,7 @@ export const NAV_GROUPS = [
     title: "люди",
     items: [
       ["sotrudniki", "Сотрудники"],
+      ["raboty", "Журнал работ"],
       ["raspredelenie", "Распределение бригад"],
       ["zadachi", "Задачи"],
       ["tabel", "Табель"],

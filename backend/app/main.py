@@ -21,6 +21,9 @@ import config as legacy_config
 from app import signaly
 from app.database import get_connection, init_db
 from app.routers import chelovek as chelovek_router
+from app.routers import zhurnal as zhurnal_rabot_router
+from app.routers import poisk as poisk_router
+from app.routers import skhema as skhema_router
 from app.routers import (
     ai_log,
     archive,
@@ -158,3 +161,6 @@ app.include_router(tehnika.router)
 app.include_router(hvorost.router)
 app.include_router(igra_bot.router)
 app.include_router(chelovek_router.router)
+app.include_router(zhurnal_rabot_router.router)
+app.include_router(poisk_router.router)
+app.include_router(skhema_router.router)

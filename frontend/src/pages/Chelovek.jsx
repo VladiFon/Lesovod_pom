@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client.js";
-import { useScreenParam } from "../nav.js";
+import { openScreen, useScreenParam } from "../nav.js";
 import Card from "../components/Card.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
@@ -184,7 +184,9 @@ function Kartochka({ id }) {
         title="Где был и что делал"
         subtitle={`${ruData(d.ot)} — ${ruData(d.do)} · табель, отчёты с телефона, журнал работ, лесокультуры, рубки ухода`}
         actions={
-          <div className="flex gap-1">
+          <div className="flex gap-1 items-center">
+            <button type="button" onClick={() => openScreen("raboty", { s: d.id, kv: "", vyd: "" })}
+              className="mr-1 text-[12.5px] text-pine hover:underline" title="Все работы человека в «Журнале работ»">📒 в журнале →</button>
             {[[7, "Неделя"], [31, "Месяц"], [92, "3 мес."]].map(([n, t]) => (
               <button key={n} type="button" onClick={() => setDney(n)}
                 className={["px-2.5 py-1 rounded-md border text-[12.5px]", dney === n ? "bg-mint text-pine border-pine font-bold" : "border-border hover:bg-hover"].join(" ")}>

@@ -16,6 +16,8 @@ import PlanRabot from "./pages/PlanRabot.jsx";
 import TabelRuchnoy from "./pages/TabelRuchnoy.jsx";
 import Sotrudniki from "./pages/Sotrudniki.jsx";
 import Chelovek from "./pages/Chelovek.jsx";
+import ZhurnalRabot from "./pages/ZhurnalRabot.jsx";
+import Skhema from "./pages/Skhema.jsx";
 import Attendance from "./pages/Attendance.jsx";
 import WorkerNotes from "./pages/WorkerNotes.jsx";
 import OtchetySmeny from "./pages/OtchetySmeny.jsx";
@@ -166,6 +168,10 @@ const READY_SCREENS = {
   // Односторонние ленты "рабочий -> мастер" (мобильное приложение ->
   // веб), см. app/routers/attendance.py и app/routers/notes.py.
   telefon: { title: "С телефона", subtitle: "Отчёты рабочих на проверку, заметки, журнал выполненных работ", Page: poVidu(Telefon, TelefonIgra) },
+  // Шаг 3 разбора «сайт разбросан» (04.11.2026): единый журнал работ и
+  // живая схема «как работает сайт» (что от чего зависит, что висит).
+  raboty: { title: "Журнал работ", subtitle: "Всё, что сделано: смены с телефона, культуры, рубки ухода, табель — одной лентой", Page: ZhurnalRabot },
+  skhema: { title: "Как работает сайт", subtitle: "Схема: откуда что берётся, кто что делает и что висит прямо сейчас", Page: Skhema },
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
   // Удалённые делянки/участки лежат здесь 30 дней (app/korzina.py).
   korzina: { title: "Корзина", subtitle: "Удалённые делянки и участки — можно вернуть в течение 30 дней", Page: Korzina },
