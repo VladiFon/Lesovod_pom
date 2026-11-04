@@ -52,6 +52,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
+import hvorost
 
 try:
     from db import (
@@ -251,7 +252,7 @@ def _normalize_poroda_keys(d):
     return out
 
 
-def _build_balance(item, fakt, fakt_egais=None):
+def _build_balance(item, fakt, fakt_egais=None, hvorost_limit=None):
     """Собирает {порода: {KR/SR/ML/DROVA/HVOROST: {limit, limit_110, fakt,
     ostatok, ostatok_110, fakt_egais, ostatok_egais, ostatok_egais_110}}}
     по лимитам выдела (item, из МДО), факту по нарядам (fakt = {порода:
@@ -276,8 +277,14 @@ def _build_balance(item, fakt, fakt_egais=None):
     limits = _normalize_poroda_keys(get_limits(item))
     fakt = _normalize_poroda_keys(fakt)
     fakt_egais = _normalize_poroda_keys(fakt_egais)
+    # Хворост: «разрешено» есть, только если на делянке выбран источник
+    # (МДО / проба «хворост делянки», см. legacy/hvorost.py).
+    hv_limit = None
+    if hvorost_limit is not None:
+        hv_limit = {p: v.get("HVOROST", 0) for p, v in
+                    _normalize_poroda_keys({p: {"HVOROST": x} for p, x in hvorost_limit.items()}).items()}
     balance = {}
-    all_porody = set(limits.keys()) | set(fakt.keys()) | set(fakt_egais.keys())
+    all_porody = set(limits.keys()) | set(fakt.keys()) | set(fakt_egais.keys()) | set(hv_limit or {})
     for poroda in all_porody:
         balance[poroda] = {}
         # Раньше здесь был выбор по SPECIES_WITH_GRADES/иначе KR+DROVA —
@@ -305,7 +312,14 @@ def _build_balance(item, fakt, fakt_egais=None):
         # б-р, отдельного бакета HVOROST там нет, поэтому у ЕГАИС-колонок
         # для хвороста строки просто не будет — это ожидаемо, не баг)
         hvorost_fakt = fakt.get(poroda, {}).get("HVOROST", 0)
-        if hvorost_fakt:
+        if hv_limit is not None:
+            hl = hv_limit.get(poroda, 0)
+            if hl or hvorost_fakt:
+                balance[poroda]["HVOROST"] = {
+                    "limit": hl, "limit_110": hl * 1.1, "fakt": hvorost_fakt,
+                    "ostatok": hl - hvorost_fakt, "ostatok_110": hl * 1.1 - hvorost_fakt,
+                }
+        elif hvorost_fakt:
             balance[poroda]["HVOROST"] = {
                 "limit": None, "limit_110": None, "fakt": hvorost_fakt,
                 "ostatok": None, "ostatok_110": None,
@@ -382,9 +396,11 @@ def compute_balance_batch(conn, items):
             if entry:
                 fakt_egais_by_item[item["id"]] = _fakt_egais_from_entry(entry)
 
+    hv = hvorost.limity_batch(conn, items)
     return {
         item["id"]: _build_balance(
-            item, fakt_by_item.get(item["id"], {}), fakt_egais_by_item.get(item["id"], {})
+            item, fakt_by_item.get(item["id"], {}), fakt_egais_by_item.get(item["id"], {}),
+            hv.get(item["id"]),
         )
         for item in items
     }

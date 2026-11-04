@@ -22,6 +22,8 @@ import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
 import AuthImage from "../components/AuthImage.jsx";
 import { useToast } from "../components/Toast.jsx";
+import UhodyVypolnenie from "../components/UhodyVypolnenie.jsx";
+import HvorostProba from "../components/HvorostProba.jsx";
 
 /**
  * Экран "Рубки ухода" (C.3 плана) — независимые пробы (не привязаны к
@@ -281,6 +283,9 @@ export default function RubkiUhoda() {
   const [proby, setProby] = useState([]);
   const [probyLoading, setProbyLoading] = useState(true);
   const [probySearch, setProbySearch] = useState("");
+  // Вкладки списка: рубки ухода / пробы «хворост делянки» (legacy/hvorost.py)
+  const [vkladka, setVkladka] = useState("uhod");
+  const [hvDelyanka, setHvDelyanka] = useState({ id: null, nazvanie: null });
 
   // --- текущая проба ---
   const [selectedId, setSelectedId] = useState(null);
@@ -447,9 +452,10 @@ export default function RubkiUhoda() {
 
   const filteredProby = useMemo(() => {
     const q = probySearch.trim().toLowerCase();
-    if (!q) return proby;
-    return proby.filter((p) => `${p.kvartal}/${p.vydel}`.toLowerCase().includes(q));
-  }, [proby, probySearch]);
+    const po = proby.filter((p) => (vkladka === "hvorost") === !!p.delyanka_id);
+    if (!q) return po;
+    return po.filter((p) => `${p.kvartal}/${p.vydel} ${p.delyanka_nazvanie || ""}`.toLowerCase().includes(q));
+  }, [proby, probySearch, vkladka]);
 
   // ------------------------------------------------------------------- //
   //   Поиск участка (кв./выдел) — предзаполнение формы
@@ -537,6 +543,7 @@ export default function RubkiUhoda() {
     setLkDannye([]);
     setPhotos({ stolb_delyanki: false, stolb_proby: false });
     setAvtorFio(null);
+    setHvDelyanka({ id: null, nazvanie: null });
   };
 
   const openProba = async (id) => {
@@ -590,6 +597,7 @@ export default function RubkiUhoda() {
       setLesokulturySelectedInfo(record.lesokultury_uchastki || []);
       setPhotos(record.photos || { stolb_delyanki: false, stolb_proby: false });
       setAvtorFio(record.avtor_fio || null);
+      setHvDelyanka({ id: record.delyanka_id || null, nazvanie: record.delyanka_nazvanie || null });
       loadLkDannye({
         kv: record.kvartal,
         vd: record.vydel,
@@ -819,6 +827,17 @@ export default function RubkiUhoda() {
       {/* ---------- Левая колонка: список своих проб ---------- */}
       <Card padding={false} className="flex flex-col" style={{ flex: "1 1 260px", maxWidth: 380 }}>
         <div className="p-5 pb-3 flex flex-col gap-3 border-b border-border">
+          <div className="flex gap-1 rounded-md bg-hover p-1">
+            {[["uhod", "✂️ Рубки ухода"], ["hvorost", "🔥 Хворост делянок"]].map(([k, t]) => (
+              <button
+                key={k}
+                onClick={() => setVkladka(k)}
+                className={["flex-1 px-2 py-1.5 rounded text-sm", vkladka === k ? "bg-surface text-pine font-bold shadow-sm" : "text-muted"].join(" ")}
+              >
+                {t} ({proby.filter((p) => (k === "hvorost") === !!p.delyanka_id).length})
+              </button>
+            ))}
+          </div>
           <Button variant="primary" onClick={resetForm}>
             + Новая проба
           </Button>
@@ -856,6 +875,13 @@ export default function RubkiUhoda() {
                       {p.data_zamera || "дата не указана"}
                       {p.ploshad_proby ? ` · проба ${p.ploshad_proby} га` : ""}
                     </div>
+                    {p.delyanka_id ? (
+                      <div className="text-xs text-muted mt-0.5 truncate">🔥 {p.delyanka_nazvanie || `делянка №${p.delyanka_id}`}</div>
+                    ) : p.vypolnenie ? (
+                      <div className="text-xs text-muted mt-0.5 truncate">
+                        ✂️ сделано {p.vypolnenie.sdelano_ga} га{p.vypolnenie.ploshad ? ` из ${p.vypolnenie.ploshad}` : ""} · {p.vypolnenie.kubov} м³
+                      </div>
+                    ) : null}
                     {p.avtor_fio && (
                       <div className="text-xs text-muted mt-0.5 truncate" title="Прислано из мобильного приложения">
                         📱 {p.avtor_fio}
@@ -872,6 +898,19 @@ export default function RubkiUhoda() {
 
       {/* ---------- Правая колонка ---------- */}
       <div className="flex-1 min-w-0 flex flex-col gap-6">
+        {isEditing && (
+          <HvorostProba
+            probaId={selectedId}
+            delyankaId={hvDelyanka.id}
+            delyankaNazvanie={hvDelyanka.nazvanie}
+            onChanged={(rec) => {
+              setHvDelyanka({ id: rec.delyanka_id || null, nazvanie: rec.delyanka_nazvanie || null });
+              setVkladka(rec.delyanka_id ? "hvorost" : "uhod");
+              reloadProby();
+            }}
+          />
+        )}
+        {isEditing && !hvDelyanka.id && <UhodyVypolnenie probaId={selectedId} onChanged={reloadProby} />}
         {/* Поиск участка */}
         <Card title="Участок" subtitle="Поиск по кварталу/выделу — предзаполняет лесничество, категорию, состав и полноту; если на выделе есть лесные культуры — данные берутся из них">
           <div className="flex items-end gap-4 flex-wrap">

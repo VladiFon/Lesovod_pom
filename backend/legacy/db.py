@@ -1055,6 +1055,10 @@ def migrate_schema(conn):
     for col in ("foto_stolb_delyanki", "foto_stolb_proby"):
         if col not in existing_uhody_cols:
             conn.execute(f"ALTER TABLE uhody_proby ADD COLUMN {col} TEXT")
+    # delyanka_id — проба «хворост делянки» (legacy/hvorost.py): документы
+    # на хворост делянки главного пользования, а не рубка ухода.
+    if "delyanka_id" not in existing_uhody_cols:
+        conn.execute("ALTER TABLE uhody_proby ADD COLUMN delyanka_id INTEGER REFERENCES delyanka(id)")
     # proba_id в lesokultury_meropriyatiya — чтобы отличать запись журнала,
     # заведённую вручную, от автоматически созданной при отметке пробы
     # рубок ухода выполненной (см. mark_uhody_proba_completed); нужен для
@@ -2134,9 +2138,11 @@ def list_uhody_proby(conn, sotrudnik_id=None):
         SELECT p.id, p.kvartal, p.vydel, p.ploshad_vydela, p.ploshad_proby, p.data_zamera,
                p.created_at, p.completed_at, p.ispolniteli_json, p.lesokultury_uchastok_ids_json,
                p.sotrudnik_id, s.fio,
-               (p.foto_stolb_delyanki IS NOT NULL OR p.foto_stolb_proby IS NOT NULL)
+               (p.foto_stolb_delyanki IS NOT NULL OR p.foto_stolb_proby IS NOT NULL),
+               p.delyanka_id, d.nazvanie
         FROM uhody_proby p
         LEFT JOIN sotrudniki s ON s.id = p.sotrudnik_id
+        LEFT JOIN delyanka d ON d.id = p.delyanka_id
         {where}
         ORDER BY p.id DESC
         """,
@@ -2157,6 +2163,8 @@ def list_uhody_proby(conn, sotrudnik_id=None):
             "sotrudnik_id": row[10],
             "avtor_fio": row[11],
             "est_foto": bool(row[12]),
+            "delyanka_id": row[13],
+            "delyanka_nazvanie": row[14],
         }
         for row in rows
     ]
@@ -2171,7 +2179,9 @@ def get_uhody_proba(conn, proba_id):
                data_json, created_at, completed_at, ispolniteli_json,
                lesokultury_uchastok_ids_json, sotrudnik_id,
                foto_stolb_delyanki, foto_stolb_proby,
-               (SELECT fio FROM sotrudniki WHERE sotrudniki.id = uhody_proby.sotrudnik_id)
+               (SELECT fio FROM sotrudniki WHERE sotrudniki.id = uhody_proby.sotrudnik_id),
+               delyanka_id,
+               (SELECT nazvanie FROM delyanka WHERE delyanka.id = uhody_proby.delyanka_id)
         FROM uhody_proby
         WHERE id = ?
         """,
@@ -2215,6 +2225,9 @@ def get_uhody_proba(conn, proba_id):
         "photos": {"stolb_delyanki": bool(row[12]), "stolb_proby": bool(row[13])},
         # кто прислал пробу из мобильного приложения (NULL — завёл офис)
         "avtor_fio": row[14],
+        # проба «хворост делянки» (legacy/hvorost.py), NULL — рубка ухода
+        "delyanka_id": row[15],
+        "delyanka_nazvanie": row[16],
     }
 
 

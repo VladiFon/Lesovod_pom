@@ -46,6 +46,7 @@ from app.routers import (
     chellendzhi,
     smena,
     tehnika,
+    hvorost,
     igra_bot,
     lesokultury,
     map as map_router,
@@ -153,4 +154,5 @@ app.include_router(chellendzhi.router)
 app.include_router(smena.router)
 app.include_router(smena.web_router)
 app.include_router(tehnika.router)
+app.include_router(hvorost.router)
 app.include_router(igra_bot.router)

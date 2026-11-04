@@ -16,6 +16,7 @@ import DelyankaNav from "../components/DelyankaNav.jsx";
 import OtsrochkaModal from "../components/OtsrochkaModal.jsx";
 import { useCan } from "../auth.jsx";
 import StoronnyayaBlock from "../components/StoronnyayaBlock.jsx";
+import HvorostBlock from "../components/HvorostBlock.jsx";
 
 /**
  * Экран "Акты освидетельствования" (screens/inspection/) — Этап 10 плана.
@@ -910,6 +911,7 @@ function InspectionDetail({ row, onChanged }) {
         {row.otsrochka && <OtsrochkaInfo row={row} onChanged={onChanged} />}
 
         <StoronnyayaBlock row={row} onChanged={onChanged} />
+        <HvorostBlock delyankaId={row.id} />
 
         <div>
           <div className="text-[12.5px] text-muted-2 mb-1.5">

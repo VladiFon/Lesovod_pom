@@ -1024,6 +1024,8 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
       poroda,
       cellsByGroup: { delovaya, KR: kr, SR: sr, ML: ml, DROVA: drova, itogo },
       hvorostFakt: row.HVOROST?.fakt ?? 0,
+      // «разрешено» по хворосту — только если на делянке выбран источник (МДО / проба)
+      hvorostLimit: typeof row.HVOROST?.limit === "number" ? row.HVOROST.limit : null,
     };
   });
 
@@ -1037,6 +1039,9 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
     totalsByGroup[g.key] = sumCells(rowsData.map((r) => r.cellsByGroup[g.key]));
   }
   const hvorostTotal = rowsData.reduce((sum, r) => sum + r.hvorostFakt, 0);
+  const hvorostLimitTotal = rowsData.some((r) => r.hvorostLimit != null)
+    ? rowsData.reduce((sum, r) => sum + (r.hvorostLimit || 0), 0) : null;
+  const hvTxt = (fakt, limit) => (limit != null ? `${fakt.toFixed(1)} / ${limit.toFixed(1)}` : fakt.toFixed(1));
 
   return (
     <div>
@@ -1076,7 +1081,7 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
                 )}
               </th>
             ))}
-            <th rowSpan={2} className="px-3 py-2 text-center border-l border-border align-bottom">Хворост<br />факт</th>
+            <th rowSpan={2} className="px-3 py-2 text-center border-l border-border align-bottom">Хворост<br />{hvorostLimitTotal != null ? "факт / разреш." : "факт"}</th>
           </tr>
           <tr className="bg-surface-alt border-b border-border text-left text-faint text-xs">
             {groupDefs.map((g) =>
@@ -1089,7 +1094,7 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
           </tr>
         </thead>
         <tbody>
-          {rowsData.map(({ poroda, cellsByGroup, hvorostFakt }) => {
+          {rowsData.map(({ poroda, cellsByGroup, hvorostFakt, hvorostLimit }) => {
             const isSelected = selectedPoroda === poroda;
             return (
               <tr
@@ -1124,7 +1129,7 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
                     </td>
                   ));
                 })}
-                <td className="px-3 py-2 text-center text-ink border-l border-border">{hvorostFakt.toFixed(1)}</td>
+                <td className="px-3 py-2 text-center text-ink border-l border-border">{hvTxt(hvorostFakt, hvorostLimit)}</td>
               </tr>
             );
           })}
@@ -1147,7 +1152,7 @@ function BalanceTable({ balance, ploshadInfo, selectedPoroda, onSelectPoroda }) 
                 </td>
               ));
             })}
-            <td className="px-3 py-2 text-center text-ink border-l border-border">{hvorostTotal.toFixed(1)}</td>
+            <td className="px-3 py-2 text-center text-ink border-l border-border">{hvTxt(hvorostTotal, hvorostLimitTotal)}</td>
           </tr>
         </tfoot>
       </table>
