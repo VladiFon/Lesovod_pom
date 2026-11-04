@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState, useMemo } from "react";
+import IspolniteliPicker from "../components/IspolniteliPicker.jsx";
 import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
@@ -344,15 +345,50 @@ function dannyeFromExtra(tip, extra) {
   return spec.group ? { [spec.group]: values } : values;
 }
 
-function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
+// Поля доп. блока (перевод/доращивание/списание) из сохранённых dannye — для правки.
+function extraFromDannye(tip, dannye) {
+  const spec = EXTRA_FIELDS[tip];
+  if (!spec || !dannye) return {};
+  const src = spec.group ? dannye[spec.group] || {} : dannye;
+  const out = {};
+  for (const f of spec.fields) if (src[f.key] !== undefined && src[f.key] !== null) out[f.key] = String(src[f.key]);
+  return out;
+}
+
+// dannye для правки: полевую карточку с телефона (пробы, результаты) не трогаем,
+// заменяем только поля доп. блока текущего типа.
+function dannyeDlyaPravki(tip, extra, old) {
+  const d = { ...(old || {}) };
+  const spec = EXTRA_FIELDS[tip];
+  if (spec) {
+    const nov = dannyeFromExtra(tip, extra);
+    if (spec.group) {
+      if (nov) d[spec.group] = nov[spec.group];
+      else delete d[spec.group];
+    } else {
+      for (const f of spec.fields) delete d[f.key];
+      Object.assign(d, nov || {});
+    }
+  }
+  return Object.keys(d).length ? d : null;
+}
+
+/** Форма записи журнала: без zapis — добавление, с zapis — правка. */
+function AddMeropriyatieForm({ uchastokId, zapis, onAdded, onStatusChanged, onCancel }) {
   const toast = useToast();
-  const [tip, setTip] = useState(MEROPRIYATIE_TYPES[0]);
-  const [data, setData] = useState("");
-  const [prizhivaemost, setPrizhivaemost] = useState("");
-  const [kolichestvo, setKolichestvo] = useState("");
-  const [sostavFakt, setSostavFakt] = useState("");
-  const [primechaniya, setPrimechaniya] = useState("");
-  const [extra, setExtra] = useState({});
+  const z = zapis || {};
+  const [tip, setTip] = useState(z.tip || MEROPRIYATIE_TYPES[0]);
+  const [data, setData] = useState(z.data || "");
+  const [prizhivaemost, setPrizhivaemost] = useState(z.prizhivaemost_pct ?? "");
+  const [kolichestvo, setKolichestvo] = useState(z.kolichestvo_na_ga ?? "");
+  const [sostavFakt, setSostavFakt] = useState(z.sostav_fakt || "");
+  const [primechaniya, setPrimechaniya] = useState(z.primechaniya || "");
+  const [extra, setExtra] = useState(() => extraFromDannye(z.tip, z.dannye));
+  const [ispolniteli, setIspolniteli] = useState(() => ({
+    ids: (z.ispolniteli || []).filter((i) => i.id).map((i) => i.id),
+    storonnie: (z.ispolniteli || []).filter((i) => !i.id).map((i) => i.fio),
+  }));
+  const tipy = z.tip && !MEROPRIYATIE_TYPES.includes(z.tip) ? [z.tip, ...MEROPRIYATIE_TYPES] : MEROPRIYATIE_TYPES;
   const [submitting, setSubmitting] = useState(false);
 
   const isInventory = INVENTORY_TYPES.has(tip);
@@ -364,9 +400,39 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
       return;
     }
     setSubmitting(true);
+    if (zapis) {
+      try {
+        await api.put(`/lesokultury/meropriyatiya/${zapis.id}`, {
+          tip,
+          data: data.trim(),
+          prizhivaemost_pct: isInventory && prizhivaemost !== "" ? Number(String(prizhivaemost).replace(",", ".")) : null,
+          kolichestvo_na_ga: isInventory && kolichestvo !== "" ? Number(String(kolichestvo).replace(",", ".")) : null,
+          sostav_fakt: isInventory ? sostavFakt : "",
+          primechaniya,
+          dannye: dannyeDlyaPravki(tip, extra, zapis.dannye),
+          ispolniteli_ids: ispolniteli.ids,
+          storonnie: ispolniteli.storonnie,
+        });
+        const novyyStatus = tip !== zapis.tip && STATUS_TRIGGER_TYPES[tip];
+        if (novyyStatus) await api.patch(`/lesokultury/uchastki/${uchastokId}`, { status: novyyStatus });
+        toast.show({ tone: "success", title: "Запись исправлена" });
+        onAdded();
+        if (novyyStatus) onStatusChanged();
+      } catch (e) {
+        toast.show({ tone: "danger", title: "Не удалось сохранить запись", description: e.message });
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
     try {
       const dannye = dannyeFromExtra(tip, extra);
-      await api.post(`/lesokultury/uchastki/${uchastokId}/meropriyatiya`, dannye ? { dannye } : undefined, {
+      const telo = {
+        ...(dannye ? { dannye } : {}),
+        ...(ispolniteli.ids.length ? { ispolniteli_ids: ispolniteli.ids } : {}),
+        ...(ispolniteli.storonnie.length ? { storonnie: ispolniteli.storonnie } : {}),
+      };
+      await api.post(`/lesokultury/uchastki/${uchastokId}/meropriyatiya`, Object.keys(telo).length ? telo : undefined, {
         tip,
         data: data.trim(),
         prizhivaemost_pct: isInventory && prizhivaemost !== "" ? Number(prizhivaemost) : undefined,
@@ -386,6 +452,7 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
       setSostavFakt("");
       setPrimechaniya("");
       setExtra({});
+      setIspolniteli({ ids: [], storonnie: [] });
       onAdded();
       if (STATUS_TRIGGER_TYPES[tip]) onStatusChanged();
     } catch (e) {
@@ -405,7 +472,7 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
             onChange={(e) => setTip(e.target.value)}
             className={SELECT_CLASS}
           >
-            {MEROPRIYATIE_TYPES.map((t) => (
+            {tipy.map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
@@ -451,10 +518,52 @@ function AddMeropriyatieForm({ uchastokId, onAdded, onStatusChanged }) {
           </div>
         </div>
       )}
+      <IspolniteliPicker value={ispolniteli} onChange={setIspolniteli} label="Кто делал (попадёт в «Журнал выполненных работ»)" />
       <TextAreaField label="Примечания" rows={2} value={primechaniya} onChange={(e) => setPrimechaniya(e.target.value)} />
-      <div>
-        <Button variant="secondary" size="sm" onClick={handleAdd} loading={submitting}>Добавить запись</Button>
+      <div className="flex gap-2">
+        <Button variant={zapis ? "primary" : "secondary"} size="sm" onClick={handleAdd} loading={submitting}>
+          {zapis ? "Сохранить изменения" : "Добавить запись"}
+        </Button>
+        {onCancel && <Button variant="secondary" size="sm" onClick={onCancel}>Отмена</Button>}
       </div>
+    </div>
+  );
+}
+
+/** Ячейка «Кто делал»: список + правка (и для старых записей). */
+function IspolniteliYacheyka({ zapis, onSaved }) {
+  const toast = useToast();
+  const [edit, setEdit] = useState(false);
+  const [val, setVal] = useState({ ids: [], storonnie: [] });
+  const isp = zapis.ispolniteli || [];
+  const nachat = () => {
+    setVal({ ids: isp.filter((i) => i.id).map((i) => i.id), storonnie: isp.filter((i) => !i.id).map((i) => i.fio) });
+    setEdit(true);
+  };
+  const save = async () => {
+    try {
+      await api.put(`/lesokultury/meropriyatiya/${zapis.id}/ispolniteli`, { sotrudnik_ids: val.ids, storonnie: val.storonnie });
+      setEdit(false);
+      onSaved();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось сохранить", description: e.message });
+    }
+  };
+  if (edit) {
+    return (
+      <div className="min-w-[220px] flex flex-col gap-1.5">
+        <IspolniteliPicker value={val} onChange={setVal} label="" />
+        <div className="flex gap-1.5">
+          <Button size="sm" variant="primary" onClick={save}>Сохранить</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEdit(false)}>Отмена</Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="text-sm">
+      {isp.length ? isp.map((i) => <div key={i.fio}>👷 {i.fio}</div>) : <span className="text-muted">—</span>}
+      <button className="text-xs text-pine hover:underline" onClick={nachat}>{isp.length ? "изменить" : "＋ указать"}</button>
     </div>
   );
 }
@@ -468,6 +577,7 @@ function UchastokDetail({ uchastokId, onListChanged }) {
   const [deleting, setDeleting] = useState(false);
   const [meropriyatiya, setMeropriyatiya] = useState([]);
   const [logLoading, setLogLoading] = useState(false);
+  const [pravka, setPravka] = useState(null); // запись журнала в окне правки
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -523,6 +633,17 @@ function UchastokDetail({ uchastokId, onListChanged }) {
       toast.show({ tone: "danger", title: "Не удалось изменить статус", description: e.message });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const udalitZapis = async (r) => {
+    if (!window.confirm(`Удалить запись «${r.tip}» от ${r.data || "—"}? Она уйдёт и из «Журнала выполненных работ».`)) return;
+    try {
+      await api.delete(`/lesokultury/meropriyatiya/${r.id}`);
+      toast.show({ tone: "success", title: "Запись удалена" });
+      loadLog();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
     }
   };
 
@@ -611,11 +732,20 @@ function UchastokDetail({ uchastokId, onListChanged }) {
                 { key: "prizhivaemost_pct", header: "Приживаемость, %", render: (r) => r.prizhivaemost_pct ?? "—" },
                 { key: "kolichestvo_na_ga", header: "Шт/га", render: (r) => r.kolichestvo_na_ga ?? "—" },
                 { key: "sostav_fakt", header: "Состав факт.", render: (r) => r.sostav_fakt || "—" },
+                { key: "ispolniteli", header: "Кто делал", render: (r) => (
+                  <IspolniteliYacheyka zapis={r} onSaved={loadLog} />
+                ) },
                 { key: "primechaniya", header: "Примечания", render: (r) => (
                   <div>
                     <div>{r.primechaniya || "—"}</div>
                     {r.avtor_fio && <div className="text-xs text-muted mt-0.5">📱 {r.avtor_fio}</div>}
                     {r.dannye && <FieldCardDetails dannye={r.dannye} />}
+                  </div>
+                ) },
+                { key: "deystviya", header: "", render: (r) => (
+                  <div className="flex gap-1 whitespace-nowrap">
+                    <button className="px-1.5 py-0.5 rounded hover:bg-hover" title="Исправить запись" onClick={() => setPravka(r)}>✏️</button>
+                    <button className="px-1.5 py-0.5 rounded hover:bg-hover" title="Удалить запись" onClick={() => udalitZapis(r)}>🗑</button>
                   </div>
                 ) },
               ]}
@@ -624,6 +754,23 @@ function UchastokDetail({ uchastokId, onListChanged }) {
               emptyDescription="Добавьте первую запись формой выше — например, техническую приёмку."
             />
           </div>
+          <Modal open={!!pravka} onClose={() => setPravka(null)} title={pravka ? `Исправить запись: ${pravka.tip}` : ""}>
+            {pravka && (
+              <>
+                {pravka.proba_id ? (
+                  <div className="text-xs text-muted mb-2">Запись заведена пробой рубок ухода №{pravka.proba_id} — если снять с пробы отметку «закрыта», запись удалится сама.</div>
+                ) : null}
+                <AddMeropriyatieForm
+                  key={pravka.id}
+                  uchastokId={uchastokId}
+                  zapis={pravka}
+                  onAdded={() => { setPravka(null); loadLog(); }}
+                  onStatusChanged={async () => { await load(); onListChanged(); }}
+                  onCancel={() => setPravka(null)}
+                />
+              </>
+            )}
+          </Modal>
         </div>
       </div>
     </Card>

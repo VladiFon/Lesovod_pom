@@ -50,7 +50,7 @@ from app.auth import get_current_user, require_permission
 from app.database import get_conn, get_connection
 from app.paths import UPLOADS_DIR
 from app.doc_tasks import new_task_dir, register_document
-from app import uhody_lesokultury
+from app import uhody_lesokultury, uhody_vypolnenie
 import webext
 
 router = APIRouter(prefix="/api/uhody", tags=["uhody"])
@@ -191,7 +191,12 @@ def list_proby(user=Depends(get_current_user), conn=Depends(get_conn)) -> list[d
     # Рабочему — только его собственные пробы, а не пробы всех коллег.
     if user.get("role") == "worker":
         return legacy_db.list_uhody_proby(conn, sotrudnik_id=user["sotrudnik_id"])
-    return legacy_db.list_uhody_proby(conn)
+    proby = legacy_db.list_uhody_proby(conn)
+    # «Выполнение» (отчёты с телефона + вручную) — коротко для списка.
+    itogi = uhody_vypolnenie.kratko_vse(conn)
+    for p in proby:
+        p["vypolnenie"] = itogi.get(p["id"])
+    return proby
 
 
 @router.get("/proby/mine")
@@ -409,8 +414,77 @@ def delete_proba(
 ) -> dict:
     if legacy_db.get_uhody_proba(conn, proba_id) is None:
         raise HTTPException(status_code=404, detail="Проба не найдена.")
+    uhody_vypolnenie.ensure(conn)
+    conn.execute("DELETE FROM uhody_vypolnenie WHERE proba_id = ?", (proba_id,))
     legacy_db.delete_uhody_proba(conn, proba_id)
     return {"ok": True, "id": proba_id}
+
+
+# --------------------------------------------------------------------------- #
+#   Выполнение по пробе (app/uhody_vypolnenie.py): отчёты с телефона +
+#   строки вручную, кубы = м³/га пробы × га.
+# --------------------------------------------------------------------------- #
+class VypolnenieIn(BaseModel):
+    data: str
+    ga: float = Field(gt=0, le=10000)
+    ispolnitel: str = ""
+    kommentariy: str = ""
+
+
+@router.get("/proby/{proba_id}/vypolnenie")
+def get_vypolnenie(proba_id: int, user=Depends(require_permission("uhody.edit")), conn=Depends(get_conn)) -> dict:
+    out = uhody_vypolnenie.svodka(conn, proba_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail="Проба не найдена (или это хворост делянки).")
+    return out
+
+
+@router.post("/proby/{proba_id}/vypolnenie")
+def add_vypolnenie(proba_id: int, body: VypolnenieIn, user=Depends(require_permission("uhody.edit")),
+                   conn=Depends(get_conn)) -> dict:
+    if legacy_db.get_uhody_proba(conn, proba_id) is None:
+        raise HTTPException(status_code=404, detail="Проба не найдена.")
+    if uhody_vypolnenie._data(body.data) is None:
+        raise HTTPException(status_code=400, detail="Дата — в формате ДД.ММ.ГГГГ или ГГГГ-ММ-ДД.")
+    uhody_vypolnenie.dobavit(conn, proba_id, uhody_vypolnenie._data(body.data).isoformat(), body.ga,
+                             body.ispolnitel, body.kommentariy, user.get("login"))
+    zakryli = uhody_vypolnenie.proverit_zakrytie(conn, proba_id)
+    return {**(uhody_vypolnenie.svodka(conn, proba_id) or {}), "zakryli_seychas": zakryli}
+
+
+@router.get("/proby/{proba_id}/ispolniteli-iz-vypolneniya")
+def ispolniteli_iz_vypolneniya(proba_id: int, user=Depends(require_permission("uhody.edit")),
+                               conn=Depends(get_conn)) -> dict:
+    """Кто работал на пробе (по отчётам и ручным строкам) — подставить при закрытии."""
+    ids, storonnie = uhody_vypolnenie.ispolniteli(conn, proba_id)
+    return {"sotrudnik_ids": ids, "storonnie": storonnie}
+
+
+@router.delete("/vypolnenie/{vid}")
+def delete_vypolnenie(vid: int, user=Depends(require_permission("uhody.edit")), conn=Depends(get_conn)) -> dict:
+    proba_id = uhody_vypolnenie.udalit(conn, vid)
+    if proba_id is None:
+        raise HTTPException(status_code=404, detail="Строка не найдена.")
+    return uhody_vypolnenie.svodka(conn, proba_id) or {}
+
+
+class HvorostProbaIn(BaseModel):
+    delyanka_id: Optional[int] = None
+
+
+@router.put("/proby/{proba_id}/hvorost")
+def set_hvorost_proba(proba_id: int, body: HvorostProbaIn, user=Depends(require_permission("uhody.edit")),
+                      conn=Depends(get_conn)) -> dict:
+    """Пометить пробу «хворост делянки» (delyanka_id) или вернуть в рубки ухода (null)."""
+    uhody_vypolnenie.ensure(conn)
+    if legacy_db.get_uhody_proba(conn, proba_id) is None:
+        raise HTTPException(status_code=404, detail="Проба не найдена.")
+    if body.delyanka_id is not None and not conn.execute(
+            "SELECT 1 FROM delyanka WHERE id=?", (body.delyanka_id,)).fetchone():
+        raise HTTPException(status_code=404, detail="Делянка не найдена.")
+    conn.execute("UPDATE uhody_proby SET delyanka_id=? WHERE id=?", (body.delyanka_id, proba_id))
+    conn.commit()
+    return legacy_db.get_uhody_proba(conn, proba_id)
 
 
 # --------------------------------------------------------------------------- #

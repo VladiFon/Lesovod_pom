@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import IstoriyaRabot, { RabotaStroka } from "../components/IstoriyaRabot.jsx";
 import { api, ApiError } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
@@ -124,6 +125,9 @@ export default function TabelRuchnoy() {
   const [newVidName, setNewVidName] = useState("");
   const [savingVid, setSavingVid] = useState(false);
   const [brigadaModal, setBrigadaModal] = useState(null);
+  // «Что делал» по отчётам/журналу (app/raboty_sotrudnika.py) и история человека
+  const [raboty, setRaboty] = useState({});
+  const [istoriyaId, setIstoriyaId] = useState(null);
 
   useEffect(() => {
     api.get("/tabel/vidy-rabot").then(setVidyRabot).catch(() => {});
@@ -131,6 +135,7 @@ export default function TabelRuchnoy() {
 
   const loadDay = useCallback(() => {
     setRows(null);
+    api.get("/tabel/raboty", { data: date }).then(setRaboty).catch(() => setRaboty({}));
     api
       .get("/tabel/day", { data: date })
       .then((data) => setRows(data.map(serverRowToLocal)))
@@ -404,6 +409,7 @@ export default function TabelRuchnoy() {
                   <th className="px-2 py-2 min-w-[190px] text-muted font-semibold border-b border-border bg-surface-alt">Место работы</th>
                   <th className="px-2 py-2 min-w-[170px] text-muted font-semibold border-b border-border bg-surface-alt">Вид работы</th>
                   <th className="px-2 py-2 min-w-[200px] text-muted font-semibold border-b border-border bg-surface-alt">Комментарий</th>
+                  <th className="px-2 py-2 min-w-[260px] text-muted font-semibold border-b border-border bg-surface-alt" title="Из отчётов с телефона, журнала выполненных работ и лесокультур">Что делал (по отчётам)</th>
                 </tr>
               </thead>
               <tbody>
@@ -412,7 +418,9 @@ export default function TabelRuchnoy() {
                   return (
                     <tr key={row.sotrudnik_id} className="group">
                       <td className="sticky left-0 z-10 bg-surface px-3 py-2 border-b border-border group-hover:bg-hover align-top">
-                        <div className="font-medium text-ink leading-4">{row.fio}</div>
+                        <button type="button" onClick={() => setIstoriyaId(row.sotrudnik_id)}
+                          className="font-medium text-ink leading-4 text-left hover:text-pine hover:underline"
+                          title="Где был и что делал за месяц">{row.fio}</button>
                         <div className="text-muted-2 text-[11px]">{row.dolzhnost || "—"}</div>
                         {row.brigada_nazvanie && (
                           <div className="text-muted-2 text-[10.5px]">
@@ -484,6 +492,13 @@ export default function TabelRuchnoy() {
                           className="bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[12.5px] text-ink outline-none w-full"
                         />
                       </td>
+                      <td className="px-2 py-2 border-b border-border align-top text-[12.5px]">
+                        {(raboty[row.sotrudnik_id] || []).length ? (
+                          (raboty[row.sotrudnik_id] || []).map((r, i) => <RabotaStroka key={i} r={r} kratko />)
+                        ) : (
+                          <span className="text-faint">—</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -492,6 +507,8 @@ export default function TabelRuchnoy() {
           </div>
         )}
       </Card>
+
+      <IstoriyaRabot sotrudnikId={istoriyaId} onClose={() => setIstoriyaId(null)} />
 
       <Modal
         open={!!locModal}

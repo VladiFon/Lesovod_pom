@@ -1055,6 +1055,10 @@ def migrate_schema(conn):
     for col in ("foto_stolb_delyanki", "foto_stolb_proby"):
         if col not in existing_uhody_cols:
             conn.execute(f"ALTER TABLE uhody_proby ADD COLUMN {col} TEXT")
+    # delyanka_id — проба «хворост делянки» (legacy/hvorost.py): документы
+    # на хворост делянки главного пользования, а не рубка ухода.
+    if "delyanka_id" not in existing_uhody_cols:
+        conn.execute("ALTER TABLE uhody_proby ADD COLUMN delyanka_id INTEGER REFERENCES delyanka(id)")
     # proba_id в lesokultury_meropriyatiya — чтобы отличать запись журнала,
     # заведённую вручную, от автоматически созданной при отметке пробы
     # рубок ухода выполненной (см. mark_uhody_proba_completed); нужен для
@@ -1077,6 +1081,13 @@ def migrate_schema(conn):
             conn.execute(
                 "ALTER TABLE lesokultury_meropriyatiya ADD COLUMN sotrudnik_id INTEGER REFERENCES sotrudniki(id)"
             )
+        # Кто сделал (Влад, 04.11.2026): снимок [{"id","fio","dolzhnost"}] —
+        # см. set_meropriyatie_ispolniteli; зеркалится в completed_works.
+        if "ispolniteli_json" not in existing_lkm_cols:
+            conn.execute("ALTER TABLE lesokultury_meropriyatiya ADD COLUMN ispolniteli_json TEXT")
+    existing_cw_cols2 = {row[1] for row in conn.execute("PRAGMA table_info(completed_works)").fetchall()}
+    if existing_cw_cols2 and "lk_meropriyatie_id" not in existing_cw_cols2:
+        conn.execute("ALTER TABLE completed_works ADD COLUMN lk_meropriyatie_id INTEGER")
     # Поля участка культур под текущие изменения (приказ Минлесхоза №130,
     # прил. 7) и загрузку «Книги производства л/к»: старый номер выдела (до
     # новой таксации), подвыдел, способ обработки почвы, схема посадки,
@@ -2134,9 +2145,11 @@ def list_uhody_proby(conn, sotrudnik_id=None):
         SELECT p.id, p.kvartal, p.vydel, p.ploshad_vydela, p.ploshad_proby, p.data_zamera,
                p.created_at, p.completed_at, p.ispolniteli_json, p.lesokultury_uchastok_ids_json,
                p.sotrudnik_id, s.fio,
-               (p.foto_stolb_delyanki IS NOT NULL OR p.foto_stolb_proby IS NOT NULL)
+               (p.foto_stolb_delyanki IS NOT NULL OR p.foto_stolb_proby IS NOT NULL),
+               p.delyanka_id, d.nazvanie
         FROM uhody_proby p
         LEFT JOIN sotrudniki s ON s.id = p.sotrudnik_id
+        LEFT JOIN delyanka d ON d.id = p.delyanka_id
         {where}
         ORDER BY p.id DESC
         """,
@@ -2157,6 +2170,8 @@ def list_uhody_proby(conn, sotrudnik_id=None):
             "sotrudnik_id": row[10],
             "avtor_fio": row[11],
             "est_foto": bool(row[12]),
+            "delyanka_id": row[13],
+            "delyanka_nazvanie": row[14],
         }
         for row in rows
     ]
@@ -2171,7 +2186,9 @@ def get_uhody_proba(conn, proba_id):
                data_json, created_at, completed_at, ispolniteli_json,
                lesokultury_uchastok_ids_json, sotrudnik_id,
                foto_stolb_delyanki, foto_stolb_proby,
-               (SELECT fio FROM sotrudniki WHERE sotrudniki.id = uhody_proby.sotrudnik_id)
+               (SELECT fio FROM sotrudniki WHERE sotrudniki.id = uhody_proby.sotrudnik_id),
+               delyanka_id,
+               (SELECT nazvanie FROM delyanka WHERE delyanka.id = uhody_proby.delyanka_id)
         FROM uhody_proby
         WHERE id = ?
         """,
@@ -2215,6 +2232,9 @@ def get_uhody_proba(conn, proba_id):
         "photos": {"stolb_delyanki": bool(row[12]), "stolb_proby": bool(row[13])},
         # кто прислал пробу из мобильного приложения (NULL — завёл офис)
         "avtor_fio": row[14],
+        # проба «хворост делянки» (legacy/hvorost.py), NULL — рубка ухода
+        "delyanka_id": row[15],
+        "delyanka_nazvanie": row[16],
     }
 
 
@@ -3060,6 +3080,8 @@ def delete_lesokultury_uchastok(conn, uchastok_id):
     удаление — для случая "завели по ошибке"; чтобы просто списать
     погибший участок, используйте update_lesokultury_uchastok(status=
     'списан') + добавьте мероприятие "Списание", это сохраняет историю)."""
+    conn.execute("DELETE FROM completed_works WHERE lk_meropriyatie_id IN "
+                 "(SELECT id FROM lesokultury_meropriyatiya WHERE uchastok_id = ?)", (uchastok_id,))
     conn.execute("DELETE FROM lesokultury_meropriyatiya WHERE uchastok_id = ?", (uchastok_id,))
     conn.execute("DELETE FROM lesokultury_uchastok WHERE id = ?", (uchastok_id,))
     conn.commit()
@@ -3092,6 +3114,106 @@ def add_lesokultury_meropriyatie(conn, uchastok_id, tip, data, prizhivaemost_pct
     return cur.lastrowid
 
 
+def _iso_data(s):
+    s = (s or "").strip()
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y"):
+        try:
+            return datetime.strptime(s[:10], fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def set_meropriyatie_ispolniteli(conn, meropriyatie_id, sotrudnik_ids=None, storonnie=None):
+    """Кто сделал запись журнала лесокультур: сотрудники из справочника +
+    сторонние (ФИО текстом). Снимок ФИО/должности — в ispolniteli_json,
+    и по строке на исполнителя в completed_works («Журнал выполненных
+    работ», карта) с lk_meropriyatie_id — повторный вызов заменяет их."""
+    m = conn.execute(
+        "SELECT m.tip, m.data, u.kvartal, u.vydel, u.lesnichestvo, m.uchastok_id "
+        "FROM lesokultury_meropriyatiya m JOIN lesokultury_uchastok u ON u.id = m.uchastok_id WHERE m.id = ?",
+        (meropriyatie_id,),
+    ).fetchone()
+    if m is None:
+        raise ValueError("Запись журнала не найдена")
+    ids = [int(i) for i in dict.fromkeys(sotrudnik_ids or []) if i]
+    rows = []
+    if ids:
+        rows = conn.execute(
+            f"SELECT id, fio, dolzhnost FROM sotrudniki WHERE id IN ({','.join('?' * len(ids))})", ids
+        ).fetchall()
+        po_id = {r[0]: r for r in rows}
+        rows = [po_id[i] for i in ids if i in po_id]
+    ispolniteli = [{"id": r[0], "fio": r[1], "dolzhnost": r[2] or ""} for r in rows]
+    vidano = {x["fio"].casefold() for x in ispolniteli}
+    for name in storonnie or []:
+        name = " ".join(str(name or "").split())
+        if name and name.casefold() not in vidano:
+            vidano.add(name.casefold())
+            ispolniteli.append({"id": None, "fio": name, "dolzhnost": "", "storonniy": True})
+    conn.execute("UPDATE lesokultury_meropriyatiya SET ispolniteli_json = ? WHERE id = ?",
+                 (json.dumps(ispolniteli, ensure_ascii=False) if ispolniteli else None, meropriyatie_id))
+    conn.execute("DELETE FROM completed_works WHERE lk_meropriyatie_id = ?", (meropriyatie_id,))
+    if ispolniteli:
+        conn.executemany(
+            "INSERT INTO completed_works (data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, "
+            "dolzhnost, opisanie, lk_meropriyatie_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(_iso_data(m[1]), i["fio"], m[2], m[3], m[0], m[4], i["dolzhnost"],
+              f"Лесные культуры, участок №{m[5]}", meropriyatie_id) for i in ispolniteli],
+        )
+    conn.commit()
+    return ispolniteli
+
+
+LK_MEROPRIYATIE_POLYA = ("tip", "data", "prizhivaemost_pct", "kolichestvo_na_ga", "sostav_fakt", "primechaniya")
+
+
+def update_lesokultury_meropriyatie(conn, meropriyatie_id, polya, dannye=..., ispolniteli=None):
+    """Правка записи журнала лесокультур. polya — только переданные из
+    LK_MEROPRIYATIE_POLYA; dannye=None очищает, ... — не трогать;
+    ispolniteli=(ids, storonnie) — заменить «кто делал». Строки в
+    completed_works пересобираются (дата/тип могли поменяться)."""
+    r = conn.execute("SELECT ispolniteli_json FROM lesokultury_meropriyatiya WHERE id = ?",
+                     (meropriyatie_id,)).fetchone()
+    if r is None:
+        raise ValueError("Запись журнала не найдена")
+    sets, vals = [], []
+    for k in LK_MEROPRIYATIE_POLYA:
+        if k in polya:
+            v = polya[k]
+            if k in ("tip", "data", "sostav_fakt", "primechaniya"):
+                v = (v or "").strip()
+            sets.append(f"{k} = ?")
+            vals.append(v)
+    if "tip" in polya and not polya["tip"].strip():
+        raise ValueError("Тип мероприятия не может быть пустым")
+    if dannye is not ...:
+        sets.append("dannye_json = ?")
+        vals.append(json.dumps(dannye, ensure_ascii=False) if dannye else None)
+    if sets:
+        conn.execute(f"UPDATE lesokultury_meropriyatiya SET {', '.join(sets)} WHERE id = ?",
+                     vals + [meropriyatie_id])
+        conn.commit()
+    if ispolniteli is None:
+        old = json.loads(r[0]) if r[0] else []
+        ispolniteli = ([i["id"] for i in old if i.get("id")], [i["fio"] for i in old if not i.get("id")])
+    set_meropriyatie_ispolniteli(conn, meropriyatie_id, ispolniteli[0], ispolniteli[1])
+
+
+def delete_lesokultury_meropriyatie(conn, meropriyatie_id):
+    """Удалить запись журнала + её строки «Журнала выполненных работ».
+    Если запись закрыла цикл по отчётам смены — цикл снова открыт."""
+    conn.execute("DELETE FROM completed_works WHERE lk_meropriyatie_id = ?", (meropriyatie_id,))
+    try:
+        conn.execute("UPDATE otchet_smeny SET zakryl_cikl = 0, meropriyatie_id = NULL WHERE meropriyatie_id = ?",
+                     (meropriyatie_id,))
+    except sqlite3.OperationalError:
+        pass  # таблицы отчётов смены ещё нет
+    cur = conn.execute("DELETE FROM lesokultury_meropriyatiya WHERE id = ?", (meropriyatie_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def list_lesokultury_meropriyatiya(conn, uchastok_id):
     """История мероприятий по участку, последние сверху —
     [{"id","tip","data","prizhivaemost_pct","kolichestvo_na_ga","sostav_fakt",
@@ -3100,7 +3222,7 @@ def list_lesokultury_meropriyatiya(conn, uchastok_id):
     rows = conn.execute(
         "SELECT id, tip, data, prizhivaemost_pct, kolichestvo_na_ga, sostav_fakt, "
         "primechaniya, proba_id, created_at, dannye_json, sotrudnik_id, "
-        "(SELECT fio FROM sotrudniki s WHERE s.id = lesokultury_meropriyatiya.sotrudnik_id) "
+        "(SELECT fio FROM sotrudniki s WHERE s.id = lesokultury_meropriyatiya.sotrudnik_id), ispolniteli_json "
         "FROM lesokultury_meropriyatiya WHERE uchastok_id = ? ORDER BY id DESC",
         (uchastok_id,),
     ).fetchall()
@@ -3109,7 +3231,8 @@ def list_lesokultury_meropriyatiya(conn, uchastok_id):
          "kolichestvo_na_ga": r[4], "sostav_fakt": r[5], "primechaniya": r[6],
          "proba_id": r[7], "created_at": r[8],
          "dannye": json.loads(r[9]) if r[9] else None, "sotrudnik_id": r[10],
-         "avtor_fio": r[11]}
+         "avtor_fio": r[11],
+         "ispolniteli": json.loads(r[12]) if r[12] else []}
         for r in rows
     ]
 

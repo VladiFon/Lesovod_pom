@@ -16,6 +16,7 @@ import KonturBlock from "../components/KonturBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
 import { useCan } from "../auth.jsx";
 import StoronnyayaBlock from "../components/StoronnyayaBlock.jsx";
+import HvorostBlock from "../components/HvorostBlock.jsx";
 import OsvoenieBadge from "../components/OsvoenieBadge.jsx";
 import { useScreenParam } from "../nav.js";
 import DelyankaNav, { EtapBadge } from "../components/DelyankaNav.jsx";
@@ -985,6 +986,7 @@ function PlotDetail({ delyankaId, onListChanged }) {
         {delyanka.status !== "черновик" && (can("inspection.edit") || delyanka.storonnyaya) && (
           <StoronnyayaBlock row={{ id: delyanka.id }} onChanged={() => { load(); onListChanged(); }} />
         )}
+        {delyanka.status !== "черновик" && can("inspection.edit") && <HvorostBlock delyankaId={delyanka.id} />}
 
         <Modal open={!!chastiItem} onClose={() => setChastiItem(null)} title="Площадь по выделам" size="lg">
           {chastiItem && (

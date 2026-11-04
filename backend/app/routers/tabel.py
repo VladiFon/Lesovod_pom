@@ -37,6 +37,7 @@ import webext
 from app.auth import require_office_or_master
 from app.database import get_conn
 from app import storonnyaya
+from app import raboty_sotrudnika
 
 router = APIRouter(prefix="/api/tabel", tags=["tabel"])
 
@@ -175,3 +176,20 @@ def save_tabel_day(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return webext.get_tabel_day(conn, body.data)
+
+
+# --------------------------------------------------------------------------- #
+#   Кто где был и что делал (app/raboty_sotrudnika.py)
+# --------------------------------------------------------------------------- #
+@router.get("/raboty")
+def get_raboty_dnya(data: str, user=Depends(require_office_or_master), conn=Depends(get_conn)) -> dict:
+    """{sotrudnik_id: [работы за день]} — отчёты с телефона, журнал выполненных
+    работ, рубки ухода — для колонки «Что делал» в табеле."""
+    return {str(k): v for k, v in raboty_sotrudnika.za_den(conn, _check_date(data)).items()}
+
+
+@router.get("/raboty/{sotrudnik_id}")
+def get_istoriya(sotrudnik_id: int, dney: int = Query(31, ge=1, le=366), do: Optional[str] = None,
+                 user=Depends(require_office_or_master), conn=Depends(get_conn)) -> dict:
+    """Где был и что делал человек за последние dney дней (по дням)."""
+    return raboty_sotrudnika.istoriya(conn, sotrudnik_id, dney, _check_date(do) if do else None)
