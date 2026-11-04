@@ -30,6 +30,7 @@ const EVENT_META = {
   otvet_na_zametku: { icon: "💬", label: "Ответ на заметку", screen: "worker_notes" },
   metka: { icon: "📍", label: "Метка от коллеги", screen: null },
   egais_robot: { icon: "🤖", label: "Выгрузка ЕГАИС", screen: "raskhod" },
+  egais_robot_molchit: { icon: "⏰", label: "Робот ЕГАИС молчит", screen: "raskhod" },
   egais_posle_akta: { icon: "⚠️", label: "ЕГАИС после акта", screen: "raskhod", param: "d" },
 };
 

@@ -4,6 +4,7 @@
 
 - Освоение делянки перешло 90 / 100 / 110 % лимита — тот же расчёт, что
   «Освоение делянки» (raskhod_v2.compute_osvoenie_batch).
+- Робот выгрузки ЕГАИС не отчитывался дольше суток (не запустился).
 - До окончания заготовки, вывозки и до срока освидетельствования (вывозка
   + 30 дней) осталось 14 и 3 дня, и когда срок прошёл.
 
@@ -229,6 +230,39 @@ def proverit_egais_posle_akta(conn):
     return sozdano
 
 
+ROBOT_MOLCHIT_CHASOV = 26
+
+
+def proverit_robot_egais(conn, seychas=None):
+    """Робот вечерней выгрузки ЕГАИС (deploy/egais_avto) после каждого
+    прогона пишет итог в колокольчик (egais_robot) — и успех, и ошибку.
+    Если итога нет дольше суток, значит робот вообще не запускался
+    (Планировщик Windows его не позвал, ПК выключен/спал/заблокирован) —
+    об этом раньше никто не узнавал. Один раз на каждое «молчание».
+    Пока робот ни разу не отчитывался (не установлен) — молчим и мы."""
+    seychas = seychas or datetime.now()
+    row = conn.execute(
+        "SELECT MAX(created_at) FROM notifications WHERE event_type = 'egais_robot'").fetchone()
+    if not row or not row[0]:
+        return 0
+    try:
+        posledniy = datetime.strptime(str(row[0])[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return 0
+    if seychas - posledniy < timedelta(hours=ROBOT_MOLCHIT_CHASOV):
+        return 0
+    klyuch = posledniy.strftime("%Y-%m-%d %H:%M:%S")
+    if _uzhe(conn, "egais_robot_molchit", 0, klyuch):
+        return 0
+    _otmetit(conn, "egais_robot_molchit", 0, klyuch)
+    conn.commit()
+    webext.notify(conn, "egais_robot_molchit",
+                  f"Робот выгрузки ЕГАИС молчит с {posledniy:%d.%m %H:%M} — вечерняя выгрузка не прошла: "
+                  "Планировщик его не запустил или ПК с ЕГАИС был выключен/заблокирован. На том ПК запусти "
+                  "proverka.bat в папке робота — он покажет причину.")
+    return 1
+
+
 def proverit(conn):
     """Одна проверка всего. Ошибка не должна ронять импорт/наряд, из
     которого её позвали, — тогда просто ничего не отправим."""
@@ -237,7 +271,8 @@ def proverit(conn):
     try:
         conn.executescript(SCHEMA)
         delyanki = conn.execute("SELECT id, nazvanie FROM delyanka WHERE status = 'активна'").fetchall()
-        return proverit_osvoenie(conn, delyanki) + proverit_sroki(conn) + proverit_egais_posle_akta(conn)
+        return (proverit_osvoenie(conn, delyanki) + proverit_sroki(conn) + proverit_egais_posle_akta(conn)
+                + proverit_robot_egais(conn))
     except Exception as exc:  # noqa: BLE001
         print(f"❌ Проверка оповещений не удалась: {exc}")
         return 0

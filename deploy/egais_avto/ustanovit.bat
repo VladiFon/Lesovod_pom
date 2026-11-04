@@ -35,12 +35,11 @@ venv\Scripts\python egais_avto.py --nastroit || (pause & exit /b 1)
 echo.
 set "VREMYA=20:00"
 set /p "VREMYA=Во сколько запускать каждый день? [Enter = 20:00]: "
-schtasks /create /tn "Lesovod\Vygruzka EGAIS" /tr "\"%~dp0zapusk_po_raspisaniyu.bat\"" /sc daily /st %VREMYA% /it /f
+venv\Scripts\python egais_avto.py --raspisanie %VREMYA%
 if errorlevel 1 (
-  echo Не получилось создать задачу. Запусти ustanovit.bat правой кнопкой "от имени администратора".
-) else (
-  echo Задача создана: каждый день в %VREMYA%. Видно в "Планировщик заданий" - папка Lesovod.
+  echo Не получилось создать задачу. Запусти raspisanie.bat правой кнопкой "от имени администратора".
 )
 echo.
 echo Теперь сделай пробный прогон: zapustit_seychas.bat
+echo А потом проверка всего разом: proverka.bat
 pause
