@@ -51,6 +51,17 @@ def get_uchastok(uchastok_id: int, conn=Depends(get_conn), _user=Depends(get_cur
     return u
 
 
+@router.get("/uchastki/{uchastok_id}/svyazi")
+def get_uchastok_svyazi(uchastok_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Пробы рубок ухода на этом участке / выделе и кто здесь работал
+    (app/svyazi.py, шаг 2 разбора «сайт разбросан», 04.11.2026)."""
+    from app import svyazi
+    out = svyazi.uchastok(conn, uchastok_id)
+    if out is None:
+        raise HTTPException(404, "Участок не найден")
+    return out
+
+
 def _proverit_vid_kultur(fields: Dict[str, Any]) -> None:
     if "vid_kultur" in fields:
         try:

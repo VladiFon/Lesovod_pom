@@ -368,8 +368,25 @@ def vydel_history(conn, lesnichestvo_num: Optional[str], kvartal: str, vydel: st
             continue
         delyanki.append({"delyanka_id": d_id, "nazvanie": nazvanie, "status_rabot": status_rabot or STATUS_WAITING})
 
+    # пробы рубок ухода на выделе и ссылки исполнителей работ на людей
+    # (шаг 2 разбора «сайт разбросан», 04.11.2026)
+    proby = []
+    try:
+        from app import svyazi
+        proby = svyazi.proby_vydela(conn, kv, vd)
+    except Exception:  # noqa: BLE001
+        pass
+    if works:
+        try:
+            po_id = dict(conn.execute(
+                f"SELECT id, sotrudnik_id FROM completed_works WHERE id IN ({','.join('?' * len(works))})",
+                [w["id"] for w in works]).fetchall())
+            for w in works:
+                w["sotrudnik_id"] = po_id.get(w["id"])
+        except sqlite3.OperationalError:
+            pass
     return {"kvartal": kv, "vydel": vd, "works": works, "lesokultury": lesokultury,
-            "meropriyatiya": meropriyatiya, "delyanki": delyanki}
+            "meropriyatiya": meropriyatiya, "delyanki": delyanki, "proby": proby}
 
 
 # --------------------------------------------------------------------------- #

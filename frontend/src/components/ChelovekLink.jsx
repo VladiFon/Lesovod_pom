@@ -46,3 +46,24 @@ export function ChelovekList({ people, className = "" }) {
     </span>
   );
 }
+
+/** Открыть выдел в «Таксации» («жизнь выдела»): квартал, выдел, лесничество. */
+export function openVydel(kvartal, vydel, lesnichestvo) {
+  if (!kvartal || !vydel) return;
+  openScreen("taxation", { kv: kvartal, vyd: String(vydel).split(/[,;\s]+/)[0], l: lesnichestvo || "" });
+}
+
+/** «кв.71 выд.2» ссылкой на «жизнь выдела» в Таксации. */
+export function VydelLink({ kvartal, vydel, lesnichestvo, className = "", children }) {
+  if (!kvartal || !vydel) return <span className={className}>{children ?? "—"}</span>;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); openVydel(kvartal, vydel, lesnichestvo); }}
+      title="Что было на выделе (Таксация)"
+      className={["text-left text-pine hover:underline decoration-dotted underline-offset-2", className].join(" ")}
+    >
+      {children ?? `кв.${kvartal} выд.${vydel}`}
+    </button>
+  );
+}

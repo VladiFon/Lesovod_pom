@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useCan } from "../auth.jsx";
-import { openScreen } from "../nav.js";
+import { openScreen, useScreenParam } from "../nav.js";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 import { api } from "../api/client.js";
 import { pollTask } from "../hooks/useTaskPolling.js";
 import Card from "../components/Card.jsx";
@@ -141,8 +142,8 @@ function UploadModalInline({ onDone }) {
  */
 function VydelHistory({ history }) {
   if (!history) return null;
-  const { delyanki = [], lesokultury = [], meropriyatiya = [], works = [] } = history;
-  if (!delyanki.length && !lesokultury.length && !works.length) {
+  const { delyanki = [], lesokultury = [], meropriyatiya = [], works = [], proby = [] } = history;
+  if (!delyanki.length && !lesokultury.length && !works.length && !proby.length) {
     return (
       <div className="bg-surface border border-border rounded-lg px-4 py-3.5 text-sm text-muted">
         История выдела: делянок, лесных культур и отметок о работах пока нет.
@@ -151,7 +152,10 @@ function VydelHistory({ history }) {
   }
   return (
     <div className="bg-surface border border-border rounded-lg px-4 py-3.5 flex flex-col gap-3">
-      <div className="text-[14px] font-extrabold text-pine">Что было на выделе</div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-[14px] font-extrabold text-pine">Жизнь выдела</div>
+        <span className="text-muted-2 text-xs">делянки → лесные культуры → рубки ухода → работы; всё кликается</span>
+      </div>
       {delyanki.length > 0 && (
         <div>
           <div className="text-[11.5px] text-muted-2 mb-1">Делянки</div>
@@ -174,9 +178,12 @@ function VydelHistory({ history }) {
           <div className="text-[11.5px] text-muted-2 mb-1">Лесные культуры</div>
           {lesokultury.map((u) => (
             <div key={u.id} className="text-sm text-ink">
-              {u.god_sozdaniya ? `${u.god_sozdaniya} г. · ` : ""}
-              {u.sostav_formula || u.glavnaya_poroda || "участок"}
-              {u.ploshad ? ` · ${u.ploshad} га` : ""}
+              <button type="button" onClick={() => openScreen("forestry", { u: u.id })}
+                className="text-pine font-semibold hover:underline decoration-dotted underline-offset-2">
+                {u.god_sozdaniya ? `${u.god_sozdaniya} г. · ` : ""}
+                {u.sostav_formula || u.glavnaya_poroda || "участок"}
+                {u.ploshad ? ` · ${u.ploshad} га` : ""} ↗
+              </button>
               {meropriyatiya.filter((m) => m.uchastok_id === u.id).length > 0 && (
                 <span className="text-muted">
                   {" "}— {meropriyatiya.filter((m) => m.uchastok_id === u.id).slice(0, 4).map((m) => `${m.tip}${m.data ? ` ${m.data}` : ""}`).join(", ")}
@@ -186,13 +193,26 @@ function VydelHistory({ history }) {
           ))}
         </div>
       )}
+      {proby.length > 0 && (
+        <div>
+          <div className="text-[11.5px] text-muted-2 mb-1">Рубки ухода (пробы)</div>
+          <div className="flex flex-wrap gap-1.5">
+            {proby.map((p) => (
+              <button key={p.id} type="button" onClick={() => openScreen("uhody", { p: p.id })}
+                className="rounded-md border border-border bg-surface-alt px-2.5 py-1 text-sm text-ink hover:bg-hover">
+                ✂️ проба №{p.id}{p.data ? ` · ${p.data}` : ""} · {p.zakryta ? "✅ закрыта" : p.pct != null ? `⏳ ${p.pct}%` : "📝 заложена"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {works.length > 0 && (
         <div>
-          <div className="text-[11.5px] text-muted-2 mb-1">Работы (отметки с телефона)</div>
+          <div className="text-[11.5px] text-muted-2 mb-1">Работы (журнал выполненных работ)</div>
           {works.slice(0, 10).map((w, i) => (
             <div key={w.id ?? i} className="text-sm text-ink">
               {w.data_vypolneniya || "—"} · {w.tip_raboty || "работа"}
-              {w.ispolnitel_fio ? ` · ${w.ispolnitel_fio}` : ""}
+              {w.ispolnitel_fio ? <> · <ChelovekLink id={w.sotrudnik_id} fio={w.ispolnitel_fio} className="font-normal" /></> : ""}
             </div>
           ))}
         </div>
@@ -211,6 +231,22 @@ export default function Taxation() {
   const [notFound, setNotFound] = useState(false);
   const [card, setCard] = useState(null);
   const [history, setHistory] = useState(null);
+  // Ссылка снаружи: #/taxation?kv=71&vyd=2&l=Лесное — сразу открыть выдел
+  // (кв/выд кликаются на участке культур, пробе, карточке человека).
+  const [kvParam, setKvParam] = useScreenParam("taxation", "kv");
+  const [vydParam, setVydParam] = useScreenParam("taxation", "vyd");
+  const [lParam, setLParam] = useScreenParam("taxation", "l");
+  const [avto, setAvto] = useState(0);
+  useEffect(() => {
+    if (kvParam && vydParam) {
+      setKvartal(String(kvParam).replace(/[^\d]/g, ""));
+      setVydel(String(vydParam).replace(/[^\d]/g, ""));
+      // лесничество — только если оно есть в списке таксации (иначе поиск по всем)
+      setLesnichestvo(lParam && lesnichestva.includes(lParam) ? lParam : "");
+      setKvParam(""); setVydParam(""); setLParam("");
+      setAvto((n) => n + 1);
+    }
+  }, [kvParam, vydParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadLesnichestva = () => {
     api
@@ -221,6 +257,10 @@ export default function Taxation() {
 
   useEffect(loadLesnichestva, []);
 
+  useEffect(() => {
+    if (avto) handleSearch();
+  }, [avto]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSearch = async () => {
     if (!kvartal.trim() || !vydel.trim()) {
       toast.show({ tone: "warning", title: "Укажите номер квартала и номер выдела" });
@@ -228,6 +268,13 @@ export default function Taxation() {
     }
     setSearching(true);
     setNotFound(false);
+    // «Жизнь выдела» показываем и тогда, когда выдела нет в таксации
+    // (участок культур или проба на выделе, которого нет в базе таксации).
+    setHistory(null);
+    api
+      .get("/taxation/vydel-history", { kvartal: kvartal.trim(), vydel: vydel.trim(), lesnichestvo: lesnichestvo || undefined })
+      .then(setHistory)
+      .catch(() => setHistory(null));
     try {
       const result = await api.get("/taxation/vydel", {
         kvartal: kvartal.trim(),
@@ -235,11 +282,6 @@ export default function Taxation() {
         lesnichestvo: lesnichestvo || undefined,
       });
       setCard(result);
-      setHistory(null);
-      api
-        .get("/taxation/vydel-history", { kvartal: kvartal.trim(), vydel: vydel.trim(), lesnichestvo: lesnichestvo || undefined })
-        .then(setHistory)
-        .catch(() => setHistory(null));
     } catch (e) {
       setCard(null);
       if (e.status === 404) {
@@ -307,6 +349,7 @@ export default function Taxation() {
           <EmptyState icon="🔍" title="Выдел не найден в таксации" description="Проверьте номера квартала/выдела или загрузите таксационное описание (.docx) выше." />
         </Card>
       )}
+      {notFound && history && <VydelHistory history={history} />}
 
       {card && (
         <div className="flex flex-col gap-[14px]">
