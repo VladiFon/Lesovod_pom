@@ -272,6 +272,45 @@ def set_ispolniteli(meropriyatie_id: int, body: IspolniteliIn, conn=Depends(get_
         raise HTTPException(404, str(exc))
 
 
+class MeropriyatieIn(BaseModel):
+    tip: Optional[str] = None
+    data: Optional[str] = None
+    prizhivaemost_pct: Optional[float] = None
+    kolichestvo_na_ga: Optional[float] = None
+    sostav_fakt: Optional[str] = None
+    primechaniya: Optional[str] = None
+    dannye: Optional[Dict[str, Any]] = None
+    ispolniteli_ids: Optional[List[int]] = None
+    storonnie: Optional[List[str]] = None
+
+
+@router.put("/meropriyatiya/{meropriyatie_id}")
+def update_meropriyatie(meropriyatie_id: int, body: MeropriyatieIn, conn=Depends(get_conn),
+                        _user=Depends(require_permission("lesokultury.edit"))):
+    """Правка записи журнала мероприятий: меняются только переданные поля
+    (null для приживаемости/шт на га — очистить). «Кто делал» и
+    «Журнал выполненных работ» пересобираются."""
+    sent = body.model_dump(exclude_unset=True) if hasattr(body, "model_dump") else body.dict(exclude_unset=True)
+    polya = {k: sent[k] for k in legacy_db.LK_MEROPRIYATIE_POLYA if k in sent}
+    isp = None
+    if "ispolniteli_ids" in sent or "storonnie" in sent:
+        isp = (sent.get("ispolniteli_ids") or [], sent.get("storonnie") or [])
+    try:
+        legacy_db.update_lesokultury_meropriyatie(
+            conn, meropriyatie_id, polya, dannye=sent["dannye"] if "dannye" in sent else ..., ispolniteli=isp)
+    except ValueError as exc:
+        raise HTTPException(404 if "не найдена" in str(exc) else 400, str(exc))
+    return {"ok": True}
+
+
+@router.delete("/meropriyatiya/{meropriyatie_id}")
+def delete_meropriyatie(meropriyatie_id: int, conn=Depends(get_conn),
+                        _user=Depends(require_permission("lesokultury.edit"))):
+    if not legacy_db.delete_lesokultury_meropriyatie(conn, meropriyatie_id):
+        raise HTTPException(404, "Запись журнала не найдена")
+    return {"ok": True}
+
+
 # --------------------------------------------------------------------------- #
 #   Загрузка «Книги производства л/к» (.xls/.xlsx): предпросмотр, потом запись
 # --------------------------------------------------------------------------- #

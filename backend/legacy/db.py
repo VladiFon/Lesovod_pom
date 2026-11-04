@@ -3165,6 +3165,55 @@ def set_meropriyatie_ispolniteli(conn, meropriyatie_id, sotrudnik_ids=None, stor
     return ispolniteli
 
 
+LK_MEROPRIYATIE_POLYA = ("tip", "data", "prizhivaemost_pct", "kolichestvo_na_ga", "sostav_fakt", "primechaniya")
+
+
+def update_lesokultury_meropriyatie(conn, meropriyatie_id, polya, dannye=..., ispolniteli=None):
+    """Правка записи журнала лесокультур. polya — только переданные из
+    LK_MEROPRIYATIE_POLYA; dannye=None очищает, ... — не трогать;
+    ispolniteli=(ids, storonnie) — заменить «кто делал». Строки в
+    completed_works пересобираются (дата/тип могли поменяться)."""
+    r = conn.execute("SELECT ispolniteli_json FROM lesokultury_meropriyatiya WHERE id = ?",
+                     (meropriyatie_id,)).fetchone()
+    if r is None:
+        raise ValueError("Запись журнала не найдена")
+    sets, vals = [], []
+    for k in LK_MEROPRIYATIE_POLYA:
+        if k in polya:
+            v = polya[k]
+            if k in ("tip", "data", "sostav_fakt", "primechaniya"):
+                v = (v or "").strip()
+            sets.append(f"{k} = ?")
+            vals.append(v)
+    if "tip" in polya and not polya["tip"].strip():
+        raise ValueError("Тип мероприятия не может быть пустым")
+    if dannye is not ...:
+        sets.append("dannye_json = ?")
+        vals.append(json.dumps(dannye, ensure_ascii=False) if dannye else None)
+    if sets:
+        conn.execute(f"UPDATE lesokultury_meropriyatiya SET {', '.join(sets)} WHERE id = ?",
+                     vals + [meropriyatie_id])
+        conn.commit()
+    if ispolniteli is None:
+        old = json.loads(r[0]) if r[0] else []
+        ispolniteli = ([i["id"] for i in old if i.get("id")], [i["fio"] for i in old if not i.get("id")])
+    set_meropriyatie_ispolniteli(conn, meropriyatie_id, ispolniteli[0], ispolniteli[1])
+
+
+def delete_lesokultury_meropriyatie(conn, meropriyatie_id):
+    """Удалить запись журнала + её строки «Журнала выполненных работ».
+    Если запись закрыла цикл по отчётам смены — цикл снова открыт."""
+    conn.execute("DELETE FROM completed_works WHERE lk_meropriyatie_id = ?", (meropriyatie_id,))
+    try:
+        conn.execute("UPDATE otchet_smeny SET zakryl_cikl = 0, meropriyatie_id = NULL WHERE meropriyatie_id = ?",
+                     (meropriyatie_id,))
+    except sqlite3.OperationalError:
+        pass  # таблицы отчётов смены ещё нет
+    cur = conn.execute("DELETE FROM lesokultury_meropriyatiya WHERE id = ?", (meropriyatie_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def list_lesokultury_meropriyatiya(conn, uchastok_id):
     """История мероприятий по участку, последние сверху —
     [{"id","tip","data","prizhivaemost_pct","kolichestvo_na_ga","sostav_fakt",
