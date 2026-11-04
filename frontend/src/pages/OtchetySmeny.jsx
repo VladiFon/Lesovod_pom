@@ -42,14 +42,16 @@ export default function OtchetySmeny() {
     const m = {};
     for (const r of d?.otchety || []) {
       for (const who of [{ id: r.sotrudnik_id, fio: r.fio }, ...r.naparniki]) {
-        const x = m[who.id] || (m[who.id] = { fio: who.fio, chasy: 0, trel: 0, nas: 0, reysov: 0, ga: 0, remont: 0, dney: new Set() });
+        const x = m[who.id] || (m[who.id] = { fio: who.fio, chasy: 0, trel: 0, nas: 0, zag: 0, reysov: 0, ga: 0, remont: 0, toplivo: 0, dney: new Set() });
         x.dney.add(r.data);
         if (who.id !== r.sotrudnik_id) continue; // объём — у автора, чтобы не задваивать
         x.chasy += r.chasy || 0;
         if (r.vid === "trelevka") x.trel += r.obyom || 0;
         if (r.vid === "naseleniyu") x.nas += r.obyom || 0;
         x.reysov += r.reysov || 0;
-        if (r.vid === "uhod" || r.vid === "pochva") x.ga += r.ga || 0;
+        if (r.vid === "harvester" || r.vid === "rubka_gp" || r.vid === "sanrubka") x.zag += r.obyom || 0;
+        if (r.ga) x.ga += r.ga;
+        x.toplivo += r.toplivo_rashod || 0;
         if (r.vid === "remont") x.remont += r.chasy || 0;
       }
     }
@@ -85,10 +87,10 @@ export default function OtchetySmeny() {
 
       {d.otkrytye.length > 0 && (
         <div style={{ background: C.goldSoft, border: "1px solid #f0dca6", borderRadius: 12, padding: 12 }}>
-          <div style={{ fontWeight: 800, color: C.gold, marginBottom: 6 }}>⏳ Участки в работе — пройдены не полностью</div>
+          <div style={{ fontWeight: 800, color: C.gold, marginBottom: 6 }}>⏳ Участки и выделы в работе — пройдены не полностью</div>
           {d.otkrytye.map((x) => (
-            <div key={`${x.uchastok_id}-${x.vid}`} style={{ fontSize: 13 }}>
-              {x.vid === "uhod" ? "🌱" : "🪚"} {x.vid_title}: <b>{x.mesto}</b> — сделано {ch(x.sdelano, "га")}
+            <div key={`${x.uchastok_id || "i" + x.delyanka_item_id}-${x.vid}`} style={{ fontSize: 13 }}>
+              {d.vidy[x.vid]?.emoji || "•"} {x.vid_title}: <b>{x.mesto}</b> — сделано {ch(x.sdelano, "га")}
               {x.ploshad ? ` из ${ch(x.ploshad, "га")}, осталось ${ch(x.ostatok, "га")}` : ""} <span style={{ color: C.muted }}>(посл. {ru(x.posledniy)})</span>
             </div>
           ))}
@@ -101,7 +103,7 @@ export default function OtchetySmeny() {
           <div style={{ padding: "8px 12px", fontWeight: 800, color: C.pine, borderBottom: `1px solid ${C.line}` }}>Итоги по людям за период</div>
           <table className="w-full" style={{ fontSize: 13 }}>
             <thead><tr style={{ color: C.muted, textAlign: "left" }}>
-              {["Кто", "Дней", "Часов", "Трелёвка", "Населению", "Рейсов", "Уход/почва", "Ремонт"].map((h) => <th key={h} style={{ padding: "6px 12px", fontWeight: 600 }}>{h}</th>)}
+              {["Кто", "Дней", "Часов", "Трелёвка", "Населению", "Рейсов", "Заготовка", "Га (уходы, рубки)", "Ремонт", "Топливо"].map((h) => <th key={h} style={{ padding: "6px 12px", fontWeight: 600 }}>{h}</th>)}
             </tr></thead>
             <tbody>
               {itogi.map((x) => (
@@ -112,8 +114,10 @@ export default function OtchetySmeny() {
                   <td style={{ padding: "6px 12px" }}>{ch(x.trel || "", "м³")}</td>
                   <td style={{ padding: "6px 12px" }}>{ch(x.nas || "", "м³")}</td>
                   <td style={{ padding: "6px 12px" }}>{x.reysov || ""}</td>
+                  <td style={{ padding: "6px 12px" }}>{ch(x.zag || "", "м³")}</td>
                   <td style={{ padding: "6px 12px" }}>{ch(x.ga || "", "га")}</td>
                   <td style={{ padding: "6px 12px" }}>{ch(x.remont || "", "ч")}</td>
+                  <td style={{ padding: "6px 12px" }}>{ch(x.toplivo || "", "л")}</td>
                 </tr>
               ))}
             </tbody>
@@ -137,7 +141,9 @@ export default function OtchetySmeny() {
                 {r.obyom != null && <span><b>{ch(r.obyom, "м³")}</b> · </span>}
                 {r.ga != null && <span><b>{ch(r.ga, "га")}</b>{r.ploshad_uchastka ? ` из ${ch(r.ploshad_uchastka, "га")}` : ""} · </span>}
                 {r.chasy != null && <span>{ch(r.chasy, "ч")}</span>}
-                {r.zakryl_cikl && <span style={{ color: C.pine, fontWeight: 700 }}> · ✅ участок пройден, уход записан в журнал</span>}
+                {r.toplivo_rashod != null && <span> · ⛽ сжёг {ch(r.toplivo_rashod, "л")}{r.toplivo ? ` ${r.toplivo}` : ""}</span>}
+                {r.zapravka != null && <span> · заправка {ch(r.zapravka, "л")}</span>}
+                {r.zakryl_cikl && <span style={{ color: C.pine, fontWeight: 700 }}> · ✅ {r.lesokultury_uchastok_id ? "участок пройден" : "выдел пройден"}</span>}
               </div>
               {(r.poluchatel || r.tehnika || r.kommentariy) && (
                 <div style={{ color: C.muted }}>

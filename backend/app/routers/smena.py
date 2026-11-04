@@ -26,7 +26,19 @@ zakryl_cikl=1, а в журнал участка лесокультур пише
 участника, объём поровну), чтобы её видели экран «Трелёвка» и рейтинг.
 
 Телефон: /api/bot/smena/* (только worker-login, identity из токена).
-Сайт: GET /api/smena (офис/мастер)."""
+Сайт: GET /api/smena (офис/мастер).
+
+04.11.2026 (Влад): экран смены по профессиям —
+  тракторист  — trelevka/naseleniyu/uhod/pochva/remont, без напарников;
+  харвестерщик — harvester (делянка + м³, видит остаток по билету), remont;
+  вальщик/лесоруб/лесовод — rubka_gp, rubka_uhoda, sanrubka, ochistka (по
+    делянке), uhod, posadka, pochva (по участку культур), drugoe; напарники —
+    только не-машинисты (трактористов/харвестерщиков отмечать нельзя).
+Рубки ухода / очистка / санрубка копят га по выделу делянки (delyanka_item)
+так же, как уход по участку: «сделано X из Y га, осталось Z».
+Техника — справочник tehnika (app/routers/tehnika.py), за человеком можно
+закрепить машину; в отчёте tehnika_id + расход топлива и заправка (л),
+тип топлива (ДТ / АИ-92) берётся из машины. Сводка — GET /api/smena/toplivo."""
 import json
 from datetime import date, datetime, timedelta
 from typing import List, Optional
@@ -74,7 +86,28 @@ CREATE TABLE IF NOT EXISTS otchet_smeny_uchastnik (
     trelevka_id INTEGER,
     PRIMARY KEY (otchet_id, sotrudnik_id)
 );
+CREATE TABLE IF NOT EXISTS tehnika (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nazvanie TEXT NOT NULL,
+    tip TEXT,
+    nomer TEXT,
+    toplivo TEXT,
+    zakreplen_sotrudnik_id INTEGER REFERENCES sotrudniki(id),
+    kommentariy TEXT,
+    aktivna INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
 """
+
+# Колонки, добавленные 04.11.2026 к уже созданной otchet_smeny.
+NOVYE_KOLONKI = (
+    ("tehnika_id", "INTEGER"),
+    ("toplivo", "TEXT"),
+    ("toplivo_rashod", "REAL"),
+    ("zapravka", "REAL"),
+)
+TOPLIVO = ("ДТ", "АИ-92")
+MAX_LITROV = 2000
 
 VIDY = {
     "trelevka": {"title": "Трелёвка", "emoji": "🚜"},
@@ -82,14 +115,53 @@ VIDY = {
     "uhod": {"title": "Уход за культурами", "emoji": "🌱", "meropriyatie": "Агротехнический уход"},
     "pochva": {"title": "Подготовка почвы", "emoji": "🪚", "meropriyatie": "Подготовка почвы"},
     "remont": {"title": "Ремонт", "emoji": "🔧"},
+    # харвестерщик
+    "harvester": {"title": "Заготовка харвестером", "emoji": "🌲"},
+    # вальщик / лесоруб / лесовод
+    "rubka_gp": {"title": "Рубка (валка)", "emoji": "🪓"},
+    "rubka_uhoda": {"title": "Рубка ухода", "emoji": "✂️"},
+    "sanrubka": {"title": "Санитарная рубка", "emoji": "🪵"},
+    "ochistka": {"title": "Очистка мест рубок", "emoji": "🧹"},
+    "posadka": {"title": "Посадка / дополнение", "emoji": "🌿"},
+    "drugoe": {"title": "Другое", "emoji": "✍️"},
 }
-PO_UCHASTKU = ("uhod", "pochva")
+PO_UCHASTKU = ("uhod", "pochva", "posadka")
+# Работы по делянке, где копятся га по выделу (сделано / осталось).
+PO_ITEM_GA = ("rubka_uhoda", "sanrubka", "ochistka")
+# Работы по делянке с кубами.
+PO_DELYANKE = ("trelevka", "naseleniyu", "harvester", "rubka_gp") + PO_ITEM_GA
+# Что видит какая профессия (телефон строит кнопки по этому списку).
+VIDY_PROFESSII = {
+    "traktorist": ["trelevka", "naseleniyu", "uhod", "pochva", "remont"],
+    "harvester": ["harvester", "remont"],
+    "brigada": ["rubka_gp", "rubka_uhoda", "sanrubka", "ochistka", "uhod", "posadka", "pochva", "drugoe"],
+}
+# Куда в отчёте кубы «заготовлено» (для остатка по делянке).
+ZAGOTOVKA = ("harvester", "rubka_gp")
 ZAKRYT_DOLYA = 0.98  # 98% площади — участок считаем пройденным (округления га)
 MAX_CHASOV = 24
 
 
 def ensure(conn):
     conn.executescript(SCHEMA)
+    est = {r[1] for r in conn.execute("PRAGMA table_info(otchet_smeny)").fetchall()}
+    for kol, tip in NOVYE_KOLONKI:
+        if kol not in est:
+            conn.execute(f"ALTER TABLE otchet_smeny ADD COLUMN {kol} {tip}")
+
+
+def mashinist(dolzhnost):
+    """Тракторист / харвестерщик / форвардер — их нельзя отмечать
+    напарниками в отчёте бригады (они отчитываются сами за свою технику)."""
+    d = (dolzhnost or "").lower()
+    return any(x in d for x in ("трактор", "машинист", "харвест", "форвард"))
+
+
+def _f(v):
+    try:
+        return float(str(v).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
 
 
 def _d(s):
@@ -113,7 +185,7 @@ def cikly(conn, uchastok_ids=None):
     "posledniy": дата, "zakryto_raz": n, "zakryt": дата последнего закрытия}}"""
     ensure(conn)
     q = ("SELECT lesokultury_uchastok_id, vid, ga, zakryl_cikl, data FROM otchet_smeny "
-         "WHERE deleted=0 AND lesokultury_uchastok_id IS NOT NULL AND vid IN ('uhod','pochva')")
+         "WHERE deleted=0 AND lesokultury_uchastok_id IS NOT NULL AND vid IN ('uhod','pochva','posadka')")
     args = []
     if uchastok_ids:
         q += f" AND lesokultury_uchastok_id IN ({','.join('?' * len(uchastok_ids))})"
@@ -122,6 +194,29 @@ def cikly(conn, uchastok_ids=None):
     # По порядку ввода: закрытие цикла — событие в момент отправки отчёта.
     for uid, vid, ga, zakryl, data in conn.execute(q + " ORDER BY id", args).fetchall():
         x = out.setdefault((uid, vid), {"sdelano": 0.0, "otchetov": 0, "posledniy": None, "zakryto_raz": 0,
+                                        "zakryt": None})
+        if zakryl:
+            x.update(sdelano=0.0, otchetov=0, zakryto_raz=x["zakryto_raz"] + 1, zakryt=data)
+        else:
+            x["sdelano"] += ga or 0
+            x["otchetov"] += 1
+            x["posledniy"] = data
+    return out
+
+
+def cikly_items(conn, item_ids=None):
+    """То же, что cikly(), но по выделу делянки для рубок ухода / очистки /
+    санрубки: {(delyanka_item_id, vid): {...}}."""
+    ensure(conn)
+    q = ("SELECT delyanka_item_id, vid, ga, zakryl_cikl, data FROM otchet_smeny "
+         f"WHERE deleted=0 AND delyanka_item_id IS NOT NULL AND vid IN ({','.join('?' * len(PO_ITEM_GA))})")
+    args = list(PO_ITEM_GA)
+    if item_ids:
+        q += f" AND delyanka_item_id IN ({','.join('?' * len(item_ids))})"
+        args += list(item_ids)
+    out = {}
+    for iid, vid, ga, zakryl, data in conn.execute(q + " ORDER BY id", args).fetchall():
+        x = out.setdefault((iid, vid), {"sdelano": 0.0, "otchetov": 0, "posledniy": None, "zakryto_raz": 0,
                                         "zakryt": None})
         if zakryl:
             x.update(sdelano=0.0, otchetov=0, zakryto_raz=x["zakryto_raz"] + 1, zakryt=data)
@@ -176,7 +271,8 @@ def naparniki(conn, sid):
            GROUP BY b.sotrudnik_id""", (sid, ot)).fetchall():
         raz[other] = raz.get(other, 0) + n
     out = [{"id": i, "fio": f, "dolzhnost": d, "raz": raz.get(i, 0)}
-           for i, f, d in conn.execute("SELECT id, fio, dolzhnost FROM sotrudniki WHERE is_active=1 AND id<>?", (sid,))]
+           for i, f, d in conn.execute("SELECT id, fio, dolzhnost FROM sotrudniki WHERE is_active=1 AND id<>?", (sid,))
+           if not mashinist(d)]
     out.sort(key=lambda x: (-x["raz"], x["fio"] or ""))
     return out
 
@@ -193,12 +289,24 @@ def spravochnik(conn, sid):
         if uid:
             moi_uch[uid] = data
     delyanki = []
-    for iid, did, kv, vd, les, nazv in conn.execute(
-        """SELECT di.id, d.id, di.kvartal, di.vydel, di.lesoseka_nomer, d.nazvanie
+    ci = cikly_items(conn)
+    for iid, did, kv, vd, les, nazv, pl in conn.execute(
+        """SELECT di.id, d.id, di.kvartal, di.vydel, di.lesoseka_nomer, d.nazvanie, di.ploshad
            FROM delyanka_item di JOIN delyanka d ON d.id = di.delyanka_id
            WHERE d.status = 'активна' ORDER BY d.nazvanie, di.poryadok, di.id""").fetchall():
-        delyanki.append({"item_id": iid, "delyanka_id": did, "kvartal": kv, "vydel": vd,
-                         "label": _label_item(kv, vd, les, nazv), "nedavno": moi_items.get(iid)})
+        pl = _f(pl)
+        x = {"item_id": iid, "delyanka_id": did, "kvartal": kv, "vydel": vd, "ploshad": pl,
+             "label": _label_item(kv, vd, les, nazv), "nedavno": moi_items.get(iid)}
+        for vid in PO_ITEM_GA:
+            cy = ci.get((iid, vid))
+            if cy and cy["otchetov"]:
+                x[vid] = {"sdelano": _r(cy["sdelano"]), "ostatok": _ostatok(pl, cy["sdelano"]), "otchetov": cy["otchetov"],
+                          "posledniy": cy["posledniy"]}
+        delyanki.append(x)
+    osv = osvoenie(conn, sorted({x["delyanka_id"] for x in delyanki}))
+    for x in delyanki:
+        if osv.get(x["delyanka_id"]):
+            x["osvoenie"] = osv[x["delyanka_id"]]
     delyanki.sort(key=lambda x: (x["nedavno"] is None, "" if x["nedavno"] is None else _neg(x["nedavno"]), x["label"]))
 
     c = cikly(conn)
@@ -223,8 +331,59 @@ def spravochnik(conn, sid):
     tehnika = [r[0] for r in conn.execute(
         "SELECT tehnika FROM otchet_smeny WHERE deleted=0 AND sotrudnik_id=? AND tehnika IS NOT NULL AND tehnika<>'' "
         "GROUP BY tehnika ORDER BY MAX(id) DESC LIMIT 10", (sid,)).fetchall()]
-    return {"vidy": VIDY, "delyanki": delyanki, "uchastki": uchastki, "naparniki": naparniki(conn, sid),
-            "poluchateli": poluchateli, "tehnika": tehnika}
+    mashiny, moya = spisok_tehniki(conn, sid)
+    return {"vidy": VIDY, "vidy_professii": VIDY_PROFESSII, "delyanki": delyanki, "uchastki": uchastki,
+            "naparniki": naparniki(conn, sid), "poluchateli": poluchateli, "tehnika": tehnika,
+            "mashiny": mashiny, "moya_mashina_id": moya, "toplivo_vidy": list(TOPLIVO)}
+
+
+def spisok_tehniki(conn, sid):
+    """Активная техника: своя (закреплённая) сверху, потом на которой
+    человек чаще работал, потом остальная по названию."""
+    ensure(conn)
+    raz = {i: n for i, n in conn.execute(
+        "SELECT tehnika_id, COUNT(*) FROM otchet_smeny WHERE deleted=0 AND sotrudnik_id=? AND tehnika_id IS NOT NULL "
+        "GROUP BY tehnika_id", (sid,)).fetchall()}
+    out, moya = [], None
+    for tid, naz, tip, nom, top, zak, fio in conn.execute(
+            """SELECT t.id, t.nazvanie, t.tip, t.nomer, t.toplivo, t.zakreplen_sotrudnik_id, s.fio
+               FROM tehnika t LEFT JOIN sotrudniki s ON s.id = t.zakreplen_sotrudnik_id
+               WHERE t.aktivna=1""").fetchall():
+        if zak == sid and moya is None:
+            moya = tid
+        out.append({"id": tid, "nazvanie": naz, "tip": tip, "nomer": nom, "toplivo": top,
+                    "zakreplen": fio, "moya": zak == sid, "raz": raz.get(tid, 0),
+                    "label": naz + (f" · {nom}" if nom else "")})
+    out.sort(key=lambda x: (not x["moya"], -x["raz"], x["nazvanie"] or ""))
+    return out, moya
+
+
+def osvoenie(conn, delyanka_ids):
+    """Остаток по делянке для харвестерщика/вальщика: лимит по билету минус
+    заготовленное. Наряды пишутся раз в месяц, поэтому «заготовлено» —
+    большее из (наряд, ЕГАИС, сумма отчётов с телефона по этой делянке)."""
+    if not delyanka_ids:
+        return {}
+    try:
+        import raskhod_v2 as legacy_raskhod
+        batch = legacy_raskhod.compute_osvoenie_batch(conn, delyanka_ids)
+    except Exception:  # noqa: BLE001 — нет МДО/ЕГАИС: остаток просто не покажем
+        batch = {}
+    po_otchetam = {d: v or 0 for d, v in conn.execute(
+        f"""SELECT di.delyanka_id, SUM(o.obyom) FROM otchet_smeny o JOIN delyanka_item di ON di.id = o.delyanka_item_id
+            WHERE o.deleted=0 AND o.vid IN ({','.join('?' * len(ZAGOTOVKA))}) GROUP BY di.delyanka_id""",
+        list(ZAGOTOVKA)).fetchall()}
+    out = {}
+    for d in delyanka_ids:
+        b = batch.get(d) or {}
+        limit = b.get("limit") or 0
+        if limit <= 0:
+            continue
+        fakt = max(b.get("fakt") or 0, po_otchetam.get(d, 0))
+        out[d] = {"limit": _r(limit), "fakt_naryad": _r(b.get("fakt_naryad")), "fakt_egais": _r(b.get("fakt_egais")),
+                  "po_otchetam": _r(po_otchetam.get(d, 0)), "fakt": _r(fakt), "ostatok": _r(limit - fakt),
+                  "ostatok_110": _r(limit * 1.1 - fakt), "pct": round(fakt / limit * 100, 1)}
+    return out
 
 
 def _neg(s):
@@ -245,6 +404,9 @@ class SmenaIn(BaseModel):
     chasy: Optional[float] = None
     poluchatel: Optional[str] = None
     tehnika: Optional[str] = None
+    tehnika_id: Optional[int] = None
+    toplivo_rashod: Optional[float] = None
+    zapravka: Optional[float] = None
     kommentariy: Optional[str] = None
     uchastok_proyden: bool = False
     naparniki: List[int] = []
@@ -263,17 +425,31 @@ def _proverit(conn, b: SmenaIn, segodnya):
         raise HTTPException(400, "Отчёт можно внести не позже чем за 2 недели — старше вносит мастер")
     if b.chasy is not None and not (0 <= b.chasy <= MAX_CHASOV):
         raise HTTPException(400, "Часы — от 0 до 24")
-    if b.vid in ("trelevka", "naseleniyu"):
+    for v, nazv in ((b.toplivo_rashod, "Расход топлива"), (b.zapravka, "Заправка")):
+        if v is not None and not (0 <= v <= MAX_LITROV):
+            raise HTTPException(400, f"{nazv} — от 0 до {MAX_LITROV} л")
+    if b.tehnika_id and not conn.execute("SELECT 1 FROM tehnika WHERE id=?", (b.tehnika_id,)).fetchone():
+        raise HTTPException(404, "Техника не найдена")
+    if b.vid in PO_DELYANKE:
         if not b.delyanka_item_id:
             raise HTTPException(400, "Выбери делянку")
+        if not conn.execute("SELECT 1 FROM delyanka_item WHERE id=?", (b.delyanka_item_id,)).fetchone():
+            raise HTTPException(404, "Делянка не найдена")
+    if b.vid in ("harvester",) and (not b.obyom or b.obyom <= 0):
+        raise HTTPException(400, "Укажи кубы")
+    if b.vid in ("rubka_uhoda", "ochistka") and (b.ga is None or b.ga <= 0) and not b.uchastok_proyden:
+        raise HTTPException(400, "Укажи, сколько га сделал")
+    if b.vid == "sanrubka" and not ((b.ga or 0) > 0 or (b.obyom or 0) > 0 or b.uchastok_proyden):
+        raise HTTPException(400, "Укажи га или кубы")
+    if b.vid == "drugoe" and not (b.kommentariy or "").strip():
+        raise HTTPException(400, "Напиши, что делал")
+    if b.vid in ("trelevka", "naseleniyu"):
         if not b.obyom or b.obyom <= 0:
             raise HTTPException(400, "Укажи кубы")
         if b.reysov is not None and b.reysov < 0:
             raise HTTPException(400, "Рейсы — не меньше нуля")
         if b.vid == "naseleniyu" and not (b.poluchatel or "").strip():
             raise HTTPException(400, "Укажи, кому везли")
-        if not conn.execute("SELECT 1 FROM delyanka_item WHERE id=?", (b.delyanka_item_id,)).fetchone():
-            raise HTTPException(404, "Делянка не найдена")
     if b.vid in PO_UCHASTKU:
         if not b.lesokultury_uchastok_id:
             raise HTTPException(400, "Выбери участок")
@@ -284,7 +460,7 @@ def _proverit(conn, b: SmenaIn, segodnya):
     if b.vid == "remont":
         if not b.chasy:
             raise HTTPException(400, "Укажи, сколько часов был ремонт")
-        if not (b.tehnika or b.kommentariy or "").strip():
+        if not (b.tehnika or b.tehnika_id or b.kommentariy or "").strip():
             raise HTTPException(400, "Напиши, что ремонтировали")
     return d
 
@@ -300,15 +476,23 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
     nap = sorted({i for i in b.naparniki if i and i != sid})
     if nap:
         ok = {r[0] for r in conn.execute(
-            f"SELECT id FROM sotrudniki WHERE is_active=1 AND id IN ({','.join('?' * len(nap))})", nap).fetchall()}
+            f"SELECT id, dolzhnost FROM sotrudniki WHERE is_active=1 AND id IN ({','.join('?' * len(nap))})", nap).fetchall()
+            if not mashinist(r[1])}
         nap = [i for i in nap if i in ok]
+    teh_naz, toplivo = (b.tehnika or "").strip()[:120] or None, None
+    if b.tehnika_id:
+        t = conn.execute("SELECT nazvanie, nomer, toplivo FROM tehnika WHERE id=?", (b.tehnika_id,)).fetchone()
+        teh_naz = t[0] + (f" {t[1]}" if t[1] else "")
+        toplivo = t[2]
     cur = conn.execute(
         """INSERT INTO otchet_smeny (sotrudnik_id, data, vid, delyanka_item_id, lesokultury_uchastok_id, reysov, obyom, ga,
-           chasy, poluchatel, tehnika, kommentariy, client_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (sid, d.isoformat(), b.vid, b.delyanka_item_id if b.vid in ("trelevka", "naseleniyu") else None,
+           chasy, poluchatel, tehnika, kommentariy, client_id, tehnika_id, toplivo, toplivo_rashod, zapravka)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (sid, d.isoformat(), b.vid, b.delyanka_item_id if b.vid in PO_DELYANKE else None,
          b.lesokultury_uchastok_id if b.vid in PO_UCHASTKU else None, b.reysov, b.obyom, b.ga, b.chasy,
-         (b.poluchatel or "").strip()[:120] or None, (b.tehnika or "").strip()[:120] or None,
-         (b.kommentariy or "").strip()[:1000] or None, b.client_id))
+         (b.poluchatel or "").strip()[:120] or None, teh_naz,
+         (b.kommentariy or "").strip()[:1000] or None, b.client_id, b.tehnika_id, toplivo,
+         b.toplivo_rashod or None, b.zapravka or None))
     oid = cur.lastrowid
     uchastniki = [sid] + nap
     trel_ids = {}
@@ -333,6 +517,8 @@ def sozdat(conn, sid, fio, b: SmenaIn, segodnya=None):
     zakryt = None
     if b.vid in PO_UCHASTKU:
         zakryt = _zakryt_esli_proyden(conn, oid, b.lesokultury_uchastok_id, b.vid, d, sid, b.uchastok_proyden)
+    elif b.vid in PO_ITEM_GA:
+        zakryt = _zakryt_item(conn, oid, b.delyanka_item_id, b.vid, b.uchastok_proyden)
     _uvedomit(conn, oid, fio, b, nap)
     return {"id": oid, **_posle(conn, oid), "zakryt_cikl": zakryt}
 
@@ -349,6 +535,10 @@ def _zakryt_esli_proyden(conn, oid, uid, vid, d, sid, rukami):
              AND o.id > (SELECT COALESCE(MAX(id), 0) FROM otchet_smeny WHERE deleted=0 AND zakryl_cikl=1
                          AND lesokultury_uchastok_id=? AND vid=?)""", (uid, vid, uid, vid)).fetchall()]
     sdelano = cy["sdelano"]
+    if not VIDY[vid].get("meropriyatie"):  # посадка: тип записи в журнале выбирает мастер — только закрываем цикл
+        conn.execute("UPDATE otchet_smeny SET zakryl_cikl=1 WHERE id=?", (oid,))
+        conn.commit()
+        return {"meropriyatie_id": None, "tip": VIDY[vid]["title"], "sdelano": _r(sdelano), "ploshad": pl}
     mid = legacy_db.add_lesokultury_meropriyatie(
         conn, uid, VIDY[vid]["meropriyatie"], d.strftime("%d.%m.%Y"),
         primechaniya=f"По отчётам за смену с телефона: {sdelano:g} га" + (f" из {pl:g}" if pl else "")
@@ -360,9 +550,25 @@ def _zakryt_esli_proyden(conn, oid, uid, vid, d, sid, rukami):
     return {"meropriyatie_id": mid, "tip": VIDY[vid]["meropriyatie"], "sdelano": _r(sdelano), "ploshad": pl}
 
 
+def _zakryt_item(conn, oid, iid, vid, rukami):
+    pl = conn.execute("SELECT ploshad FROM delyanka_item WHERE id=?", (iid,)).fetchone()
+    pl = _f(pl[0]) if pl else None
+    cy = cikly_items(conn, [iid]).get((iid, vid)) or {"sdelano": 0.0}
+    if not (rukami or (pl and cy["sdelano"] >= pl * ZAKRYT_DOLYA)):
+        return None
+    conn.execute("UPDATE otchet_smeny SET zakryl_cikl=1 WHERE id=?", (oid,))
+    conn.commit()
+    return {"meropriyatie_id": None, "tip": VIDY[vid]["title"], "sdelano": _r(cy["sdelano"]), "ploshad": pl}
+
+
 def _posle(conn, oid):
-    """Что показать человеку после отправки: остаток по участку."""
-    r = conn.execute("SELECT lesokultury_uchastok_id, vid FROM otchet_smeny WHERE id=?", (oid,)).fetchone()
+    """Что показать человеку после отправки: остаток по участку / выделу."""
+    r = conn.execute("SELECT lesokultury_uchastok_id, vid, delyanka_item_id FROM otchet_smeny WHERE id=?", (oid,)).fetchone()
+    if r and r[2] and r[1] in PO_ITEM_GA:
+        pl = conn.execute("SELECT ploshad FROM delyanka_item WHERE id=?", (r[2],)).fetchone()
+        pl = _f(pl[0]) if pl else None
+        cy = cikly_items(conn, [r[2]]).get((r[2], r[1])) or {"sdelano": 0.0}
+        return {"ostatok": _ostatok(pl, cy["sdelano"]), "sdelano_v_cikle": _r(cy["sdelano"]), "ploshad": pl}
     if not r or not r[0] or r[1] not in PO_UCHASTKU:
         return {}
     pl = conn.execute("SELECT ploshad FROM lesokultury_uchastok WHERE id=?", (r[0],)).fetchone()
@@ -382,6 +588,8 @@ def _uvedomit(conn, oid, fio, b, nap):
         chto.append(f"{b.ga:g} га")
     if b.chasy:
         chto.append(f"{b.chasy:g} ч")
+    if b.zapravka:
+        chto.append(f"⛽ заправка {b.zapravka:g} л")
     s = f"{v['emoji']} {v['title']}: {fio}" + (f" (+{len(nap)} напарн.)" if nap else "") + (" — " + ", ".join(chto) if chto else "")
     try:
         webext.notify(conn, "smena", s, related_id=oid)
@@ -396,7 +604,8 @@ def _stroki(conn, where, args, limit=300):
     rows = conn.execute(
         f"""SELECT o.id, o.sotrudnik_id, s.fio, o.data, o.vid, o.delyanka_item_id, di.kvartal, di.vydel, di.lesoseka_nomer,
                    d.nazvanie, o.lesokultury_uchastok_id, lu.kvartal, lu.vydel, lu.lesnichestvo, lu.ploshad, o.reysov,
-                   o.obyom, o.ga, o.chasy, o.poluchatel, o.tehnika, o.kommentariy, o.zakryl_cikl, o.created_at
+                   o.obyom, o.ga, o.chasy, o.poluchatel, o.tehnika, o.kommentariy, o.zakryl_cikl, o.created_at,
+                   o.tehnika_id, o.toplivo, o.toplivo_rashod, o.zapravka
             FROM otchet_smeny o
             JOIN sotrudniki s ON s.id = o.sotrudnik_id
             LEFT JOIN delyanka_item di ON di.id = o.delyanka_item_id
@@ -423,6 +632,7 @@ def _stroki(conn, where, args, limit=300):
             "mesto": mesto, "ploshad_uchastka": r[14], "reysov": r[15], "obyom": r[16], "ga": r[17], "chasy": r[18],
             "poluchatel": r[19], "tehnika": r[20], "kommentariy": r[21], "zakryl_cikl": bool(r[22]), "created_at": r[23],
             "naparniki": [n for n in nap.get(r[0], []) if n["id"] != r[1]],
+            "tehnika_id": r[24], "toplivo": r[25], "toplivo_rashod": r[26], "zapravka": r[27],
         })
     return out
 
@@ -438,7 +648,9 @@ def moi(conn, sid, dney=14, segodnya=None):
     sevodnya = [r for r in rows if r["data"] == segodnya.isoformat()]
     itog = {
         "chasy": round(sum(r["chasy"] or 0 for r in sevodnya), 1),
-        "obyom": round(sum(r["obyom"] or 0 for r in sevodnya if r["vid"] in ("trelevka", "naseleniyu")), 2),
+        "obyom": round(sum(r["obyom"] or 0 for r in sevodnya if r["vid"] in PO_DELYANKE), 2),
+        "toplivo_rashod": round(sum(r["toplivo_rashod"] or 0 for r in sevodnya), 1),
+        "zapravka": round(sum(r["zapravka"] or 0 for r in sevodnya), 1),
         "reysov": sum(r["reysov"] or 0 for r in sevodnya),
         "ga": round(sum(r["ga"] or 0 for r in sevodnya), 2),
         "otchetov": len(sevodnya),
@@ -530,6 +742,17 @@ def web_list(date_from: Optional[str] = None, date_to: Optional[str] = None, vid
                 otkrytye.append({"uchastok_id": uid, "mesto": info[uid][0], "vid": v, "vid_title": VIDY[v]["title"],
                                  "sdelano": _r(x["sdelano"]), "ploshad": info[uid][1],
                                  "ostatok": _ostatok(info[uid][1], x["sdelano"]), "posledniy": x["posledniy"]})
+    ci = cikly_items(conn)
+    iids = sorted({i for (i, _v), x in ci.items() if x["otchetov"]})
+    if iids:
+        info = {r[0]: (_label_item(r[1], r[2], r[3], r[4]), _f(r[5])) for r in conn.execute(
+            f"""SELECT di.id, di.kvartal, di.vydel, di.lesoseka_nomer, d.nazvanie, di.ploshad FROM delyanka_item di
+                JOIN delyanka d ON d.id = di.delyanka_id WHERE di.id IN ({','.join('?' * len(iids))})""", iids).fetchall()}
+        for (iid, v), x in ci.items():
+            if x["otchetov"] and iid in info:
+                otkrytye.append({"delyanka_item_id": iid, "mesto": info[iid][0], "vid": v, "vid_title": VIDY[v]["title"],
+                                 "sdelano": _r(x["sdelano"]), "ploshad": info[iid][1],
+                                 "ostatok": _ostatok(info[iid][1], x["sdelano"]), "posledniy": x["posledniy"]})
     return {"otchety": rows, "otkrytye": sorted(otkrytye, key=lambda x: x["posledniy"] or "", reverse=True), "vidy": VIDY}
 
 
@@ -545,3 +768,73 @@ def web_delete(oid: int, user=Depends(require_office_or_master), conn=Depends(ge
         conn.execute("DELETE FROM lesokultury_meropriyatiya WHERE id=?", (r[0],))
     _udalit(conn, oid)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- топливо ---
+
+def svodka_topliva(conn, ot, do):
+    """Кто сколько заправил и сжёг (по людям и по машинам), раздельно ДТ и
+    АИ-92, + «в баке примерно» по машине: все заправки минус весь расход
+    с начала учёта. Расход на час и на м³ — чтобы сразу видеть, у кого
+    странно много."""
+    ensure(conn)
+    pusto = lambda: {t: {"rashod": 0.0, "zapravka": 0.0} for t in TOPLIVO + ("—",)}  # noqa: E731
+    lyudi, mashiny = {}, {}
+    for sid, fio, tid, teh, top, ras, zap, chasy, obyom in conn.execute(
+            """SELECT o.sotrudnik_id, s.fio, o.tehnika_id, o.tehnika, o.toplivo, o.toplivo_rashod, o.zapravka, o.chasy, o.obyom
+               FROM otchet_smeny o JOIN sotrudniki s ON s.id = o.sotrudnik_id
+               WHERE o.deleted=0 AND o.data >= ? AND o.data <= ?
+                 AND (COALESCE(o.toplivo_rashod,0) > 0 OR COALESCE(o.zapravka,0) > 0)""", (ot, do)).fetchall():
+        t = top if top in TOPLIVO else "—"
+        p = lyudi.setdefault(sid, {"sotrudnik_id": sid, "fio": fio, "po_toplivu": pusto(), "chasy": 0.0, "obyom": 0.0,
+                                   "smen": 0})
+        key = tid or f"txt:{teh or '—'}"
+        m = mashiny.setdefault(key, {"tehnika_id": tid, "nazvanie": teh or "техника не указана", "toplivo": top,
+                                     "po_toplivu": pusto(), "chasy": 0.0, "obyom": 0.0, "kto": set()})
+        for x in (p, m):
+            x["po_toplivu"][t]["rashod"] += ras or 0
+            x["po_toplivu"][t]["zapravka"] += zap or 0
+            x["chasy"] += chasy or 0
+            x["obyom"] += obyom or 0
+        p["smen"] += 1
+        m["kto"].add(fio)
+    # Остаток в баке — по всей истории машины, не только за период.
+    bak = {tid: (z or 0) - (r or 0) for tid, z, r in conn.execute(
+        "SELECT tehnika_id, SUM(zapravka), SUM(toplivo_rashod) FROM otchet_smeny WHERE deleted=0 AND tehnika_id IS NOT NULL "
+        "GROUP BY tehnika_id").fetchall()}
+    zakrep = {tid: fio for tid, fio in conn.execute(
+        "SELECT t.id, s.fio FROM tehnika t LEFT JOIN sotrudniki s ON s.id=t.zakreplen_sotrudnik_id").fetchall()}
+
+    def itog(x):
+        ras = sum(v["rashod"] for v in x["po_toplivu"].values())
+        x["po_toplivu"] = {k: {"rashod": round(v["rashod"], 1), "zapravka": round(v["zapravka"], 1)}
+                           for k, v in x["po_toplivu"].items() if v["rashod"] or v["zapravka"]}
+        x["l_na_chas"] = round(ras / x["chasy"], 1) if x["chasy"] else None
+        x["l_na_m3"] = round(ras / x["obyom"], 2) if x["obyom"] else None
+        x["chasy"] = round(x["chasy"], 1)
+        x["obyom"] = round(x["obyom"], 2)
+        return x
+
+    lyudi_out = sorted((itog(x) for x in lyudi.values()), key=lambda x: x["fio"] or "")
+    mashiny_out = []
+    for x in mashiny.values():
+        x = itog(x)
+        x["kto"] = sorted(x["kto"])
+        x["zakreplen"] = zakrep.get(x["tehnika_id"])
+        x["v_bake_primerno"] = round(bak[x["tehnika_id"]], 1) if x["tehnika_id"] in bak else None
+        mashiny_out.append(x)
+    mashiny_out.sort(key=lambda x: x["nazvanie"] or "")
+    vsego = {t: {"rashod": round(sum(x["po_toplivu"].get(t, {}).get("rashod", 0) for x in lyudi_out), 1),
+                 "zapravka": round(sum(x["po_toplivu"].get(t, {}).get("zapravka", 0) for x in lyudi_out), 1)}
+             for t in TOPLIVO + ("—",)}
+    vsego = {k: v for k, v in vsego.items() if v["rashod"] or v["zapravka"]}
+    return {"ot": ot, "do": do, "lyudi": lyudi_out, "mashiny": mashiny_out, "vsego": vsego}
+
+
+@web_router.get("/toplivo")
+def web_toplivo(date_from: Optional[str] = None, date_to: Optional[str] = None,
+                user=Depends(require_office_or_master), conn=Depends(get_conn)):
+    segodnya = date.today()
+    ot = (_d(date_from) or segodnya.replace(day=1)).isoformat()
+    do = (_d(date_to) or segodnya).isoformat()
+    return svodka_topliva(conn, ot, do)

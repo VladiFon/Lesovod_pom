@@ -18,6 +18,8 @@ import Sotrudniki from "./pages/Sotrudniki.jsx";
 import Attendance from "./pages/Attendance.jsx";
 import WorkerNotes from "./pages/WorkerNotes.jsx";
 import OtchetySmeny from "./pages/OtchetySmeny.jsx";
+import Toplivo from "./pages/Toplivo.jsx";
+import Tehnika from "./pages/Tehnika.jsx";
 import Archive from "./pages/Archive.jsx";
 import CalendarScreen from "./pages/Calendar.jsx";
 import { RawReportsTab, CompletedTab } from "./pages/AiLog.jsx";
@@ -54,6 +56,8 @@ const Padded = (Inner) => function PaddedTab() {
 const Telefon = makeMergedScreen("telefon", [
   { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
   { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
+  { key: "toplivo", label: "⛽ Топливо", Page: Toplivo },
+  { key: "tehnika", label: "🚜 Техника", Page: Tehnika },
   { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
   { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
 ]);
@@ -62,6 +66,8 @@ const TelefonIgra = makeMergedScreen("telefon", [
   { key: "pochta", label: "📬 Почта гонцов", Page: Pochta },
   { key: "otchety", label: "Отчёты на проверку", Page: Padded(RawReportsTab) },
   { key: "smena", label: "🚜 Отчёты за смену", Page: OtchetySmeny },
+  { key: "toplivo", label: "⛽ Топливо", Page: Toplivo },
+  { key: "tehnika", label: "🚜 Техника", Page: Tehnika },
   { key: "zametki", label: "Заметки рабочих", Page: WorkerNotes },
   { key: "zhurnal", label: "Журнал выполненных работ", Page: Padded(CompletedTab) },
 ]);
