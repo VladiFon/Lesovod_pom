@@ -8,6 +8,7 @@ import Modal from "../components/Modal.jsx";
 import DataTable from "../components/DataTable.jsx";
 import OsvoenieBadge from "../components/OsvoenieBadge.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
+import ChelovekLink, { ChelovekList } from "../components/ChelovekLink.jsx";
 import { useToast } from "../components/Toast.jsx";
 
 /**
@@ -342,12 +343,12 @@ export default function RaspredelenieBrigad() {
       {
         key: "brigadir",
         header: "Бригадир",
-        render: (b) => (b.brigadir_sotrudnik_id ? sotrudnikFioById.get(b.brigadir_sotrudnik_id) || "—" : "—"),
+        render: (b) => (b.brigadir_sotrudnik_id ? <ChelovekLink id={b.brigadir_sotrudnik_id} fio={sotrudnikFioById.get(b.brigadir_sotrudnik_id) || "—"} className="font-normal" /> : "—"),
       },
       {
         key: "sostav",
         header: "Состав",
-        render: (b) => (b.sostav.length ? b.sostav.map((s) => s.fio).join(", ") : <span className="text-muted">пусто</span>),
+        render: (b) => (b.sostav.length ? <ChelovekList people={b.sostav.map((s) => ({ id: s.sotrudnik_id ?? s.id, fio: s.fio }))} /> : <span className="text-muted">пусто</span>),
       },
       {
         key: "tekushee",

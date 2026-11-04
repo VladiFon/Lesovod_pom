@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api/client.js";
 import Modal from "./Modal.jsx";
+import { openChelovek } from "./ChelovekLink.jsx";
 
 const ISTOCHNIK = { smena: "отчёт с телефона", zhurnal: "журнал выполненных работ", uhody: "рубки ухода (офис)" };
 const ruData = (s) => {
@@ -37,13 +38,17 @@ export default function IstoriyaRabot({ sotrudnikId, onClose }) {
   return (
     <Modal open={!!sotrudnikId} onClose={onClose} title={d?.fio ? `Где был и что делал — ${d.fio}` : "Где был и что делал"} size="lg">
       <div className="flex flex-col gap-3 text-[13px]">
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 items-center">
           {[[7, "Неделя"], [31, "Месяц"], [92, "3 месяца"]].map(([n, t]) => (
             <button key={n} onClick={() => setDney(n)}
               className={["px-3 py-1 rounded-md border text-sm", dney === n ? "bg-mint text-pine border-pine font-bold" : "border-border hover:bg-hover"].join(" ")}>
               {t}
             </button>
           ))}
+          <button onClick={() => { onClose?.(); openChelovek(sotrudnikId); }}
+            className="ml-auto px-3 py-1 rounded-md border border-pine text-pine text-sm font-semibold hover:bg-mint-soft">
+            👤 Вся карточка человека →
+          </button>
         </div>
         {!d ? (
           <div className="text-muted">Загрузка…</div>

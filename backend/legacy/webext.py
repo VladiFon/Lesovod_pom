@@ -1091,7 +1091,7 @@ def complete_work_plan_item(conn, work_plan_id, sotrudnik_id):
     done = cur.rowcount > 0
     if done:
         row = conn.execute(
-            """SELECT work_plan.zadacha, sotrudniki.fio, sotrudniki.dolzhnost,
+            """SELECT work_plan.zadacha, sotrudniki.fio, sotrudniki.dolzhnost, work_plan.sotrudnik_id,
                       COALESCE(delyanka_item.kvartal, lku.kvartal),
                       COALESCE(delyanka_item.vydel, lku.vydel),
                       COALESCE(delyanka_item.lesnichestvo, lku.lesnichestvo),
@@ -1105,15 +1105,26 @@ def complete_work_plan_item(conn, work_plan_id, sotrudnik_id):
         ).fetchone()
         if row is not None and row[3] and row[4]:
             from app import map_features  # локально: legacy не зависит от app при импорте
-            zadacha, fio, dolzhnost, kvartal, vydel, lesnichestvo, delyanka_id = row
-            conn.execute(
-                "INSERT INTO completed_works "
-                "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, dolzhnost, opisanie) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (datetime.now().strftime("%Y-%m-%d"), fio, kvartal, vydel, zadacha,
-                 map_features.canonical_lesnichestvo(lesnichestvo), dolzhnost,
-                 f"Задача из плана работ №{work_plan_id}"),
-            )
+            zadacha, fio, dolzhnost, sotrudnik_id, kvartal, vydel, lesnichestvo, delyanka_id = row
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(completed_works)").fetchall()}
+            if "sotrudnik_id" in cols:
+                conn.execute(
+                    "INSERT INTO completed_works "
+                    "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, dolzhnost, opisanie, "
+                    "sotrudnik_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (datetime.now().strftime("%Y-%m-%d"), fio, kvartal, vydel, zadacha,
+                     map_features.canonical_lesnichestvo(lesnichestvo), dolzhnost,
+                     f"Задача из плана работ №{work_plan_id}", sotrudnik_id),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO completed_works "
+                    "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, dolzhnost, opisanie) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (datetime.now().strftime("%Y-%m-%d"), fio, kvartal, vydel, zadacha,
+                     map_features.canonical_lesnichestvo(lesnichestvo), dolzhnost,
+                     f"Задача из плана работ №{work_plan_id}"),
+                )
             map_features.mark_items_in_progress(conn, kvartal, [vydel], lesnichestvo, delyanka_id)
     conn.commit()
     return done

@@ -6,6 +6,7 @@ import Modal from "../components/Modal.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { api } from "../api/client.js";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 
 /**
  * Экран "Присутствие" (часть раздела "Люди") — табель за месяц поверх
@@ -274,7 +275,7 @@ export default function Attendance() {
                 {employees.map((emp) => (
                   <tr key={emp.id} className="group">
                     <td className="sticky left-0 z-10 bg-surface px-3 py-1.5 border-b border-border group-hover:bg-hover">
-                      <div className="font-medium text-ink text-[13px] leading-4">{emp.fio}</div>
+                      <div className="text-[13px] leading-4"><ChelovekLink id={emp.id} fio={emp.fio} className="font-medium" /></div>
                       <div className="text-muted-2 text-[11px]">{emp.dolzhnost || "—"}</div>
                     </td>
                     {days.map((day) => {

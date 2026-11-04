@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import IstoriyaRabot, { RabotaStroka } from "../components/IstoriyaRabot.jsx";
+import { openChelovek } from "../components/ChelovekLink.jsx";
 import { api, ApiError } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
@@ -421,6 +422,8 @@ export default function TabelRuchnoy() {
                         <button type="button" onClick={() => setIstoriyaId(row.sotrudnik_id)}
                           className="font-medium text-ink leading-4 text-left hover:text-pine hover:underline"
                           title="Где был и что делал за месяц">{row.fio}</button>
+                        <button type="button" onClick={() => openChelovek(row.sotrudnik_id)} title="Открыть карточку человека"
+                          className="ml-1 text-muted-2 hover:text-pine text-[12px]">👤</button>
                         <div className="text-muted-2 text-[11px]">{row.dolzhnost || "—"}</div>
                         {row.brigada_nazvanie && (
                           <div className="text-muted-2 text-[10.5px]">

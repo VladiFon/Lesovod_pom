@@ -1088,6 +1088,12 @@ def migrate_schema(conn):
     existing_cw_cols2 = {row[1] for row in conn.execute("PRAGMA table_info(completed_works)").fetchall()}
     if existing_cw_cols2 and "lk_meropriyatie_id" not in existing_cw_cols2:
         conn.execute("ALTER TABLE completed_works ADD COLUMN lk_meropriyatie_id INTEGER")
+    # Исполнитель ссылкой на справочник (Влад, 04.11.2026, карточка человека):
+    # раньше был только текст ispolnitel_fio — опечатка или однофамилец, и
+    # работа «терялась» из истории человека. Старые строки заполняет
+    # app/raboty_sotrudnika.zapolnit_ssylki по точному совпадению ФИО.
+    if existing_cw_cols2 and "sotrudnik_id" not in existing_cw_cols2:
+        conn.execute("ALTER TABLE completed_works ADD COLUMN sotrudnik_id INTEGER")
     # Поля участка культур под текущие изменения (приказ Минлесхоза №130,
     # прил. 7) и загрузку «Книги производства л/к»: старый номер выдела (до
     # новой таксации), подвыдел, способ обработки почвы, схема посадки,
@@ -2297,11 +2303,11 @@ def mark_uhody_proba_completed(conn, proba_id, sotrudnik_ids, storonnie=None):
 
     conn.executemany(
         "INSERT INTO completed_works "
-        "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, dolzhnost, opisanie) "
-        "VALUES (?, ?, ?, ?, 'Рубки ухода', ?, ?, ?)",
+        "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, dolzhnost, opisanie, sotrudnik_id) "
+        "VALUES (?, ?, ?, ?, 'Рубки ухода', ?, ?, ?, ?)",
         [
             (today, i["fio"], proba["kvartal"], proba["vydel"], lesnichestvo, i["dolzhnost"],
-             f"Проба рубок ухода №{proba_id}")
+             f"Проба рубок ухода №{proba_id}", i["id"])
             for i in ispolniteli
         ],
     )
@@ -3157,9 +3163,9 @@ def set_meropriyatie_ispolniteli(conn, meropriyatie_id, sotrudnik_ids=None, stor
     if ispolniteli:
         conn.executemany(
             "INSERT INTO completed_works (data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, "
-            "dolzhnost, opisanie, lk_meropriyatie_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "dolzhnost, opisanie, lk_meropriyatie_id, sotrudnik_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(_iso_data(m[1]), i["fio"], m[2], m[3], m[0], m[4], i["dolzhnost"],
-              f"Лесные культуры, участок №{m[5]}", meropriyatie_id) for i in ispolniteli],
+              f"Лесные культуры, участок №{m[5]}", meropriyatie_id, i["id"]) for i in ispolniteli],
         )
     conn.commit()
     return ispolniteli

@@ -8,6 +8,7 @@ import Modal from "../components/Modal.jsx";
 import DataTable from "../components/DataTable.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 import ZadachaModal from "../components/ZadachaModal.jsx";
 
 /**
@@ -233,7 +234,7 @@ export default function PlanRabot() {
       { key: "data", header: "Дата", sortable: true },
       { key: "sotrudnik_fio", header: "Сотрудник", sortable: true, render: (t) => (
         <div>
-          <div className="text-ink">{t.sotrudnik_fio}</div>
+          <div><ChelovekLink id={t.sotrudnik_id} fio={t.sotrudnik_fio} className="font-normal" /></div>
           {t.sotrudnik_dolzhnost && <div className="text-xs text-muted">{t.sotrudnik_dolzhnost}</div>}
         </div>
       ) },

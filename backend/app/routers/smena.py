@@ -670,7 +670,8 @@ def _stroki(conn, where, args, limit=300):
         f"""SELECT o.id, o.sotrudnik_id, s.fio, o.data, o.vid, o.delyanka_item_id, di.kvartal, di.vydel, di.lesoseka_nomer,
                    d.nazvanie, o.lesokultury_uchastok_id, lu.kvartal, lu.vydel, lu.lesnichestvo, lu.ploshad, o.reysov,
                    o.obyom, o.ga, o.chasy, o.poluchatel, o.tehnika, o.kommentariy, o.zakryl_cikl, o.created_at,
-                   o.tehnika_id, o.toplivo, o.toplivo_rashod, o.zapravka, o.uhody_proba_id, up.kvartal, up.vydel
+                   o.tehnika_id, o.toplivo, o.toplivo_rashod, o.zapravka, o.uhody_proba_id, up.kvartal, up.vydel,
+                   di.delyanka_id
             FROM otchet_smeny o
             LEFT JOIN uhody_proby up ON up.id = o.uhody_proba_id
             JOIN sotrudniki s ON s.id = o.sotrudnik_id
@@ -701,7 +702,7 @@ def _stroki(conn, where, args, limit=300):
             "poluchatel": r[19], "tehnika": r[20], "kommentariy": r[21], "zakryl_cikl": bool(r[22]), "created_at": r[23],
             "naparniki": [n for n in nap.get(r[0], []) if n["id"] != r[1]],
             "tehnika_id": r[24], "toplivo": r[25], "toplivo_rashod": r[26], "zapravka": r[27],
-            "uhody_proba_id": r[28],
+            "uhody_proba_id": r[28], "delyanka_id": r[31],
         })
     return out
 
