@@ -113,6 +113,23 @@ if exist "%ENV_FILE%" (
 REM 4. Хвост — не копим бэкапы бесконечно: оставляем последние 14
 REM    дневных папок в BACKUP_DIR, старые удаляем. secrets-бэкапы
 REM    удаляются по той же логике, отдельным циклом.
+REM Копии клиентов (лесопункт и т.п., novyy_klient.bat, 04.11.2026):
+REM база каждого клиента — в %DEST%\klienty\<имя>\lesovod.db.
+if exist "C:\lesovod\klienty" (
+    for /d %%K in ("C:\lesovod\klienty\*") do (
+        if exist "%%K\data\app\lesovod.db" (
+            mkdir "%DEST%\klienty\%%~nxK" 2>nul
+            if exist "%VENV_PYTHON%" (
+                "%VENV_PYTHON%" -c "import sqlite3,sys; s=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()" "%%K\data\app\lesovod.db" "%DEST%\klienty\%%~nxK\lesovod.db"
+            ) else (
+                copy /y "%%K\data\app\lesovod.db" "%DEST%\klienty\%%~nxK\lesovod.db" >nul
+            )
+            if exist "%%K\data\storage" xcopy "%%K\data\storage" "%DEST%\klienty\%%~nxK\storage\" /e /i /q /y >nul
+            echo [backup] клиент %%~nxK скопирован
+        )
+    )
+)
+
 set "KEEP_DAYS=14"
 forfiles /p "%BACKUP_DIR%" /d -%KEEP_DAYS% /c "cmd /c if @isdir==TRUE rmdir /s /q @path" 2>nul
 forfiles /p "%SECRETS_BACKUP_DIR%" /d -%KEEP_DAYS% /c "cmd /c del @path" 2>nul

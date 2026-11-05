@@ -6,6 +6,7 @@ import ZhdetMenya from "./ZhdetMenya.jsx";
 import { useVid } from "../vid.jsx";
 import { api } from "../api/client.js";
 import { openScreen } from "../nav.js";
+import { skryt } from "../izdanie.js";
 
 const MONO = "'JetBrains Mono', monospace";
 const MAX_TABS = 8;
@@ -74,10 +75,11 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
     const ekrany = Object.keys(GROUP_OF)
+      .filter((k) => !skryt(k))
       .map((k) => ({ key: k, ...GROUP_OF[k] }))
       .filter((it) => !q || it.label.toLowerCase().includes(q) || it.group.includes(q))
       .map((it) => ({ ...it, emoji: "▦", meta: it.group }));
-    const nashli = naydeno.map((n, i) => ({
+    const nashli = naydeno.filter((n) => !skryt(n.screen)).map((n, i) => ({
       key: `n${i}-${n.screen}-${JSON.stringify(n.params)}`, label: n.title, hint: n.hint,
       emoji: TIP[n.tip]?.emoji || "•", meta: TIP[n.tip]?.label || "", ssylka: n,
     }));

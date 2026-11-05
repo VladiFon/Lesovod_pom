@@ -414,6 +414,77 @@ async def upload_item_kontur(item_id: int, file: UploadFile = File(...), conn=De
     return {"ok": True, "ploshad_kontura": area, "warning": warning}
 
 
+# --------------------------------------------------------------------------- #
+#   Новая делянка из файла (лесопункт, 05.11.2026): выгрузка из QGIS
+#   лесничества, KML/GPX навигатора, shp — без МДО и без своего QGIS.
+#   Шаг 1 разбирает файл на контуры, шаг 2 заводит отмеченные делянки.
+# --------------------------------------------------------------------------- #
+
+@router.post("/iz-fayla/razbor")
+async def razbor_fayla_delyanok(file: UploadFile = File(...), _user=Depends(require_permission("delyanka.edit"))):
+    """[{geometry, ploshad, kvartal?, vydel?, lesoseka_nomer?, nazvanie?, svoystva}]"""
+    from app import kontur as kontur_mod
+
+    try:
+        return {"konturi": kontur_mod.razobrat(await file.read(), file.filename or "")}
+    except kontur_mod.KonturError as exc:
+        raise HTTPException(400, str(exc))
+
+
+class DelyankaIzFaylaIn(BaseModel):
+    geometry: Dict[str, Any]
+    kvartal: str
+    vydel: Optional[str] = None
+    lesoseka_nomer: Optional[str] = None
+    nazvanie: Optional[str] = None
+    lesnichestvo: Optional[str] = None
+
+
+class DelyankiIzFaylaIn(BaseModel):
+    delyanki: List[DelyankaIzFaylaIn]
+
+
+@router.post("/iz-fayla")
+def sozdat_delyanki_iz_fayla(body: DelyankiIzFaylaIn, conn=Depends(get_conn),
+                             user=Depends(require_permission("delyanka.edit"))):
+    """Заводит делянки с контуром; площадь — по контуру, таксация выдела
+    подтягивается сама, если она есть в базе."""
+    from shapely.geometry import shape
+
+    from app import kontur as kontur_mod
+
+    if not body.delyanki:
+        raise HTTPException(400, "Не отмечено ни одной делянки")
+    sozdany = []
+    for d in body.delyanki:
+        kv = (d.kvartal or "").strip()
+        if not kv:
+            raise HTTPException(400, "У каждой делянки нужен номер квартала")
+        try:
+            geom = shape(d.geometry)
+            if geom.geom_type not in ("Polygon", "MultiPolygon") or geom.is_empty:
+                raise ValueError
+            geometry = kontur_mod._checked(geom if geom.is_valid else geom.buffer(0))
+        except kontur_mod.KonturError as exc:
+            raise HTTPException(400, str(exc))
+        except Exception:  # noqa: BLE001 — битая геометрия
+            raise HTTPException(400, f"Контур кв. {kv} не читается — загрузите файл заново")
+        area = kontur_mod.area_ha(geometry)
+        vd = (d.vydel or "").strip() or None
+        nomer = (d.lesoseka_nomer or "").strip() or None
+        nazvanie = (d.nazvanie or "").strip() or (
+            f"кв. {kv}" + (f" выд. {vd}" if vd else "") + (f" лес. №{nomer}" if nomer else ""))
+        delyanka_id = delyanka.create_delyanka_from_geometry(
+            conn, nazvanie, json.dumps(geometry, ensure_ascii=False), kvartal=kv, vydel=vd,
+            lesnichestvo=(d.lesnichestvo or "").strip() or None, ploshad=str(area))
+        if nomer:
+            conn.execute("UPDATE delyanka_item SET lesoseka_nomer = ? WHERE delyanka_id = ?", (nomer, delyanka_id))
+            conn.commit()
+        webext.touch_updated_by(conn, "delyanka", delyanka_id, user["login"])
+        sozdany.append({"delyanka_id": delyanka_id, "nazvanie": nazvanie, "ploshad": area})
+    return {"sozdany": sozdany}
+
+
 @router.delete("/items/{item_id}/kontur")
 def delete_item_kontur(item_id: int, conn=Depends(get_conn), user=Depends(require_permission("delyanka.edit"))):
     _item_for_kontur(conn, item_id)

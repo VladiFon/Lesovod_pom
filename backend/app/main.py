@@ -11,14 +11,15 @@
 """
 import threading
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import secrets_store
 import secrets_store
 import config as legacy_config
 
-from app import signaly
+from app import izdanie, signaly
 from app.database import get_connection, init_db
 from app.routers import chelovek as chelovek_router
 from app.routers import zhurnal as zhurnal_rabot_router
@@ -89,6 +90,16 @@ app.add_middleware(
 )
 
 
+# Издание (app/izdanie.py): разделы, которых нет у этой копии сервера
+# (например, лесокультуры у лесопункта), отвечают 403 — спрятанный в меню
+# экран не откроется и по старой ссылке.
+@app.middleware("http")
+async def izdanie_zakryt_razdely(request: Request, call_next):
+    if izdanie.api_zakryt(request.url.path):
+        return JSONResponse(status_code=403, content={"detail": "Этого раздела нет в издании «%s»" % izdanie.opisanie()["nazvanie"]})
+    return await call_next(request)
+
+
 @app.on_event("startup")
 def on_startup():
     init_db()
@@ -106,9 +117,19 @@ def on_startup():
         except Exception:  # noqa: BLE001 — прогрев необязателен
             pass
 
-    threading.Thread(target=_warm_map_cache, daemon=True).start()
+    # У лесопункта слой выделов грузится только по первому запросу карты —
+    # вторая копия сервера на том же ПК не держит его в памяти зря.
+    if izdanie.lesnichestvo():
+        threading.Thread(target=_warm_map_cache, daemon=True).start()
     # Оповещения: освоение 90/100/110 % и сроки (app/signaly.py).
     signaly.zapustit_fon(get_connection)
+
+
+@app.get("/api/izdanie")
+def izdanie_info():
+    """Без входа: экран входа и телефон показывают имя организации, меню
+    прячет экраны, которых нет у издания (app/izdanie.py)."""
+    return izdanie.opisanie()
 
 
 @app.get("/api/health")
