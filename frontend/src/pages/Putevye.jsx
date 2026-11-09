@@ -16,7 +16,7 @@ import { napechatat } from "../components/pechat.js";
  * Сервер: routers/putevye.py, логика — app/putevye.py.
  */
 
-const C = { pine: "#1a4331", line: "#e5e2db", muted: "#565f59", moss: "#eaf7ec", danger: "#ba1a1a", gold: "#b07d0c", goldSoft: "#fbf1d6", grey: "#f4f3f0", info: "#2f5d8a" };
+const C = { pine: "var(--color-pine)", line: "var(--color-border)", muted: "var(--color-muted-2)", moss: "var(--color-mint-soft)", danger: "var(--color-error)", gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", grey: "var(--c-muted-bg)", info: "var(--c-info-ink)" };
 const inp = "border border-border rounded-[8px] px-2 h-9";
 const DN = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const MES = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
@@ -37,7 +37,7 @@ const ddmm = (iso) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 
 function Plashka({ title, value, sub, tone }) {
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "8px 14px", minWidth: 140 }}>
+    <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, padding: "8px 14px", minWidth: 140 }}>
       <div style={{ fontSize: 12, color: C.muted }}>{title}</div>
       <div style={{ fontSize: 20, fontWeight: 800, color: tone || C.pine }}>{value}</div>
       {sub && <div style={{ fontSize: 11.5, color: C.muted }}>{sub}</div>}
@@ -72,7 +72,7 @@ function Vvod({ value, onSave, disabled, width = 76, placeholder }) {
     onSave(n ?? 0);
   };
   return (
-    <input className={inp} style={{ width, textAlign: "right", background: disabled ? C.grey : "#fff" }} value={v} disabled={disabled}
+    <input className={inp} style={{ width, textAlign: "right", background: disabled ? C.grey : "var(--color-surface)" }} value={v} disabled={disabled}
       placeholder={placeholder} inputMode="decimal"
       onChange={(e) => setV(e.target.value)} onBlur={commit}
       onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } }} />
@@ -125,7 +125,7 @@ function Kartochka({ m, d, edinica, onSaved, toast }) {
     try { await api.delete(`/putevye/norma/${x.id}`); onSaved(); } catch (e) { toast.show({ tone: "danger", title: "Не удалилось", description: e.message }); }
   };
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ fontWeight: 800, color: C.pine }}>🪪 Карточка «{m.nazvanie}» для путевых</div>
       <div className="flex flex-wrap items-end" style={{ gap: 10 }}>
         <L t="Марка"><input className={inp} value={f.marka} onChange={(e) => setF({ ...f, marka: e.target.value })} placeholder="УАЗ-3909" style={{ width: 130 }} /></L>
@@ -201,7 +201,7 @@ function Generator({ d, lyudi, onClose, onSaved, toast }) {
   const ed = m.edinica;
 
   return (
-    <div style={{ background: "#fff", border: `2px solid ${C.pine}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ background: "var(--color-surface)", border: `2px solid ${C.pine}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="flex items-center" style={{ gap: 10 }}>
         <div style={{ fontWeight: 800, color: C.pine, flex: 1 }}>🗓 Заполнить {MES[mm - 1]} {g} — «{m.nazvanie}»</div>
         <button type="button" onClick={onClose} style={{ color: C.muted }}>✕ закрыть</button>
@@ -334,7 +334,7 @@ function Svodka({ mesyac, toast }) {
     api.get("/putevye/svodka", { mesyac }).then(setS).catch((e) => toast.show({ tone: "danger", title: "Сводка не загрузилась", description: e.message }));
   }, [mesyac]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!s) return <div style={{ color: C.muted }}>Считаю…</div>;
-  if (!s.mashiny.length) return <div style={{ padding: 20, color: C.muted, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12 }}>За этот месяц путевых листов нет.</div>;
+  if (!s.mashiny.length) return <div style={{ padding: 20, color: C.muted, background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12 }}>За этот месяц путевых листов нет.</div>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div className="flex flex-wrap" style={{ gap: 8 }}>
@@ -342,7 +342,7 @@ function Svodka({ mesyac, toast }) {
           <Plashka key={t} title={t === "—" ? "тип топлива не указан" : t} value={`${num(v.rashod)} л`} sub={`заправлено ${num(v.zapravka)} л · пробег ${num(v.probeg)}`} />
         ))}
       </div>
-      <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, overflowX: "auto" }}>
+      <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, overflowX: "auto" }}>
         <table className="w-full" style={{ fontSize: 13, minWidth: 760 }}>
           <thead><tr style={{ color: C.muted, textAlign: "right" }}>
             <th style={{ textAlign: "left", padding: "6px 10px" }}>Машина</th><th style={{ padding: "6px 10px" }}>Листов</th><th style={{ padding: "6px 10px" }}>Пробег</th>
@@ -493,7 +493,7 @@ export default function Putevye() {
       <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
         <div className="flex" style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
           {[["mashina", "По машине"], ["svodka", "Сводка всех за месяц"]].map(([k, t]) => (
-            <button key={k} type="button" onClick={() => setVid(k)} style={{ padding: "6px 12px", fontWeight: 700, background: vid === k ? C.pine : "#fff", color: vid === k ? "#fff" : C.pine }}>{t}</button>
+            <button key={k} type="button" onClick={() => setVid(k)} style={{ padding: "6px 12px", fontWeight: 700, background: vid === k ? C.pine : "var(--color-surface)", color: vid === k ? "#fff" : C.pine }}>{t}</button>
           ))}
         </div>
         <button type="button" onClick={() => setMesParam(sdvig(mesyac, -1))} style={{ padding: "4px 10px", fontSize: 18 }}>‹</button>
@@ -505,7 +505,7 @@ export default function Putevye() {
         <div className="flex flex-wrap" style={{ gap: 6 }}>
           {spisok.mashiny.map((x) => (
             <button key={x.id} type="button" onClick={() => setMParam(x.id)}
-              style={{ border: `1px solid ${String(x.id) === String(mParam) ? C.pine : C.line}`, background: String(x.id) === String(mParam) ? C.moss : "#fff", borderRadius: 999, padding: "5px 12px", fontSize: 13 }}>
+              style={{ border: `1px solid ${String(x.id) === String(mParam) ? C.pine : C.line}`, background: String(x.id) === String(mParam) ? C.moss : "var(--color-surface)", borderRadius: 999, padding: "5px 12px", fontSize: 13 }}>
               <b>{x.nazvanie}</b>{x.nomer && <span style={{ color: C.muted }}> {x.nomer}</span>}
               <span style={{ color: x.norma ? C.muted : C.danger }}> · {x.norma ? `${String(x.norma).replace(".", ",")} л/${x.edinica}` : "нет нормы"}</span>
             </button>
@@ -531,17 +531,17 @@ export default function Putevye() {
             <span style={{ flex: 1 }} />
             <button type="button" onClick={() => setPechatListov(true)} disabled={!d.listy.length}
               title="Каждый лист месяца — бланком, по два на страницу A4: машина, водитель, маршрут, время, спидометр, топливо, места для подписей"
-              style={{ border: `1px solid ${C.line}`, background: "#fff", color: d.listy.length ? C.pine : C.muted, borderRadius: 8, padding: "8px 14px", fontWeight: 700 }}>🖨 Листы на печать ({d.listy.length})</button>
+              style={{ border: `1px solid ${C.line}`, background: "var(--color-surface)", color: d.listy.length ? C.pine : C.muted, borderRadius: 8, padding: "8px 14px", fontWeight: 700 }}>🖨 Листы на печать ({d.listy.length})</button>
             <button type="button" onClick={() => napechatat(vedomostRef.current, { title: `Путевые листы · ${m.nazvanie}${m.nomer ? ` ${m.nomer}` : ""} · ${MES[mm - 1]} ${g}`, landscape: true })}
               disabled={!d.listy.length}
               title="Таблица месяца на одном листе — сдать в бухгалтерию"
-              style={{ border: `1px solid ${C.line}`, background: "#fff", color: d.listy.length ? C.pine : C.muted, borderRadius: 8, padding: "8px 14px", fontWeight: 700 }}>🖨 Ведомость месяца</button>
+              style={{ border: `1px solid ${C.line}`, background: "var(--color-surface)", color: d.listy.length ? C.pine : C.muted, borderRadius: 8, padding: "8px 14px", fontWeight: 700 }}>🖨 Ведомость месяца</button>
           </div>
 
           {(kart || nuzhnaKartochka) && <Kartochka m={{ ...m, normy: d.normy }} d={spisok} edinica={ed} onSaved={obnovit} toast={toast} />}
           {gen && <Generator d={d} lyudi={spisok.lyudi} onClose={() => setGen(false)} onSaved={() => { setGen(false); obnovit(); }} toast={toast} />}
 
-          <div ref={vedomostRef} style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, overflowX: "auto" }}>
+          <div ref={vedomostRef} style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, overflowX: "auto" }}>
             <table style={{ fontSize: 13, minWidth: 900, width: "100%", borderCollapse: "collapse" }}>
               <thead><tr style={{ color: C.muted, textAlign: "right", fontSize: 12 }}>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>День</th><th style={{ padding: "6px 8px" }}>№</th>

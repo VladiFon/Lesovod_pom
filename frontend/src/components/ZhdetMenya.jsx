@@ -3,7 +3,7 @@ import { api } from "../api/client.js";
 import { openScreen } from "../nav.js";
 
 const POLL_MS = 120000;
-const TONE = { danger: "#ba1a1a", warning: "#8a5a00", info: "#1a4331" };
+const TONE = { danger: "var(--color-error)", warning: "var(--c-oak-ink)", info: "var(--color-pine)" };
 
 /**
  * «Ждёт меня» — одна кнопка в шапке со списком того, что надо разобрать
@@ -54,11 +54,11 @@ export default function ZhdetMenya() {
         onClick={() => { setOpen(!open); if (!open) load(); }}
         aria-expanded={open}
         title="Что ждёт разбора"
-        className="hover:!border-[#1a4331] hover:!text-[#1a4331]"
+        className="hover:!border-[var(--color-pine)] hover:!text-[var(--color-pine)]"
         style={{
           height: 30, padding: "0 10px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
           display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-          border: `1px solid ${open ? "#1a4331" : "#e5e2db"}`, background: "#fff", color: "#414944",
+          border: `1px solid ${open ? "var(--color-pine)" : "var(--color-border)"}`, background: "var(--color-surface)", color: "var(--color-muted)",
         }}
       >
         📋 Ждёт меня
@@ -66,7 +66,7 @@ export default function ZhdetMenya() {
           style={{
             minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999, fontSize: 11, fontWeight: 700,
             display: "inline-flex", alignItems: "center", justifyContent: "center",
-            background: total ? "#ba1a1a" : "#eaf7ec", color: total ? "#fff" : "#1a4331",
+            background: total ? "var(--color-error)" : "var(--color-mint-soft)", color: total ? "#fff" : "var(--color-pine)",
           }}
         >
           {total > 99 ? "99+" : total}
@@ -76,11 +76,11 @@ export default function ZhdetMenya() {
       {open && (
         <div
           className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl overflow-hidden flex flex-col"
-          style={{ width: 380, maxWidth: "calc(100vw - 24px)", maxHeight: 460, border: "1px solid #e5e2db", boxShadow: "0 12px 32px rgba(26,67,49,0.16)" }}
+          style={{ width: 380, maxWidth: "calc(100vw - 24px)", maxHeight: 460, border: "1px solid var(--color-border)", boxShadow: "0 12px 32px rgba(26,67,49,0.16)" }}
           role="dialog"
           aria-label="Ждёт меня"
         >
-          <div className="px-3.5 py-2.5 font-ui font-bold text-[13.5px] text-pine" style={{ borderBottom: "1px solid #e5e2db" }}>
+          <div className="px-3.5 py-2.5 font-ui font-bold text-[13.5px] text-pine" style={{ borderBottom: "1px solid var(--color-border)" }}>
             Ждёт меня
           </div>
           <div className="overflow-y-auto">
@@ -95,7 +95,7 @@ export default function ZhdetMenya() {
                   type="button"
                   onClick={() => { openScreen(it.screen, it.params || {}); setOpen(false); }}
                   className="w-full text-left flex items-start gap-2.5 px-3.5 py-2.5 hover:bg-hover transition-colors"
-                  style={{ borderBottom: "1px solid #f0ede6", cursor: "pointer" }}
+                  style={{ borderBottom: "1px solid var(--c-muted-bg)", cursor: "pointer" }}
                 >
                   <span
                     className="shrink-0"

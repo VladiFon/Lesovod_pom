@@ -16,8 +16,8 @@ import { LesnichestvoSelect, PhotoThumb, ReportPlace } from "./AiLog.jsx";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", sky: "#2c5d8a", skySoft: "#e6eef7",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", sky: "var(--c-info-ink)", skySoft: "var(--c-info-soft-2)",
 };
 const KOMBO_SEK = 90;
 const OTMENA_SEK = 5;
@@ -57,7 +57,7 @@ function Pole({ label, value, onChange, nado, id }) {
       {label}{nado && !value.trim() ? " — заполни" : ""}
       <input id={id} value={value} onChange={(e) => onChange(e.target.value)} style={{
         padding: "6px 9px", borderRadius: 8, fontSize: 14, color: C.ink,
-        border: `1.5px solid ${nado && !value.trim() ? "#f3c2bd" : C.line}`, background: "#fff",
+        border: `1.5px solid ${nado && !value.trim() ? "var(--c-error-line)" : C.line}`, background: "var(--color-surface)",
       }} />
     </label>
   );
@@ -104,7 +104,7 @@ function Otchet({ r, onPrinyat, onVernut, onPotom, busy, mozhno, aktivno }) {
         <div style={{ fontSize: 12 }}><LesnichestvoSelect value={f.lesnichestvo} onChange={set("lesnichestvo")} /></div>
         <label htmlFor="p-data" style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12, color: C.muted, fontWeight: 600 }}>
           Дата работы
-          <input id="p-data" type="date" value={f.data} onChange={(e) => set("data")(e.target.value)} style={{ padding: "5px 9px", borderRadius: 8, border: `1.5px solid ${C.line}`, background: "#fff" }} />
+          <input id="p-data" type="date" value={f.data} onChange={(e) => set("data")(e.target.value)} style={{ padding: "5px 9px", borderRadius: 8, border: `1.5px solid ${C.line}`, background: "var(--color-surface)" }} />
         </label>
       </div>
       <Pole id="p-op" label="Описание" value={f.opisanie} onChange={set("opisanie")} />
@@ -114,7 +114,7 @@ function Otchet({ r, onPrinyat, onVernut, onPotom, busy, mozhno, aktivno }) {
             padding: "10px 18px", borderRadius: 10, fontWeight: 800, fontSize: 15, background: gotov ? C.leaf : "#b9c4bc", color: "#fff",
           }}>✅ Принять <span style={{ opacity: 0.7, fontWeight: 600, fontSize: 12 }}>A / Enter</span></button>
           <button type="button" disabled={busy} onClick={onVernut} style={{
-            padding: "10px 16px", borderRadius: 10, fontWeight: 800, fontSize: 15, background: "#fff", color: C.danger, border: `1.5px solid #f3c2bd`,
+            padding: "10px 16px", borderRadius: 10, fontWeight: 800, fontSize: 15, background: "var(--color-surface)", color: C.danger, border: `1.5px solid var(--c-error-line)`,
           }}>↩ Вернуть <span style={{ opacity: 0.7, fontWeight: 600, fontSize: 12 }}>R</span></button>
           <button type="button" onClick={onPotom} style={{ padding: "10px 14px", borderRadius: 10, fontWeight: 700, color: C.muted }}>
             ⏭ Потом <span style={{ opacity: 0.7, fontSize: 12 }}>S / →</span>
@@ -160,11 +160,11 @@ function Zametka({ n, onProchitano, onOtvet, onZadacha, onPotom, busy, aktivno }
           👁 Прочитано <span style={{ opacity: 0.7, fontWeight: 600, fontSize: 12 }}>A / Enter</span>
         </button>
         {otvet === null && !n.otvet && (
-          <button type="button" onClick={() => setOtvet("")} style={{ padding: "10px 14px", borderRadius: 10, fontWeight: 800, background: "#fff", color: C.sky, border: `1.5px solid ${C.sky}` }}>
+          <button type="button" onClick={() => setOtvet("")} style={{ padding: "10px 14px", borderRadius: 10, fontWeight: 800, background: "var(--color-surface)", color: C.sky, border: `1.5px solid ${C.sky}` }}>
             💬 Ответить <span style={{ opacity: 0.7, fontSize: 12 }}>O</span>
           </button>
         )}
-        <button type="button" onClick={onZadacha} style={{ padding: "10px 14px", borderRadius: 10, fontWeight: 800, background: "#fff", color: C.pine, border: `1.5px solid ${C.pine}` }}>
+        <button type="button" onClick={onZadacha} style={{ padding: "10px 14px", borderRadius: 10, fontWeight: 800, background: "var(--color-surface)", color: C.pine, border: `1.5px solid ${C.pine}` }}>
           📌 В задачу <span style={{ opacity: 0.7, fontSize: 12 }}>T</span>
         </button>
         <button type="button" onClick={onPotom} style={{ padding: "10px 14px", borderRadius: 10, fontWeight: 700, color: C.muted }}>⏭ Потом <span style={{ opacity: 0.7, fontSize: 12 }}>S</span></button>
@@ -328,7 +328,7 @@ export default function Pochta() {
       )}
 
       {!tek ? (
-        <div style={{ padding: 40, textAlign: "center", borderRadius: 16, background: C.moss, border: "1px solid #bcefc5" }}>
+        <div style={{ padding: 40, textAlign: "center", borderRadius: 16, background: C.moss, border: "1px solid var(--color-mint)" }}>
           <div style={{ fontSize: 48 }}>📭</div>
           <div style={{ fontSize: 20, fontWeight: 800, color: C.pine, marginTop: 6 }}>{PUSTO[razobrano % PUSTO.length]}</div>
           {razobrano > 0 && (
@@ -343,7 +343,7 @@ export default function Pochta() {
           {koloda.length > 2 && <div style={{ position: "absolute", inset: "10px -10px -10px 10px", borderRadius: 16, background: "#efece4", border: `1px solid ${C.line}` }} />}
           {koloda.length > 1 && <div style={{ position: "absolute", inset: "5px -5px -5px 5px", borderRadius: 16, background: "#f6f4ee", border: `1px solid ${C.line}` }} />}
           <div key={tek.key} style={{
-            position: "relative", background: "#fff", borderRadius: 16, border: `1.5px solid ${tek.tip === "otchet" ? "#efd9a4" : "#c8d9ec"}`,
+            position: "relative", background: "var(--color-surface)", borderRadius: 16, border: `1.5px solid ${tek.tip === "otchet" ? "var(--c-gold-line)" : "#c8d9ec"}`,
             padding: 18, display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 6px 20px rgba(26,67,49,.08)",
           }}>
             <div className="flex items-center" style={{ gap: 12 }}>

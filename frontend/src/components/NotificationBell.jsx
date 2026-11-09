@@ -142,8 +142,8 @@ export default function NotificationBell({ onNavigate }) {
         aria-expanded={open}
         title="Уведомления"
         onClick={toggle}
-        className="relative h-[30px] w-[30px] rounded-lg border bg-white flex items-center justify-center text-[#414944] hover:!border-[#1a4331] hover:!text-[#1a4331] transition-colors"
-        style={{ borderColor: open ? "#1a4331" : "#e5e2db", cursor: "pointer" }}
+        className="relative h-[30px] w-[30px] rounded-lg border bg-white flex items-center justify-center text-[var(--color-muted)] hover:!border-[var(--color-pine)] hover:!text-[var(--color-pine)] transition-colors"
+        style={{ borderColor: open ? "var(--color-pine)" : "var(--color-border)", cursor: "pointer" }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-[17px] w-[17px]">
           <path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5H4.5S6 13 6 9Z" />
@@ -162,11 +162,11 @@ export default function NotificationBell({ onNavigate }) {
       {open && (
         <div
           className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl overflow-hidden flex flex-col"
-          style={{ width: 360, maxWidth: "calc(100vw - 24px)", maxHeight: 440, border: "1px solid #e5e2db", boxShadow: "0 12px 32px rgba(26,67,49,0.16)" }}
+          style={{ width: 360, maxWidth: "calc(100vw - 24px)", maxHeight: 440, border: "1px solid var(--color-border)", boxShadow: "0 12px 32px rgba(26,67,49,0.16)" }}
           role="dialog"
           aria-label="Уведомления"
         >
-          <div className="flex items-center justify-between px-3.5 py-2.5" style={{ borderBottom: "1px solid #e5e2db" }}>
+          <div className="flex items-center justify-between px-3.5 py-2.5" style={{ borderBottom: "1px solid var(--color-border)" }}>
             <span className="font-ui font-bold text-[13.5px] text-pine">Уведомления</span>
             {unread > 0 && (
               <button
@@ -194,7 +194,7 @@ export default function NotificationBell({ onNavigate }) {
                     type="button"
                     onClick={() => handleClick(n)}
                     className="w-full text-left flex gap-2.5 px-3.5 py-2.5 hover:bg-hover transition-colors"
-                    style={{ borderBottom: "1px solid #f0ede6", background: n.is_read ? "transparent" : "#f3faf4", cursor: "pointer" }}
+                    style={{ borderBottom: "1px solid var(--c-muted-bg)", background: n.is_read ? "transparent" : "#f3faf4", cursor: "pointer" }}
                   >
                     <span className="text-[16px] leading-5 shrink-0" aria-hidden="true">{meta.icon}</span>
                     <span className="min-w-0 flex-1">

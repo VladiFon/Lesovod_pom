@@ -20,14 +20,14 @@ const sdvig = (ym, n) => { const [y, m] = ym.split("-").map(Number); const d = n
 const nazv = (ym) => { const [y, m] = ym.split("-").map(Number); return `${MESYACY[m - 1]} ${y}`; };
 const n1 = (v) => Number(v || 0).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
 
-const LEVEL = { norma: "bg-pine", vnimanie: "bg-oak", pererub: "bg-error", net_limita: "bg-[#c9c4b8]" };
+const LEVEL = { norma: "bg-pine", vnimanie: "bg-oak", pererub: "bg-error", net_limita: "bg-[var(--c-line-strong)]" };
 
 function Polosa({ label, value, max, sub, cls = "bg-pine", onClick }) {
   const w = max ? Math.min(100, (value / max) * 100) : 0;
   const Tag = onClick ? "button" : "div";
   return (
     <Tag type={onClick ? "button" : undefined} onClick={onClick}
-      className={["w-full text-left grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 items-baseline py-1.5", onClick ? "hover:bg-[#f7f5ef] rounded-md px-1 -mx-1" : ""].join(" ")}>
+      className={["w-full text-left grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 items-baseline py-1.5", onClick ? "hover:bg-[var(--c-muted-bg)] rounded-md px-1 -mx-1" : ""].join(" ")}>
       <span className="text-[12.5px] font-semibold text-ink truncate">{label}</span>
       <span className="text-[12.5px] tabular-nums font-bold text-pine">{sub}</span>
       <span className="col-span-2 h-2 rounded-full bg-hover overflow-hidden">
@@ -131,7 +131,7 @@ export default function Otchety() {
 
             <Card title="Освоение активных делянок" icon="📈" subtitle="сколько вырублено от лимита и сколько осталось до срока" className="break-inside-avoid">
               {dl?.spisok?.length ? dl.spisok.map((p) => (
-                <Polosa key={p.id} label={<>{p.nazvanie}{p.dney != null && <span className={["ml-2 text-[11px] font-semibold", p.dney < 0 ? "text-error" : p.dney <= 30 ? "text-[#8a5a00]" : "text-faint"].join(" ")}>{p.dney < 0 ? `срок прошёл ${-p.dney} дн. назад` : `${p.dney} дн. до срока`}</span>}</>}
+                <Polosa key={p.id} label={<>{p.nazvanie}{p.dney != null && <span className={["ml-2 text-[11px] font-semibold", p.dney < 0 ? "text-error" : p.dney <= 30 ? "text-[var(--c-oak-ink)]" : "text-faint"].join(" ")}>{p.dney < 0 ? `срок прошёл ${-p.dney} дн. назад` : `${p.dney} дн. до срока`}</span>}</>}
                   value={p.pct || 0} max={100} sub={p.pct != null ? `${Math.round(p.pct)}% · ${p.fakt_fmt}/${p.limit_fmt}` : "нет лимита"} cls={LEVEL[p.level] || "bg-pine"}
                   onClick={() => openScreen("plots", { d: p.id })} />
               )) : <div className="text-[12.5px] text-faint py-2">Активных делянок нет.</div>}
@@ -144,10 +144,10 @@ export default function Otchety() {
                   <Stroka k="Рабочих дней по календарю" v={ly.rabochih_dney} />
                   <Stroka k="Явок (дней), всего" v={ly.yavki} ton="text-pine" />
                   <Stroka k="Отработано часов" v={ly.chasov} />
-                  <Stroka k="Больничных дней" v={ly.bolnichnyy} ton={ly.bolnichnyy ? "text-[#a3201b]" : undefined} />
+                  <Stroka k="Больничных дней" v={ly.bolnichnyy} ton={ly.bolnichnyy ? "text-[var(--c-error-ink)]" : undefined} />
                   <Stroka k="Дней отпуска" v={ly.otpusk} />
                   <Stroka k="Неявок" v={ly.nn} ton={ly.nn ? "text-error" : undefined} />
-                  {ly.pusto > 0 && <Stroka k="⚠ Не заполнено прошедших будней" v={ly.pusto} ton="text-[#8a5a00]" />}
+                  {ly.pusto > 0 && <Stroka k="⚠ Не заполнено прошедших будней" v={ly.pusto} ton="text-[var(--c-oak-ink)]" />}
                 </>
               ) : <div className="text-[12.5px] text-faint py-2">Табель недоступен.</div>}
             </Card>

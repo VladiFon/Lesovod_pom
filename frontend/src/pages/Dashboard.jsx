@@ -59,7 +59,7 @@ import { openScreen } from "../nav.js";
  */
 
 const FIRE_CLASSES = {
-  1: { bg: "#dcefe0", fg: "#1a4331", text: "Отсутствует. Ограничений для лесозаготовки нет." },
+  1: { bg: "#dcefe0", fg: "var(--color-pine)", text: "Отсутствует. Ограничений для лесозаготовки нет." },
   2: { bg: "#eef2c8", fg: "#5c5f1a", text: "Малая. Соблюдайте общие меры пожарной безопасности." },
   3: { bg: "#ffe4c2", fg: "#8a4b06", text: "Средняя. Работы с открытым огнём и техникой — под контролем лесника." },
   4: { bg: "#ffd0c2", fg: "#9c2b0e", text: "Высокая. Разведение костров запрещено, усильте дежурство на делянках." },
@@ -80,14 +80,14 @@ function DelyankaRow({ d }) {
   if (d.dney != null) {
     if (d.dney < 0) srok = { text: `просрочено ${-d.dney} дн.`, cls: "text-error bg-error-soft" };
     else if (d.dney === 0) srok = { text: "срок сегодня", cls: "text-error bg-error-soft" };
-    else if (d.dney <= 14) srok = { text: `${d.dney} дн. · до ${ruDay(d.srok)}`, cls: "text-[#8a5a00] bg-oak-soft" };
+    else if (d.dney <= 14) srok = { text: `${d.dney} дн. · до ${ruDay(d.srok)}`, cls: "text-[var(--c-oak-ink)] bg-oak-soft" };
     else srok = { text: `${d.dney} дн. · до ${ruDay(d.srok)}`, cls: "text-pine bg-mint-soft" };
   }
   return (
     <button
       type="button"
       onClick={() => openScreen("plots", { d: d.id })}
-      className="group grid items-center gap-x-4 px-4 py-2.5 text-left hover:bg-[#f2faf3] transition-colors"
+      className="group grid items-center gap-x-4 px-4 py-2.5 text-left hover:bg-[var(--c-mint-softer)] transition-colors"
       style={{ gridTemplateColumns: "minmax(150px, 1fr) minmax(200px, 2fr) 150px" }}
       title="Открыть делянку"
     >
@@ -153,11 +153,11 @@ function WeatherCard({ weather, loading, error, onRefresh }) {
         </div>
       </div>
 
-      <div className="rounded-md px-3 py-2 mt-3" style={{ backgroundColor: fire?.bg ?? "#f1eee7" }}>
-        <div className="text-sm font-bold" style={{ color: fire?.fg ?? "#414944" }}>
+      <div className="pozhar rounded-md px-3 py-2 mt-3" style={{ backgroundColor: fire?.bg ?? "var(--color-hover)" }}>
+        <div className="text-sm font-bold" style={{ color: fire?.fg ?? "var(--color-muted)" }}>
           Класс пожарной опасности: {fireClass ?? "нет данных"}
         </div>
-        <div className="text-sm mt-0.5" style={{ color: fire?.fg ?? "#414944" }}>
+        <div className="text-sm mt-0.5" style={{ color: fire?.fg ?? "var(--color-muted)" }}>
           {fire?.text ?? "—"}
         </div>
       </div>
@@ -229,7 +229,7 @@ function SetPlanModal({ open, onClose, periods, months, onSave, saving }) {
 // «ИИ-аналитика»), — одним списком, у каждой строки кнопка «сделать».
 const TONE_DELA = {
   danger: { dot: "bg-error", chip: "bg-error-soft text-error" },
-  warning: { dot: "bg-oak", chip: "bg-oak-soft text-[#8a5a00]" },
+  warning: { dot: "bg-oak", chip: "bg-oak-soft text-[var(--c-oak-ink)]" },
   info: { dot: "bg-info", chip: "bg-info-soft text-info" },
 };
 const TONE_ORDER = { danger: 0, warning: 1, info: 2 };
@@ -350,7 +350,7 @@ export default function Dashboard({ onOpenTab }) {
   return (
     <div className="p-[18px] flex flex-col gap-[14px]">
       {loadError && (
-        <Card className="border-[#ebc0bc]">
+        <Card className="border-[var(--c-error-line)]">
           <p className="text-error text-base">{loadError}</p>
         </Card>
       )}
@@ -458,16 +458,16 @@ export default function Dashboard({ onOpenTab }) {
                 <BarChart
                   categories={chart.months}
                   series={[
-                    { label: "План (м³)", values: chart.plan, color: "#e5e2db" },
-                    { label: "Факт (м³)", values: chart.fact, color: "#1a4331" },
+                    { label: "План (м³)", values: chart.plan, color: "var(--color-border)" },
+                    { label: "Факт (м³)", values: chart.fact, color: "var(--color-pine)" },
                   ]}
                 />
                 <div className="flex items-center justify-center gap-6 mt-2">
                   <span className="inline-flex items-center gap-1.5 text-sm text-muted">
-                    <span className="h-2.5 w-3 rounded-[3px] border-2 border-dashed" style={{ borderColor: "#cfcbc2" }} /> План (м³)
+                    <span className="h-2.5 w-3 rounded-[3px] border-2 border-dashed" style={{ borderColor: "var(--c-line-strong)" }} /> План (м³)
                   </span>
                   <span className="inline-flex items-center gap-1.5 text-sm text-muted">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#1a4331" }} /> Факт (м³)
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "var(--color-pine)" }} /> Факт (м³)
                   </span>
                   <span className="inline-flex items-center gap-1.5 text-sm text-muted">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "var(--color-green)" }} /> План выполнен

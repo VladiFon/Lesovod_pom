@@ -11,8 +11,8 @@ import { openScreen } from "../nav.js";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", sky: "#2c5d8a", skySoft: "#e6eef7",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", sky: "var(--c-info-ink)", skySoft: "var(--c-info-soft-2)",
   wood: "#9a6a3a", woodSoft: "#f6ede2",
 };
 const VID = { boss: { t: "БОСС", c: C.danger, bg: C.dangerSoft }, main: { t: "основной", c: C.gold, bg: C.goldSoft }, side: { t: "побочный", c: C.sky, bg: C.skySoft } };
@@ -26,7 +26,7 @@ function ruDen(iso) {
 }
 
 function Lokaciya({ emoji, title, trevoga, ok, children, onGo, knopka }) {
-  const ton = trevoga ? { bg: C.dangerSoft, border: "#f3c2bd" } : ok ? { bg: C.moss, border: "#bcefc5" } : { bg: "#fff", border: C.line };
+  const ton = trevoga ? { bg: C.dangerSoft, border: "var(--c-error-line)" } : ok ? { bg: C.moss, border: "var(--color-mint)" } : { bg: "var(--color-surface)", border: C.line };
   return (
     <button type="button" onClick={onGo} style={{
       textAlign: "left", background: ton.bg, border: `1.5px solid ${ton.border}`, borderRadius: 14, padding: 14,

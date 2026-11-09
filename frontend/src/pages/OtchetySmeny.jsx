@@ -10,7 +10,7 @@ import ChelovekLink from "../components/ChelovekLink.jsx";
  * (остаток га), удаление ошибочного отчёта. Сервер: routers/smena.py.
  */
 
-const C = { pine: "#1a4331", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18", moss: "#eaf7ec", gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a" };
+const C = { pine: "var(--color-pine)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)", moss: "var(--color-mint-soft)", gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)" };
 
 function iso(d) {
   return d.toISOString().slice(0, 10);
@@ -80,14 +80,14 @@ export default function OtchetySmeny() {
           {[["", "Все"], ...Object.entries(d.vidy).map(([k, v]) => [k, `${v.emoji} ${v.title}`])].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setVid(k)} aria-pressed={vid === k} style={{
               padding: "6px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 700,
-              background: vid === k ? C.pine : "#fff", color: vid === k ? "#fff" : C.pine, border: `1px solid ${vid === k ? C.pine : C.line}`,
+              background: vid === k ? C.pine : "var(--color-surface)", color: vid === k ? "#fff" : C.pine, border: `1px solid ${vid === k ? C.pine : C.line}`,
             }}>{l}</button>
           ))}
         </div>
       </div>
 
       {d.otkrytye.length > 0 && (
-        <div style={{ background: C.goldSoft, border: "1px solid #f0dca6", borderRadius: 12, padding: 12 }}>
+        <div style={{ background: C.goldSoft, border: "1px solid var(--c-gold-line)", borderRadius: 12, padding: 12 }}>
           <div style={{ fontWeight: 800, color: C.gold, marginBottom: 6 }}>⏳ Участки и выделы в работе — пройдены не полностью</div>
           {d.otkrytye.map((x) => (
             <div key={`${x.uchastok_id || "i" + x.delyanka_item_id}-${x.vid}`} style={{ fontSize: 13 }}>
@@ -100,7 +100,7 @@ export default function OtchetySmeny() {
       )}
 
       {itogi.length > 0 && (
-        <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "8px 12px", fontWeight: 800, color: C.pine, borderBottom: `1px solid ${C.line}` }}>Итоги по людям за период</div>
           <table className="w-full" style={{ fontSize: 13 }}>
             <thead><tr style={{ color: C.muted, textAlign: "left" }}>
@@ -127,7 +127,7 @@ export default function OtchetySmeny() {
         </div>
       )}
 
-      <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
         {d.otchety.length === 0 ? (
           <div style={{ padding: 24, textAlign: "center", color: C.muted }}>За период отчётов нет. Их присылают с телефона: «Отчёт за смену».</div>
         ) : d.otchety.map((r) => (

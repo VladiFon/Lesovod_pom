@@ -73,7 +73,7 @@ function Polosa({ dni, ot, doo }) {
   const start = new Date(`${ot}T12:00:00`);
   const end = new Date(`${doo}T12:00:00`);
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(d.toISOString().slice(0, 10));
-  const cvet = { "работал": "#3f7d4e", "больничный": "#b3261e", "отпуск": "#2f6f8f", "выходной": "#c9c5bb", "не работал": "#b07d0c", "ремонт": "#9a6200", "командировка": "#2c5d8a" };
+  const cvet = { "работал": "var(--c-green-2)", "больничный": "#b3261e", "отпуск": "#2f6f8f", "выходной": "var(--c-line-strong)", "не работал": "var(--c-gold)", "ремонт": "#9a6200", "командировка": "var(--c-info-ink)" };
   return (
     <div className="flex flex-wrap gap-[3px]">
       {days.map((d) => {
@@ -83,8 +83,8 @@ function Polosa({ dni, ot, doo }) {
         return (
           <div key={d} title={`${ruData(d)}: ${st || "нет в табеле"}${est ? ` · работ: ${x.raboty.length}` : ""}`}
             className="w-[14px] h-[22px] rounded-[3px] flex items-end justify-center"
-            style={{ background: st ? cvet[st] || "#c9c5bb" : "#efede7", outline: est && !st ? "1.5px solid #b07d0c" : "none" }}>
-            {est && <span className="block w-[5px] h-[5px] rounded-full mb-[3px]" style={{ background: st ? "#fff" : "#b07d0c" }} />}
+            style={{ background: st ? cvet[st] || "var(--c-line-strong)" : "#efede7", outline: est && !st ? "1.5px solid var(--c-gold)" : "none" }}>
+            {est && <span className="block w-[5px] h-[5px] rounded-full mb-[3px]" style={{ background: st ? "var(--color-surface)" : "var(--c-gold)" }} />}
           </div>
         );
       })}

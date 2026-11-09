@@ -12,13 +12,13 @@ import { useScreenParam } from "../nav.js";
  * печать вклейки по точным размерам. Сервер: routers/kniga_lvlr.py.
  */
 
-const C = { pine: "#1a4331", line: "#e5e2db", muted: "#565f59", moss: "#eaf7ec", sun: "#fbf1d6", sunLine: "#f0dca6", danger: "#ba1a1a", avto: "#eef4fb" };
+const C = { pine: "var(--color-pine)", line: "var(--color-border)", muted: "var(--color-muted-2)", moss: "var(--color-mint-soft)", sun: "var(--c-gold-soft)", sunLine: "var(--c-gold-line)", danger: "var(--color-error)", avto: "#eef4fb" };
 const CHAST_1 = Array.from({ length: 19 }, (_, i) => i + 1);
 const CHAST_2 = Array.from({ length: 10 }, (_, i) => i + 20);
 const inp = "border border-border rounded-[8px] px-2 h-9";
 const btn = { background: C.pine, color: "#fff", borderRadius: 8, padding: "7px 12px", fontWeight: 700, fontSize: 13 };
-const btn2 = { border: `1px solid ${C.line}`, background: "#fff", borderRadius: 8, padding: "6px 10px", fontSize: 13 };
-const karta = { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 };
+const btn2 = { border: `1px solid ${C.line}`, background: "var(--color-surface)", borderRadius: 8, padding: "6px 10px", fontSize: 13 };
+const karta = { background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 };
 
 async function skachat(path, imya) {
   const token = localStorage.getItem("lesovod_token");
@@ -71,7 +71,7 @@ export default function KnigaLvlr() {
       <div className="flex flex-wrap" style={{ gap: 6 }}>
         {TABS.map(([k, l]) => (
           <button key={k} type="button" onClick={() => setTabState(k)}
-            style={{ ...btn2, fontWeight: tab === k ? 700 : 400, background: tab === k ? C.moss : "#fff", borderColor: tab === k ? C.pine : C.line }}>{l}</button>
+            style={{ ...btn2, fontWeight: tab === k ? 700 : 400, background: tab === k ? C.moss : "var(--color-surface)", borderColor: tab === k ? C.pine : C.line }}>{l}</button>
         ))}
       </div>
       {tab === "vpisat" && <ChtoVpisat d={vpisat} kniga={kniga} vseRubki={vseRubki} setVseRubki={setVseRubki} reload={load} oshibka={oshibka} otkryt={setRed} />}
@@ -247,7 +247,7 @@ function Kniga({ kniga, otkryt }) {
         <button type="button" style={btn2} onClick={() => setR(r + 1)}>→</button>
         <span style={{ width: 10 }} />
         {[1, 2].map((c) => (
-          <button key={c} type="button" onClick={() => setChast(c)} style={{ ...btn2, fontWeight: chast === c ? 700 : 400, background: chast === c ? C.moss : "#fff" }}>
+          <button key={c} type="button" onClick={() => setChast(c)} style={{ ...btn2, fontWeight: chast === c ? 700 : 400, background: chast === c ? C.moss : "var(--color-surface)" }}>
             {c === 1 ? "Часть 1 · гр. 1–19 (слева)" : "Часть 2 · гр. 20–29 (справа)"}</button>
         ))}
         <input className={inp} style={{ marginLeft: "auto", minWidth: 200 }} placeholder="Поиск: 71/2, №850, Е…" value={poisk} onChange={(e) => setPoisk(e.target.value)} />
@@ -270,8 +270,8 @@ function Kniga({ kniga, otkryt }) {
             </colgroup>
             <thead>
               <tr>
-                <th style={{ border: `1px solid ${C.line}`, background: "#f6f5f1", padding: 3 }}>стр.</th>
-                {grafy.map((g) => <th key={g} title={kniga.nazvaniya[g]} style={{ border: `1px solid ${C.line}`, background: "#f6f5f1", padding: 3, cursor: "help" }}>{g}</th>)}
+                <th style={{ border: `1px solid ${C.line}`, background: "var(--c-muted-bg)", padding: 3 }}>стр.</th>
+                {grafy.map((g) => <th key={g} title={kniga.nazvaniya[g]} style={{ border: `1px solid ${C.line}`, background: "var(--c-muted-bg)", padding: 3, cursor: "help" }}>{g}</th>)}
               </tr>
             </thead>
             <tbody>

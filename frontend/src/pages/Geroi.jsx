@@ -12,14 +12,14 @@ import { openScreen } from "../nav.js";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)",
 };
 const RAMKA = [ // по уровню: бронза → серебро → золото → легенда
-  { ot: 1, bg: "linear-gradient(160deg, #f6ede2, #fff)", border: "#d8b994", metka: "🥉" },
-  { ot: 5, bg: "linear-gradient(160deg, #eef1f4, #fff)", border: "#aeb8c2", metka: "🥈" },
-  { ot: 9, bg: "linear-gradient(160deg, #fbf1d6, #fff)", border: "#e0b94a", metka: "🥇" },
-  { ot: 15, bg: "linear-gradient(160deg, #e9e2fb, #fff)", border: "#9b7fe0", metka: "💎" },
+  { ot: 1, bg: "linear-gradient(160deg, #f6ede2, var(--color-surface))", border: "#d8b994", metka: "🥉" },
+  { ot: 5, bg: "linear-gradient(160deg, #eef1f4, var(--color-surface))", border: "#aeb8c2", metka: "🥈" },
+  { ot: 9, bg: "linear-gradient(160deg, var(--c-gold-soft), var(--color-surface))", border: "#e0b94a", metka: "🥇" },
+  { ot: 15, bg: "linear-gradient(160deg, #e9e2fb, var(--color-surface))", border: "#9b7fe0", metka: "💎" },
 ];
 const HAR = [
   ["sila", "💪 Сила", "м³ по нарядам за год"],
@@ -67,7 +67,7 @@ function Karta({ g, onOpen }) {
           {initsialy(g.fio)}
           <span style={{
             position: "absolute", bottom: -7, right: -7, background: C.gold, color: "#fff", borderRadius: 10,
-            fontSize: 11, fontWeight: 900, padding: "1px 6px", border: "2px solid #fff",
+            fontSize: 11, fontWeight: 900, padding: "1px 6px", border: "2px solid var(--color-surface)",
           }}>{g.uroven}</span>
         </span>
         <div style={{ minWidth: 0 }}>
@@ -128,15 +128,15 @@ function Podrobno({ g, okno }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="flex items-center" style={{ gap: 14, background: C.pine, color: "#fff", borderRadius: 14, padding: 14 }}>
-        <span style={{ width: 64, height: 64, borderRadius: 16, background: "#fff", color: C.pine, fontWeight: 900, fontSize: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ width: 64, height: 64, borderRadius: 16, background: "var(--color-surface)", color: C.pine, fontWeight: 900, fontSize: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
           {initsialy(g.fio)}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, color: "#bcefc5" }}>{g.dolzhnost || "—"}{g.zveno ? ` · звено ${g.zveno.emoji} ${g.zveno.nazvanie}` : ""}</div>
+          <div style={{ fontSize: 13, color: "var(--color-mint)" }}>{g.dolzhnost || "—"}{g.zveno ? ` · звено ${g.zveno.emoji} ${g.zveno.nazvanie}` : ""}</div>
           <div style={{ fontWeight: 800, fontSize: 18 }}>Уровень {g.uroven} · {g.zvanie}</div>
           <div style={{ fontSize: 13 }}>{g.klass}</div>
           <div style={{ marginTop: 6 }}><Polosa pct={g.pct} color="#e0b94a" /></div>
-          <div style={{ fontSize: 11.5, color: "#bcefc5", marginTop: 3 }}>{g.ochki} очк. за всё время · до следующего уровня {g.do - g.ochki}</div>
+          <div style={{ fontSize: 11.5, color: "var(--color-mint)", marginTop: 3 }}>{g.ochki} очк. за всё время · до следующего уровня {g.do - g.ochki}</div>
         </div>
       </div>
 
@@ -178,7 +178,7 @@ function Podrobno({ g, okno }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
           {g.achivki.map((a) => (
             <div key={a.kod} title={a.opis} style={{
-              border: `1px solid ${a.est ? "#e0b94a" : C.line}`, background: a.est ? C.goldSoft : "#faf9f6",
+              border: `1px solid ${a.est ? "#e0b94a" : C.line}`, background: a.est ? C.goldSoft : "var(--c-muted-bg)",
               borderRadius: 10, padding: 8, opacity: a.est ? 1 : 0.75,
             }}>
               <div style={{ fontSize: 22, filter: a.est ? "none" : "grayscale(1)" }}>{a.est ? a.z : "🔒"}</div>
@@ -237,11 +237,11 @@ export default function Geroi() {
           рамка по уровню: 🥉 → 🥈 с 5-го → 🥇 с 9-го → 💎 с 15-го. Нажми карточку — откроется профиль.{" "}
           <button type="button" onClick={() => openScreen("reyting")} style={{ color: C.pine, textDecoration: "underline" }}>Рейтинг →</button>
         </div>
-        <div className="flex" style={{ gap: 4, background: "#f3f1ec", padding: 3, borderRadius: 10 }}>
+        <div className="flex" style={{ gap: 4, background: "var(--c-muted-bg)", padding: 3, borderRadius: 10 }}>
           {SORT.map(([k, l]) => (
             <button key={k} type="button" onClick={() => setSort(k)} aria-pressed={sort === k} style={{
               padding: "5px 12px", borderRadius: 8, fontSize: 13, fontWeight: 700,
-              background: sort === k ? "#fff" : "transparent", color: sort === k ? C.pine : C.muted,
+              background: sort === k ? "var(--color-surface)" : "transparent", color: sort === k ? C.pine : C.muted,
             }}>{l}</button>
           ))}
         </div>

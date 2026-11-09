@@ -22,13 +22,13 @@ import { napechatat } from "../components/pechat.js";
 const MESYACY = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 
 const STATUSY = [
-  { st: "работал", kod: "Я", label: "Явка", klav: ["я", "z", "1"], cls: "bg-[#dff3e3] text-pine" },
-  { st: "выходной", kod: "В", label: "Выходной", klav: ["в", "d", "2"], cls: "bg-[#ecebe6] text-muted-2" },
-  { st: "больничный", kod: "Б", label: "Больничный", klav: ["б", ",", "3"], cls: "bg-[#fbe2e0] text-[#a3201b]" },
-  { st: "отпуск", kod: "ОТ", label: "Отпуск", klav: ["о", "j", "4"], cls: "bg-[#e1ecf6] text-info" },
-  { st: "командировка", kod: "К", label: "Командировка", klav: ["к", "r", "5"], cls: "bg-[#efe6fa] text-[#5b3d8a]" },
-  { st: "ремонт", kod: "РМ", label: "Ремонт техники", klav: ["р", "h", "6"], cls: "bg-[#fdf1e4] text-[#8a5a00]" },
-  { st: "не работал", kod: "НН", label: "Неявка", klav: ["н", "y", "7"], cls: "bg-[#fbeaea] text-error" },
+  { st: "работал", kod: "Я", label: "Явка", klav: ["я", "z", "1"], cls: "bg-[var(--c-ya)] text-pine" },
+  { st: "выходной", kod: "В", label: "Выходной", klav: ["в", "d", "2"], cls: "bg-[var(--c-muted-bg)] text-muted-2" },
+  { st: "больничный", kod: "Б", label: "Больничный", klav: ["б", ",", "3"], cls: "bg-[var(--c-error-soft-2)] text-[var(--c-error-ink)]" },
+  { st: "отпуск", kod: "ОТ", label: "Отпуск", klav: ["о", "j", "4"], cls: "bg-[var(--c-info-soft-2)] text-info" },
+  { st: "командировка", kod: "К", label: "Командировка", klav: ["к", "r", "5"], cls: "bg-[var(--c-violet-soft)] text-[var(--c-violet)]" },
+  { st: "ремонт", kod: "РМ", label: "Ремонт техники", klav: ["р", "h", "6"], cls: "bg-[var(--color-oak-soft)] text-[var(--c-oak-ink)]" },
+  { st: "не работал", kod: "НН", label: "Неявка", klav: ["н", "y", "7"], cls: "bg-[var(--color-error-soft)] text-error" },
 ];
 const PO_STATUSU = Object.fromEntries(STATUSY.map((s) => [s.st, s]));
 
@@ -214,7 +214,7 @@ export default function TabelMesyac() {
         {t && (
           <div className="text-[12.5px] text-muted">
             рабочих дней по календарю: <b className="text-ink">{t.rabochih_dney}</b>
-            {vsegoPusto > 0 && <span className="ml-2 text-[#8a5a00]">· не заполнено будней: <b>{vsegoPusto}</b></span>}
+            {vsegoPusto > 0 && <span className="ml-2 text-[var(--c-oak-ink)]">· не заполнено будней: <b>{vsegoPusto}</b></span>}
           </div>
         )}
         <div className="flex-1" />
@@ -229,7 +229,7 @@ export default function TabelMesyac() {
 
       {/* панель статусов */}
       <div className={["sticky top-0 z-10 flex items-center gap-1.5 flex-wrap rounded-lg border px-3 py-2 transition-colors",
-        vybrano ? "bg-[#f2faf3] border-[#bcefc5]" : "bg-surface-alt border-border"].join(" ")}>
+        vybrano ? "bg-[var(--c-mint-softer)] border-[var(--color-mint)]" : "bg-surface-alt border-border"].join(" ")}>
         <span className="text-[12.5px] font-semibold text-muted mr-1">
           {vybrano ? `Выделено: ${vybrano.lyudi.length} чел. × ${vybrano.dni.length} дн. — поставить:` : "Протяните мышкой по клеткам, затем выберите статус или нажмите букву:"}
         </span>
@@ -271,8 +271,8 @@ export default function TabelMesyac() {
                       title={d.prazdnik ? `Праздник: ${d.prazdnik}` : d.data}
                       onMouseDown={(e) => { e.preventDefault(); setSel({ r0: 0, d0: di, r1: t.lyudi.length - 1, d1: di }); }}
                       className={["w-[30px] px-0 py-1 border-b border-l border-border text-center cursor-pointer leading-tight",
-                        d.vyhodnoy ? "bg-[#ecebe6] text-[#8a5a00]" : "text-muted",
-                        d.data === segodnya ? "!bg-[#bcefc5] !text-pine" : ""].join(" ")}
+                        d.vyhodnoy ? "bg-[var(--c-muted-bg)] text-[var(--c-oak-ink)]" : "text-muted",
+                        d.data === segodnya ? "!bg-[var(--color-mint)] !text-pine" : ""].join(" ")}
                     >
                       <div className="font-bold text-[12px]">{d.den}</div>
                       <div className="text-[9.5px] font-normal">{d.nedelya}</div>
@@ -288,7 +288,7 @@ export default function TabelMesyac() {
               <tbody>
                 {t.lyudi.map((ch, r) => (
                   <tr key={ch.id} className="group">
-                    <td className="sticky left-0 z-[1] bg-surface group-hover:bg-[#f7f5ef] px-3 py-1 border-b border-border">
+                    <td className="sticky left-0 z-[1] bg-surface group-hover:bg-[var(--c-muted-bg)] px-3 py-1 border-b border-border">
                       <button type="button" onClick={() => openChelovek(ch.id)} className="text-left font-semibold text-ink hover:text-pine hover:underline leading-tight">
                         {ch.fio}
                       </button>
@@ -305,7 +305,7 @@ export default function TabelMesyac() {
                           onMouseEnter={() => tyanut(r, di)}
                           title={`${ch.fio}, ${d.den} ${MESYACY[Number(ym.slice(5)) - 1]}: ${s ? s.label : "не заполнено"}${z?.mesto ? " · место указано" : ""}`}
                           className={["relative h-8 border-b border-l border-border text-center p-0 cursor-cell",
-                            d.vyhodnoy && !s ? "bg-[#f4f3ef]" : "",
+                            d.vyhodnoy && !s ? "bg-[var(--c-muted-bg)]" : "",
                             v ? "outline outline-2 -outline-offset-2 outline-pine" : ""].join(" ")}
                         >
                           {s && (
@@ -314,13 +314,13 @@ export default function TabelMesyac() {
                               {z.mesto && <span className="absolute top-[2px] right-[3px] h-[4px] w-[4px] rounded-full bg-current opacity-60" />}
                             </span>
                           )}
-                          {!s && !d.vyhodnoy && d.data <= segodnya && <span data-no-print className="text-[#d9d4c8]">·</span>}
+                          {!s && !d.vyhodnoy && d.data <= segodnya && <span data-no-print className="text-[var(--c-line-strong)]">·</span>}
                         </td>
                       );
                     })}
                     <td className="px-2 border-b border-l border-border text-center font-bold text-pine tabular-nums">{ch.itogo.yavki || ""}</td>
                     <td className="px-2 border-b border-l border-border text-center tabular-nums">{ch.itogo.chasov || ""}</td>
-                    <td className="px-2 border-b border-l border-border text-center tabular-nums text-[#a3201b]">{ch.itogo.bolnichnyy || ""}</td>
+                    <td className="px-2 border-b border-l border-border text-center tabular-nums text-[var(--c-error-ink)]">{ch.itogo.bolnichnyy || ""}</td>
                     <td className="px-2 border-b border-l border-border text-center tabular-nums text-info">{ch.itogo.otpusk || ""}</td>
                     <td className="px-2 border-b border-l border-border text-center tabular-nums text-error">{ch.itogo.nn || ""}</td>
                   </tr>

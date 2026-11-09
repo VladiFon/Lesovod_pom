@@ -135,7 +135,7 @@ export default function DataTable({
                     className={[
                       "border-b border-hover last:border-b-0 transition-colors",
                       onRowClick ? "cursor-pointer" : "",
-                      isSelected ? "bg-mint-soft" : onRowClick ? "hover:bg-[#f2faf3]" : "hover:bg-[#faf8f2]",
+                      isSelected ? "bg-mint-soft" : onRowClick ? "hover:bg-[var(--c-mint-softer)]" : "hover:bg-[#faf8f2]",
                     ].join(" ")}
                   >
                     {selectable && (

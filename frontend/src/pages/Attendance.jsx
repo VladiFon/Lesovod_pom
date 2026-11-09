@@ -349,7 +349,7 @@ export default function Attendance() {
             </p>
 
             {detail.tabel && (
-              <div className="border border-border rounded-[10px] px-3 py-2.5 flex flex-col gap-1.5 bg-[#eaf7ec]/40">
+              <div className="border border-border rounded-[10px] px-3 py-2.5 flex flex-col gap-1.5 bg-[color-mix(in_srgb,var(--color-mint-soft)_40%,transparent)]">
                 <div className="flex items-center gap-2">
                   <StatusBadge tone={DAY_KINDS[TABEL_STATUS_KIND[detail.tabel.status] || "off"].tone} label={detail.tabel.status} />
                   <span className="text-[11px] text-faint ml-auto">внесено вручную{detail.tabel.entered_by ? ` · ${detail.tabel.entered_by}` : ""}</span>

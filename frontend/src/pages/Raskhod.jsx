@@ -861,10 +861,10 @@ function EgaisColumnsToggle({ checked, onChange }) {
  * два прогресс-бара (наряд / ЕГАИС относительно лимита) и мини-таблица
  * по сортиментам. Данные те же, что и в таблице (rowsData). */
 const CARD_TONES = {
-  green: ["#eaf7ec", "#1a4331", "в лимите"],
-  oak: ["#fdf1e4", "#a8681f", "подходит к лимиту"],
-  full: ["#fdf1e4", "#a8681f", "лимит выбран"],
-  error: ["#fbeaea", "#ba1a1a", "переруб"],
+  green: ["var(--color-mint-soft)", "var(--color-pine)", "в лимите"],
+  oak: ["var(--color-oak-soft)", "#a8681f", "подходит к лимиту"],
+  full: ["var(--color-oak-soft)", "#a8681f", "лимит выбран"],
+  error: ["var(--color-error-soft)", "var(--color-error)", "переруб"],
 };
 // Те же пороги, что у «Освоения делянки»: 90 / 100 / 110 % от лимита по
 // большему из нарядов и ЕГАИС.
@@ -889,14 +889,14 @@ function PorodaCard({ title, cell, sorts, hvorost, selected, onClick, total }) {
   const [bg, fg, chip] = CARD_TONES[tone];
   const pct = cell.limit > 0 ? Math.round((cell.fakt / cell.limit) * 100) : 0;
   const delta = cell.fakt_egais - cell.fakt;
-  const remainColor = (v) => (v <= 0 ? "#ba1a1a" : "#1a4331");
+  const remainColor = (v) => (v <= 0 ? "var(--color-error)" : "var(--color-pine)");
   return (
     <div
       onClick={onClick}
       className="flex flex-col gap-2.5 rounded-[14px] bg-surface px-4 py-3.5 min-w-0"
       style={{
         flex: "1 1 300px",
-        border: `1px solid ${tone === "error" ? "#ba1a1a" : selected ? "#1a4331" : "#e5e2db"}`,
+        border: `1px solid ${tone === "error" ? "var(--color-error)" : selected ? "var(--color-pine)" : "var(--color-border)"}`,
         cursor: onClick ? "pointer" : "default",
       }}
     >
@@ -918,7 +918,7 @@ function PorodaCard({ title, cell, sorts, hvorost, selected, onClick, total }) {
           <span>наряд {fmt1(cell.fakt)} / {fmt1(cell.limit)} м³</span>
           {!total && <span>{pct}%</span>}
         </div>
-        <ProgressBar value={cell.fakt} limit={cell.limit} color="#1a4331" />
+        <ProgressBar value={cell.fakt} limit={cell.limit} color="var(--color-pine)" />
       </div>
       {!total && (
         <div className="flex flex-col gap-[5px]">
@@ -972,7 +972,7 @@ function PorodaCard({ title, cell, sorts, hvorost, selected, onClick, total }) {
           ].map(([label, v, colored]) => (
             <React.Fragment key={label}>
               <span className="text-[12.5px] text-muted">{label}</span>
-              <span className="text-right text-[13px] font-bold" style={{ ...MONO_STYLE, color: colored ? remainColor(v) : "#414944" }}>
+              <span className="text-right text-[13px] font-bold" style={{ ...MONO_STYLE, color: colored ? remainColor(v) : "var(--color-muted)" }}>
                 {fmt1(v)}
               </span>
             </React.Fragment>
@@ -1017,9 +1017,9 @@ function ModeButtons({ mode, onChange }) {
           onClick={() => onChange(k)}
           className="h-[30px] px-3 rounded-lg text-[12.5px] font-semibold"
           style={{
-            border: `1px solid ${mode === k ? "#1a4331" : "#e5e2db"}`,
-            background: mode === k ? "#1a4331" : "#fff",
-            color: mode === k ? "#fff" : "#414944",
+            border: `1px solid ${mode === k ? "var(--color-pine)" : "var(--color-border)"}`,
+            background: mode === k ? "var(--color-pine)" : "var(--color-surface)",
+            color: mode === k ? "#fff" : "var(--color-muted)",
           }}
         >
           {label}
@@ -1393,7 +1393,7 @@ function EgaisBalanceBanner({ check, onOpenReview }) {
   if (!check?.has_history || !(check.deficit > 0.01)) return null;
   if (check.explained) {
     return (
-      <div className="rounded-lg border border-[#f0d5b5] bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
+      <div className="rounded-lg border border-[var(--c-oak-line)] bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
         <div>
           <span className="font-semibold text-oak">Расход по ЕГАИС временно больше прихода на {check.deficit.toFixed(2)} м³.</span>{" "}
           Это покрывается ещё не разобранными записями (приход на ФЛС: {check.fls_unresolved.toFixed(2)} м³
@@ -1407,7 +1407,7 @@ function EgaisBalanceBanner({ check, onOpenReview }) {
     );
   }
   return (
-    <div className="rounded-lg border border-[#ebc0bc] bg-error-soft px-3.5 py-2.5 text-sm text-ink">
+    <div className="rounded-lg border border-[var(--c-error-line)] bg-error-soft px-3.5 py-2.5 text-sm text-ink">
       <span className="font-semibold text-error">
         Расход по ЕГАИС больше прихода на {check.deficit.toFixed(2)} м³, и это не объясняется данными в журнале.
       </span>{" "}
@@ -1424,7 +1424,7 @@ function EgaisBalanceBanner({ check, onOpenReview }) {
 function EgaisUnresolvedSkladyBanner({ sklady, onOpenReview }) {
   if (!sklady?.length) return null;
   return (
-    <div className="rounded-lg border border-[#f0d5b5] bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
+    <div className="rounded-lg border border-[var(--c-oak-line)] bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
       <div>
         <span className="font-semibold text-oak">
           Склады ЕГАИС, похожие на этот выдел, но не привязанные однозначно ({sklady.length}):
@@ -1449,11 +1449,11 @@ function EgaisUnresolvedSkladyBanner({ sklady, onOpenReview }) {
  * лимита по наряду и ЕГАИС, сколько ещё можно заготовить до 100% и 110%,
  * предупреждение от 90%/100%/110% и прикидка «если заготовить ещё N м³». */
 const OSVOENIE_TONES = {
-  norma: { border: "#e5e2db", fg: "#1a4331", bg: "#eaf7ec", text: "в пределах лимита" },
-  vnimanie: { border: "#e0b77a", fg: "#a8681f", bg: "#fdf1e4", text: "подходит к лимиту" },
+  norma: { border: "var(--color-border)", fg: "var(--color-pine)", bg: "var(--color-mint-soft)", text: "в пределах лимита" },
+  vnimanie: { border: "#e0b77a", fg: "#a8681f", bg: "var(--color-oak-soft)", text: "подходит к лимиту" },
   preduprezhdenie: { border: "#d9822b", fg: "#9a4d06", bg: "#fde7d2", text: "лимит выбран — дальше только в допуске +10%" },
-  pererub: { border: "#ba1a1a", fg: "#ba1a1a", bg: "#fbeaea", text: "превышен допуск +10%" },
-  net_limita: { border: "#e5e2db", fg: "#6b6b6b", bg: "#f2f1ee", text: "лимит не задан" },
+  pererub: { border: "var(--color-error)", fg: "var(--color-error)", bg: "var(--color-error-soft)", text: "превышен допуск +10%" },
+  net_limita: { border: "var(--color-border)", fg: "#6b6b6b", bg: "#f2f1ee", text: "лимит не задан" },
 };
 
 function osvoenieLevel(pct) {
@@ -1477,7 +1477,7 @@ function OsvoenieBar({ label, value, limit, color }) {
       <div className="relative h-2.5 rounded-full bg-hover overflow-hidden">
         <div className="h-full rounded-full" style={{ width: `${w}%`, background: color }} />
         {[0.9, 1.0, 1.1].map((k) => (
-          <div key={k} className="absolute top-0 bottom-0 w-px" style={{ left: mark(k), background: k === 1.1 ? "#ba1a1a" : "#414944" }} />
+          <div key={k} className="absolute top-0 bottom-0 w-px" style={{ left: mark(k), background: k === 1.1 ? "var(--color-error)" : "var(--color-muted)" }} />
         ))}
       </div>
     </div>
@@ -1499,7 +1499,7 @@ function DelyankaOsvoenie({ delyankaId, egaisVersion }) {
   const planValue = parseFloat(String(plan).replace(",", "."));
   const planPct = it.limit > 0 && !Number.isNaN(planValue) ? ((it.fakt + planValue) / it.limit) * 100 : null;
   const planTone = planPct != null ? OSVOENIE_TONES[osvoenieLevel(planPct)] : null;
-  const remainColor = (v) => (v < 0 ? "#ba1a1a" : "#1a4331");
+  const remainColor = (v) => (v < 0 ? "var(--color-error)" : "var(--color-pine)");
 
   return (
     <div className="rounded-[14px] bg-surface px-4 py-3.5 flex flex-col gap-3" style={{ border: `1px solid ${tone.border}` }}>
@@ -1509,7 +1509,7 @@ function DelyankaOsvoenie({ delyankaId, egaisVersion }) {
           {it.pct != null ? `${it.pct}% · ` : ""}{tone.text}
         </span>
       </div>
-      <OsvoenieBar label="наряд" value={it.fakt_naryad} limit={it.limit} color="#1a4331" />
+      <OsvoenieBar label="наряд" value={it.fakt_naryad} limit={it.limit} color="var(--color-pine)" />
       {it.fakt_egais != null && <OsvoenieBar label="ЕГАИС" value={it.fakt_egais} limit={it.limit} color="#8fb79f" />}
       <div className="grid gap-x-4 gap-y-1 text-[12.5px]" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         <span className="text-muted">Лимит: <b className="text-ink" style={MONO_STYLE}>{fmt1(it.limit)}</b> м³ (−10%: {fmt1(it.limit_90)} · +10%: {fmt1(it.limit_110)})</span>
@@ -1552,7 +1552,7 @@ function DelyankaEgaisSummary({ check, onOpenReview }) {
   const tone = unexplained.length > 0 ? "danger" : "warning";
   return (
     <div className={["rounded-lg border px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap",
-      tone === "danger" ? "border-[#ebc0bc] bg-error-soft" : "border-[#f0d5b5] bg-oak-soft"].join(" ")}>
+      tone === "danger" ? "border-[var(--c-error-line)] bg-error-soft" : "border-[var(--c-oak-line)] bg-oak-soft"].join(" ")}>
       <div>
         <span className={["font-semibold", tone === "danger" ? "text-error" : "text-oak"].join(" ")}>
           Расход по ЕГАИС не сходится с приходом на {withDeficit.length} из {check.items.length} {check.items.length === 1 ? "выделе" : "выделов"} делянки
@@ -1849,7 +1849,7 @@ const OBZOR_FILTRY = [
   ["chuzhie", "Рубят другие"],
   ["vnimanie", "У лимита / переруб"],
 ];
-const BAR = { neutral: "#2e7d4f", warning: "#b7791f", danger: "#ba1a1a" };
+const BAR = { neutral: "#2e7d4f", warning: "#b7791f", danger: "var(--color-error)" };
 
 function RaskhodObzor({ zakrytye, search, onSelect }) {
   const [rows, setRows] = useState(null);

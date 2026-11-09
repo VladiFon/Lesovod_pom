@@ -10,8 +10,8 @@ import { useToast } from "../components/Toast.jsx";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", sky: "#2c5d8a", skySoft: "#e6eef7", wood: "#9a6a3a",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", sky: "var(--c-info-ink)", skySoft: "var(--c-info-soft-2)", wood: "#9a6a3a",
 };
 const PODIUM = [
   { h: 120, bg: "#f3c94a", medal: "🥇" },
@@ -89,11 +89,11 @@ export default function Reyting() {
           м³ по нарядам +{pr.m3} (кубы делянки за день делятся поровну на всех, кто по табелю работал там), задача из плана +{pr.zadacha},
           трелёвка +{pr.trelevka} за м³, из «Отчёта за смену»: уход/почва +{pr.ga} за га, населению +{pr.naseleniyu} за м³, ремонт +{pr.remont_chas} за час, {pr.universal_vidov}+ видов работ +{pr.universal}. Для азарта, а не для зарплаты 😉
         </div>
-        <div className="flex" style={{ gap: 4, background: "#f3f1ec", padding: 3, borderRadius: 10 }}>
+        <div className="flex" style={{ gap: 4, background: "var(--c-muted-bg)", padding: 3, borderRadius: 10 }}>
           {Object.entries(d.periody).map(([k, l]) => (
             <button key={k} type="button" onClick={() => setPeriod(k)} aria-pressed={period === k} style={{
               padding: "5px 12px", borderRadius: 8, fontSize: 13, fontWeight: 700,
-              background: period === k ? "#fff" : "transparent", color: period === k ? C.pine : C.muted,
+              background: period === k ? "var(--color-surface)" : "transparent", color: period === k ? C.pine : C.muted,
               boxShadow: period === k ? "0 1px 2px rgba(0,0,0,.08)" : "none",
             }}>{l}</button>
           ))}
@@ -109,7 +109,7 @@ export default function Reyting() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
             <div style={{
               display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 14, padding: "18px 12px 0",
-              background: `linear-gradient(180deg, ${C.moss}, #fff)`, borderRadius: 16, border: `1px solid ${C.line}`,
+              background: `linear-gradient(180deg, ${C.moss}, var(--color-surface))`, borderRadius: 16, border: `1px solid ${C.line}`,
             }}>
               {[1, 0, 2].map((i) => {
                 const x = top3[i];
@@ -129,14 +129,14 @@ export default function Reyting() {
               })}
             </div>
 
-            <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden" }}>
+            <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden" }}>
               {r.map((x) => {
                 const open = vybran === x.sotrudnik_id;
                 return (
                   <div key={x.sotrudnik_id} style={{ borderTop: `1px solid ${C.line}` }}>
                     <button type="button" onClick={() => setVybran(open ? null : x.sotrudnik_id)} style={{
                       width: "100%", display: "grid", gridTemplateColumns: "40px 44px minmax(0, 1fr) 120px 70px", gap: 10,
-                      alignItems: "center", padding: "10px 14px", textAlign: "left", background: open ? "#faf9f6" : "#fff",
+                      alignItems: "center", padding: "10px 14px", textAlign: "left", background: open ? "var(--c-muted-bg)" : "var(--color-surface)",
                     }}>
                       <span style={{ fontWeight: 900, fontSize: 18, color: x.mesto <= 3 ? C.gold : C.muted, textAlign: "center" }}>{x.mesto}</span>
                       <Avatar fio={x.fio} />
@@ -180,7 +180,7 @@ export default function Reyting() {
           </div>
 
           <aside style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 14, padding: 12 }}>
+            <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 14, padding: 12 }}>
               <div style={{ fontWeight: 800, color: C.pine, marginBottom: 4 }}>⚔️ Битва звеньев</div>
               <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>среднее очков на человека — большое звено не выигрывает числом</div>
               {d.zvenya.length === 0 && <div style={{ fontSize: 13, color: C.muted }}>Звеньев нет — заведи их в «Перекличке» (Табель).</div>}
@@ -194,7 +194,7 @@ export default function Reyting() {
                 </div>
               ))}
             </div>
-            <div style={{ background: C.goldSoft, border: "1px solid #efd9a4", borderRadius: 14, padding: 12, fontSize: 13, lineHeight: 1.6 }}>
+            <div style={{ background: C.goldSoft, border: "1px solid var(--c-gold-line)", borderRadius: 14, padding: 12, fontSize: 13, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 800, color: C.gold, marginBottom: 4 }}>Значки</div>
               <div>👑 лидер периода</div>
               <div>🪵 больше всех кубов</div>

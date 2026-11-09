@@ -69,4 +69,90 @@
   --shadow-card: 0 1px 2px rgba(26, 67, 49, 0.05), 0 4px 14px -6px rgba(26, 67, 49, 0.10);
   --shadow-hover: 0 2px 4px rgba(26, 67, 49, 0.06), 0 12px 28px -10px rgba(26, 67, 49, 0.22);
   --shadow-modal: 0 12px 32px rgba(15, 42, 29, 0.18);
+
+  /* ── Шаг 4 разбора сайта (09.11.2026): цвета, что были вписаны прямо
+     в экраны (534 места), теперь тоже переменные — иначе тёмная тема
+     красила бы только половину сайта. ─────────────────────────────── */
+  --c-gold: #b07d0c;
+  --c-gold-soft: #fbf1d6;
+  --c-gold-line: #f0dca6;
+  --c-oak-ink: #8a5a00;        /* янтарный текст «внимание» */
+  --c-oak-line: #f0d5b5;
+  --c-green-2: #3f7d4e;
+  --c-info-ink: #2c5d8a;
+  --c-info-soft-2: #e6eef7;
+  --c-error-ink: #a3201b;
+  --c-error-soft-2: #fdecea;
+  --c-error-line: #f3c2bd;
+  --c-muted-bg: #f3f1ec;       /* серые подложки (выходные в табеле и т.п.) */
+  --c-line-strong: #cfcbc2;
+  --c-mint-softer: #f2faf3;    /* наведение на строку */
+  --c-ya: #dff3e3;             /* «Я» в табеле */
+  --c-violet: #5b3d8a;
+  --c-violet-soft: #efe6fa;
+  --sidebar-bg: #1a4331;
+  --sidebar-hover: #235a41;
+  --tab-strip: #f6f3ec;
+  color-scheme: light;
+}
+
+/* ── Тёмная тема (шаг 4 разбора 09.11.2026) ──────────────────────────
+   Палитра из макета: тёмно-зелёная ночь, карточки чуть светлее, мятный
+   акцент, янтарь — внимание, коралл — тревога, голубой — входящее.
+   Включается переключателем ☀/🌙 в шапке; «авто» — как в системе. */
+:root[data-theme="dark"] {
+  --color-paper: #0d1310;
+  --color-surface: #17201b;
+  --color-surface-alt: #1c2721;
+  --color-hover: #22302a;
+  --color-border: #2a3a31;
+
+  --color-ink: #e8efe9;
+  --color-muted: #b8c6bd;
+  --color-muted-2: #9fb0a5;
+  --color-faint: #8a9a90;
+  --color-disabled: #5f6f65;
+
+  --color-pine: #4fae78;
+  --color-pine-hover: #5cbf87;
+  --color-pine-active: #3f9a68;
+  --color-pine-focus: #7fe0a0;
+  --color-pine-deep: #c9f5d6;
+
+  --color-mint: #2a4a37;
+  --color-mint-soft: #1d3326;
+  --color-green: #7fe0a0;
+
+  --color-oak: #f2b667;
+  --color-oak-soft: #33281a;
+  --color-error: #ff8a80;
+  --color-error-soft: #3a1f1d;
+  --color-info: #8ec5ff;
+  --color-info-soft: #1a2a3a;
+
+  --c-gold: #f2c46b;
+  --c-gold-soft: #332a16;
+  --c-gold-line: #5a4a22;
+  --c-oak-ink: #f2b667;
+  --c-oak-line: #5a4228;
+  --c-green-2: #7fe0a0;
+  --c-info-ink: #8ec5ff;
+  --c-info-soft-2: #1a2a3a;
+  --c-error-ink: #ff9b92;
+  --c-error-soft-2: #3a1f1d;
+  --c-error-line: #6a2f2b;
+  --c-muted-bg: #1a241f;
+  --c-line-strong: #3a4d42;
+  --c-mint-softer: #1a2b21;
+  --c-ya: #1f3a2a;
+  --c-violet: #c7a8f0;
+  --c-violet-soft: #2c2340;
+  --sidebar-bg: #0a100d;
+  --sidebar-hover: #1a2b21;
+  --tab-strip: #111915;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px -6px rgba(0, 0, 0, 0.5);
+  --shadow-hover: 0 2px 4px rgba(0, 0, 0, 0.4), 0 12px 28px -10px rgba(0, 0, 0, 0.7);
+  --shadow-modal: 0 12px 32px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
 }

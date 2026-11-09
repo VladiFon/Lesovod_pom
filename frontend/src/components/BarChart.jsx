@@ -42,7 +42,7 @@ export default function BarChart({ categories, series, height = 190 }) {
                     <div
                       title={`${plan.label} · ${label}: ${pv.toFixed(1)}`}
                       className="absolute bottom-0 rounded-t-[7px] border-2 border-dashed"
-                      style={{ height: `${(pv / max) * 100}%`, width: "min(46px, 80%)", borderColor: "#cfcbc2", borderBottom: 0 }}
+                      style={{ height: `${(pv / max) * 100}%`, width: "min(46px, 80%)", borderColor: "var(--c-line-strong)", borderBottom: 0 }}
                     />
                   )}
                   <div className="relative flex flex-col items-center justify-end h-full" style={{ width: "min(30px, 56%)" }}>

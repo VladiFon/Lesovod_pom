@@ -15,8 +15,8 @@ import React from "react";
  */
 const TONES = {
   pine: { chip: "bg-mint-soft text-pine", value: "text-pine", bar: "bg-pine", ring: "border-border" },
-  oak: { chip: "bg-oak-soft text-[#8a5a00]", value: "text-[#8a5a00]", bar: "bg-oak", ring: "border-[#f0d5b5]" },
-  error: { chip: "bg-error-soft text-error", value: "text-error", bar: "bg-error", ring: "border-[#ebc0bc]" },
+  oak: { chip: "bg-oak-soft text-[var(--c-oak-ink)]", value: "text-[var(--c-oak-ink)]", bar: "bg-oak", ring: "border-[var(--c-oak-line)]" },
+  error: { chip: "bg-error-soft text-error", value: "text-error", bar: "bg-error", ring: "border-[var(--c-error-line)]" },
   info: { chip: "bg-info-soft text-info", value: "text-info", bar: "bg-info", ring: "border-border" },
 };
 

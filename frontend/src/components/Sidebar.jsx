@@ -90,7 +90,7 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
         type="button"
         onClick={() => onNavigate?.(key)}
         aria-current={isActive ? "page" : undefined}
-        className="flex items-center justify-between w-full text-left rounded-lg hover:!bg-[#235a41] hover:!text-white"
+        className="flex items-center justify-between w-full text-left rounded-lg hover:!bg-[var(--sidebar-hover)] hover:!text-white"
         style={{
           gap: 6,
           padding: "7px 8px",
@@ -98,7 +98,7 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
           fontWeight: isActive ? 700 : 500,
           border: 0,
           cursor: "pointer",
-          background: isActive ? "#235a41" : "transparent",
+          background: isActive ? "var(--sidebar-hover)" : "transparent",
           color: isActive ? "#fff" : "#d7ecdd",
         }}
       >
@@ -119,7 +119,7 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
   const escheAktiven = footer.items.some(([k]) => k === activeKey);
 
   return (
-    <nav className="w-[166px] shrink-0 h-screen flex flex-col overflow-y-auto" style={{ background: "#1a4331", color: "#eaf7ec" }}>
+    <nav className="w-[166px] shrink-0 h-screen flex flex-col overflow-y-auto" style={{ background: "var(--sidebar-bg)", color: "#eaf7ec" }}>
       <div style={{ padding: "18px 16px 14px" }}>
         <div style={{ fontWeight: 800, fontSize: 17, color: "#fff", lineHeight: 1.1 }}>Лесовод</div>
         <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".14em", textTransform: "uppercase", color: "#bcefc5", marginTop: 3 }}>
@@ -139,11 +139,11 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
       </div>
 
       {/* «⋯ Ещё» — редкие экраны и руководство, под именем пользователя */}
-      <div ref={escheRef} className="relative" style={{ borderTop: "1px solid #235a41" }}>
+      <div ref={escheRef} className="relative" style={{ borderTop: "1px solid var(--sidebar-hover)" }}>
         {esche && (
           <div className="absolute left-2 right-2 bottom-full mb-1 flex flex-col rounded-xl shadow-hover" style={{ background: "#12321f", border: "1px solid #2c6449", padding: 6, gap: 2, zIndex: 30 }}>
             {footer.items.filter(mozhno).map(([key, label]) => punkt([key, label]))}
-            <a href="/guide/index.html" target="_blank" rel="noreferrer" className="rounded-lg hover:!bg-[#235a41] hover:!text-white"
+            <a href="/guide/index.html" target="_blank" rel="noreferrer" className="rounded-lg hover:!bg-[var(--sidebar-hover)] hover:!text-white"
               style={{ padding: "7px 8px", fontSize: 13.5, color: "#d7ecdd", textDecoration: "none" }}>
               📖 Руководство
             </a>
@@ -151,7 +151,7 @@ export default function Sidebar({ openKeys = [], activeKey, onNavigate, user, on
         )}
         <div className="flex items-center justify-between" style={{ padding: "10px 10px 10px 14px", gap: 6 }}>
           <button type="button" onClick={() => setEsche(!esche)} aria-expanded={esche} title="Схема сайта, документы, архив, корзина, настройки, руководство"
-            className="min-w-0 flex-1 text-left rounded-lg hover:!bg-[#235a41]" style={{ background: escheAktiven || esche ? "#235a41" : "transparent", border: 0, padding: "4px 6px", margin: "-4px -6px", cursor: "pointer" }}>
+            className="min-w-0 flex-1 text-left rounded-lg hover:!bg-[var(--sidebar-hover)]" style={{ background: escheAktiven || esche ? "var(--sidebar-hover)" : "transparent", border: 0, padding: "4px 6px", margin: "-4px -6px", cursor: "pointer" }}>
             <div className="truncate" style={{ fontSize: 12.5, fontWeight: 700, color: "#eaf7ec" }}>{user?.fio ?? "Гость"}</div>
             <div className="truncate" style={{ fontFamily: MONO, fontSize: 9.5, color: "#8fb79f" }}>{user?.role ?? ""} · ⋯ ещё</div>
           </button>

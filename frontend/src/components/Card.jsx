@@ -12,7 +12,7 @@ import React from "react";
  */
 const ICON_TONE = {
   pine: "bg-mint-soft text-pine",
-  oak: "bg-oak-soft text-[#8a5a00]",
+  oak: "bg-oak-soft text-[var(--c-oak-ink)]",
   error: "bg-error-soft text-error",
   info: "bg-info-soft text-info",
 };

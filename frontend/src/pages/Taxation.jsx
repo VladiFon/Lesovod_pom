@@ -29,7 +29,7 @@ import { useToast } from "../components/Toast.jsx";
  *   Загрузка таксации (.docx, множественный выбор) + "Заменить/Дополнить" → модалка загрузки + чекбокс reset, POST /api/taxation/build → pollTask
  */
 
-const CHIP_COLORS = ["#1A4331", "#3A6847", "#85B098", "#DF964E", "#A4D0B8"];
+const CHIP_COLORS = ["var(--color-pine)", "var(--color-green)", "#85B098", "var(--color-oak)", "#A4D0B8"];
 
 /** Доля породы: dolya хранится либо "из 10" (типичная запись таксации,
  * напр. 6 → 60%), либо уже в процентах — тот же эвристический выбор, что
