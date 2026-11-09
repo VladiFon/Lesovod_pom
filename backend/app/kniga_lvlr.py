@@ -4,7 +4,7 @@
 Форма — приложение 6 к Положению о порядке ЛВ и ЛР (ред. 2024). Бумажная
 книга ведётся ручкой, распечатку можно вклеивать. В раскрытой книге слева
 часть 1 (графы 1–19), справа часть 2 (графы 20–29), строка идёт поперёк
-разворота, на развороте 18 строк по 6 мм.
+разворота, на развороте 19 строк по 6 мм.
 
 Строка книги = запись kniga_lvlr. Графы 2–29 хранятся текстом — снимком того,
 что попало (или попадёт) на бумагу, поэтому правка делянки задним числом
@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 GRAFY = list(range(2, 30))
 CHAST_1 = list(range(1, 20))
 CHAST_2 = list(range(20, 30))
-STROK_NA_RAZVOROTE = 18
+STROK_NA_RAZVOROTE = 19  # Влад 09.11: на страницу книги влезает 19 строк по 6 мм
 
 # Ширины граф, см — замеры Влада по его книге (09.11.2026).
 SHIRINY_1 = [0.9, 1.25, 2.5, 1, 1.75, 1, 1.5, 1.5, 1.5, 1.25, 1.25, 1.5, 1.25, 1.25, 1.25, 1.5, 1.4, 1.25, 1.2]
@@ -39,7 +39,11 @@ NASTROYKI_DEFAULT = {
     "shiriny_1": SHIRINY_1,
     "shiriny_2": SHIRINY_2,
     "shrift_pt": 7,
+    # Своё лесничество / лесхоз: делянки и культуры чужих (рубим у соседей)
+    # в книгу не идут. Пусто — лесничество из Настроек (вход), лесхоз — самый
+    # частый в делянках.
     "nazvanie_lesnichestva": "",
+    "nazvanie_leshoza": "",
 }
 
 # Названия граф (коротко — для экрана и подсказок).
@@ -630,17 +634,87 @@ def otmetit_na_bumage(conn, zid, grafy: Optional[List[int]] = None) -> dict:
     return zapis(conn, zid)
 
 
-def udalit(conn, zid) -> None:
-    """Удалить можно только последнюю строку — иначе поедет нумерация книги."""
+def udalit(conn, zid) -> int:
+    """Удалить строку. Номера ниже сдвигаются на один вверх — поэтому можно,
+    только пока ни эта строка, ни следующие не перенесены на бумагу.
+    Возвращает, сколько строк перенумеровано."""
     z = zapis(conn, zid)
     if z is None:
         raise KeyError(zid)
-    mx = conn.execute("SELECT MAX(nomer) FROM kniga_lvlr").fetchone()[0]
-    if z["nomer"] != mx:
-        raise ValueError("Удалить можно только последнюю запись книги — иначе поедут номера. "
-                         "Ошибочную строку лучше исправить.")
+    dalshe = [q for q in zapisi(conn) if q["nomer"] >= z["nomer"]]
+    na_bum = [q["nomer"] for q in dalshe if q["na_bumage"]]
+    if na_bum:
+        raise ValueError(f"Строка №{na_bum[0]} уже на бумаге — удалять нельзя, поедут номера. "
+                         "Исправьте строку (или зачеркните на бумаге и поправьте графы).")
     conn.execute("DELETE FROM kniga_lvlr WHERE id = ?", (zid,))
+    sdvig = [q for q in dalshe if q["id"] != zid]
+    for q in sorted(sdvig, key=lambda x: x["nomer"]):
+        conn.execute("UPDATE kniga_lvlr SET nomer = nomer - 1 WHERE id = ?", (q["id"],))
     conn.commit()
+    return len(sdvig)
+
+
+# --------------------------------------------------------------------------- #
+#   Своё / чужое лесничество
+# --------------------------------------------------------------------------- #
+def _norm_mesto(s) -> str:
+    s = str(s or "").lower().replace("ё", "е")
+    s = re.sub(r"\b(лесничество|лесхоз|гослесхоз|глхуп|гсухп|гу|гоу)\b", " ", s)
+    s = re.sub(r"[^а-яa-z0-9]+", " ", s).strip()
+    return s
+
+
+def _sovpadaet(a, b) -> bool:
+    a, b = _norm_mesto(a), _norm_mesto(b)
+    if not a or not b:
+        return True  # не указано — не считаем чужим
+    return a[:6] == b[:6] or a in b or b in a
+
+
+def lesnichestva(conn) -> List[dict]:
+    """Какие лесничества / лесхозы встречаются в делянках (для выбора в настройках)."""
+    out = []
+    for lx, ln, k in conn.execute(
+            "SELECT COALESCE(lesxoz, ''), COALESCE(lesnichestvo, ''), COUNT(DISTINCT delyanka_id) FROM delyanka_item "
+            "GROUP BY 1, 2 ORDER BY 3 DESC").fetchall():
+        if lx or ln:
+            out.append({"leshoz": lx, "lesnichestvo": ln, "delyanok": k})
+    return out
+
+
+def svoe(conn, n: Optional[dict] = None) -> dict:
+    n = n or nastroyki(conn)
+    ln = (n.get("nazvanie_lesnichestva") or "").strip()
+    if not ln:
+        try:
+            r = conn.execute("SELECT lesnichestvo FROM app_login WHERE id = 1").fetchone()
+            ln = (r[0] if r else "") or ""
+        except Exception:  # noqa: BLE001
+            ln = ""
+    lx = (n.get("nazvanie_leshoza") or "").strip()
+    vse = lesnichestva(conn)
+    if not lx:
+        po_lx: Dict[str, int] = {}
+        for x in vse:
+            if x["leshoz"]:
+                po_lx[x["leshoz"]] = po_lx.get(x["leshoz"], 0) + x["delyanok"]
+        lx = max(po_lx, key=po_lx.get) if po_lx else ""
+    if not ln:
+        sv = [x for x in vse if x["lesnichestvo"] and _sovpadaet(x["leshoz"], lx)]
+        ln = sv[0]["lesnichestvo"] if sv else ""
+    return {"lesnichestvo": ln, "leshoz": lx}
+
+
+def chuzhoe(sv: dict, mesta) -> bool:
+    """mesta — [(лесхоз, лесничество), …] частей делянки / участка. Чужое —
+    если ни одна часть не в своём лесничестве (или лесхоз другой)."""
+    mesta = [(lx, ln) for lx, ln in mesta if (lx or ln)]
+    if not mesta:
+        return False
+    for lx, ln in mesta:
+        if _sovpadaet(lx, sv["leshoz"]) and _sovpadaet(ln, sv["lesnichestvo"]):
+            return False
+    return True
 
 
 def ne_na_bumage(z: dict) -> List[int]:
@@ -661,6 +735,8 @@ def chto_vpisat(conn, vse_rubki: bool = False) -> dict:
     # 1) Делянки — как только выписан лесорубочный билет (и свои, и сторонние);
     #    акт освидетельствования потом сам попадёт в «дописать» (гр. 10).
     novye = []
+    chuzhie = []
+    sv = svoe(conn, n)
     s_goda = n["kultury_s_goda"]
     for did, bilet, data_b, status in conn.execute(
             "SELECT id, nomer_lesorubochnogo_bileta, data_lesorubochnogo_bileta, status FROM delyanka "
@@ -672,6 +748,11 @@ def chto_vpisat(conn, vse_rubki: bool = False) -> dict:
             continue
         d = _delyanka(conn, did)
         if d is None:
+            continue
+        if chuzhoe(sv, [(it.get("lesxoz"), it.get("lesnichestvo")) for it in d["items"]]):
+            it0 = d["items"][0] if d["items"] else {}
+            chuzhie.append({"tip": "delyanka", "id": did, "mesto": _mesto_delyanki(d),
+                            "gde": ", ".join(x for x in (it0.get("lesnichestvo"), it0.get("lesxoz")) if x)})
             continue
         kody = vid_rubki_kody(d)
         v_knigu = bool(set(kody) & V_KNIGU_KODY)
@@ -692,6 +773,9 @@ def chto_vpisat(conn, vse_rubki: bool = False) -> dict:
             continue
         u = _uchastok(conn, uid)
         if u is None:
+            continue
+        if chuzhoe(sv, [("", u.get("lesnichestvo"))]):
+            chuzhie.append({"tip": "spisanie", "id": uid, "mesto": _mesto_uchastka(u), "gde": u.get("lesnichestvo") or ""})
             continue
         m = spisanie_uchastka(u) or {}
         god_s = _god((m.get("dannye") or {}).get("akt_data")) or _god(m.get("data"))
@@ -720,4 +804,4 @@ def chto_vpisat(conn, vse_rubki: bool = False) -> dict:
                               "grafy": [{"grafa": k, "znachenie": z["grafy"].get(k) or "",
                                          "bylo": z["na_bumage"].get(k) or ""} for k in raz]})
     return {"novye": novye, "dopisat": dopisat, "rashozhdeniya": rashozhdeniya, "na_bumagu": na_bumagu,
-            "sleduyushchiy_nomer": sleduyushchiy_nomer(conn)}
+            "chuzhie": chuzhie, "svoe": sv, "sleduyushchiy_nomer": sleduyushchiy_nomer(conn)}

@@ -7,7 +7,7 @@ import { useScreenParam } from "../nav.js";
  * «📗 Книга ЛВ и ЛР» (Влад, 09.11.2026) — книга учёта площадей
  * лесовосстановления и лесоразведения, прил. 6 к Положению о порядке ЛВ и ЛР.
  * Бумажная книга ведётся ручкой, распечатку можно вклеивать: слева часть 1
- * (графы 1–19), справа часть 2 (графы 20–29), 18 строк по 6 мм на развороте.
+ * (графы 1–19), справа часть 2 (графы 20–29), 19 строк по 6 мм на развороте.
  * Здесь — электронная копия: очередь «что вписать», книга по разворотам и
  * печать вклейки по точным размерам. Сервер: routers/kniga_lvlr.py.
  */
@@ -123,6 +123,13 @@ function ChtoVpisat({ d, kniga, vseRubki, setVseRubki, reload, oshibka, otkryt }
         посадка культур и перевод потом сами попадут в «дописать» — с адресом в бумажной книге.
       </div>
       {pusto && <div style={{ ...karta, textAlign: "center", color: C.muted }}>Всё вписано 👌 Новое появится, когда на делянку выпишут билет, будет акт или запись в журнале культур.</div>}
+
+      {d.chuzhie?.length > 0 && (
+        <details style={{ ...karta, fontSize: 13 }}>
+          <summary style={{ cursor: "pointer" }}>🚫 Чужие делянки и участки — не в книгу ({d.chuzhie.length}). Своё: <b>{d.svoe.lesnichestvo || "лесничество не задано"}</b>{d.svoe.leshoz ? `, ${d.svoe.leshoz}` : ""} (меняется в «Печать и настройки»)</summary>
+          {d.chuzhie.map((x) => <div key={`${x.tip}${x.id}`} style={{ color: C.muted, paddingTop: 4 }}>{x.tip === "delyanka" ? "🪓" : "🥀"} {x.mesto} — {x.gde || "?"}</div>)}
+        </details>
+      )}
 
       {(d.novye.length > 0 || vseRubki) && (
         <div style={karta}>
@@ -291,7 +298,8 @@ function Redaktor({ z, kniga, zakryt, reload, oshibka }) {
   const [strok, setStrok] = useState(z.strok || 1);
   const [prim, setPrim] = useState(z.primechanie || "");
   const [zanyat, setZanyat] = useState(false);
-  const posledniy = z.nomer === Math.max(...kniga.zapisi.map((q) => q.nomer));
+  // Удалить можно, пока ни эта строка, ни следующие не на бумаге (номера ниже сдвинутся).
+  const mozhnoUdalit = !kniga.zapisi.some((q) => q.nomer >= z.nomer && Object.keys(q.na_bumage || {}).length);
 
   const sohranit = async (iBumaga) => {
     setZanyat(true);
@@ -305,7 +313,8 @@ function Redaktor({ z, kniga, zakryt, reload, oshibka }) {
     } catch (e) { oshibka("Не сохранилось")(e); } finally { setZanyat(false); }
   };
   const udalit = async () => {
-    if (!window.confirm(`Удалить строку №${z.nomer}?`)) return;
+    const dalshe = kniga.zapisi.filter((q) => q.nomer > z.nomer).length;
+    if (!window.confirm(`Удалить строку №${z.nomer}?${dalshe ? ` Номера ${dalshe} строк ниже сдвинутся на один вверх.` : ""}`)) return;
     try { await api.delete(`/kniga-lvlr/${z.id}`); await reload(); zakryt(); } catch (e) { oshibka("Не удалилось")(e); }
   };
   const pole = (k) => {
@@ -350,7 +359,7 @@ function Redaktor({ z, kniga, zakryt, reload, oshibka }) {
             <input className={inp + " w-full"} value={prim} onChange={(e) => setPrim(e.target.value)} /></label>
           <button type="button" disabled={zanyat} onClick={() => sohranit(false)} style={btn}>Сохранить</button>
           <button type="button" disabled={zanyat} onClick={() => sohranit(true)} style={btn2}>Сохранить и ✍ вписал</button>
-          {posledniy && <button type="button" onClick={udalit} style={{ ...btn2, color: C.danger }}>🗑 Удалить</button>}
+          {mozhnoUdalit && <button type="button" onClick={udalit} style={{ ...btn2, color: C.danger }}>🗑 Удалить</button>}
         </div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>⚙ — графа подставляется сама из делянки, акта и лесных культур. Если поправить её вручную, программа покажет расхождение, но молча не перезапишет.</div>
       </div>
@@ -372,7 +381,7 @@ function Pechat({ kniga, reload, oshibka, toast }) {
     try {
       await api.put("/kniga-lvlr/nastroyki", {
         nachalo_nomer: Number(f.nachalo_nomer), nachalo_razvorot: Number(f.nachalo_razvorot), nachalo_stroka: Number(f.nachalo_stroka),
-        kultury_s_goda: Number(f.kultury_s_goda), shrift_pt: Number(f.shrift_pt), nazvanie_lesnichestva: f.nazvanie_lesnichestva || "",
+        kultury_s_goda: Number(f.kultury_s_goda), shrift_pt: Number(f.shrift_pt), nazvanie_lesnichestva: f.nazvanie_lesnichestva || "", nazvanie_leshoza: f.nazvanie_leshoza || "",
         shiriny_1: chisla(f.shiriny_1), shiriny_2: chisla(f.shiriny_2),
       });
       toast.show({ tone: "success", title: "Настройки книги сохранены" });
@@ -393,8 +402,8 @@ function Pechat({ kniga, reload, oshibka, toast }) {
           <label style={{ fontSize: 12, color: C.muted }}>Часть<br />
             <select className={inp} value={p.chast} onChange={(e) => setP({ ...p, chast: e.target.value })}>
               <option value="obe">обе (2 листа)</option><option value="1">часть 1 · гр. 1–19</option><option value="2">часть 2 · гр. 20–29</option></select></label>
-          <label style={{ fontSize: 12, color: C.muted }}>Строки с<br /><input className={inp} style={{ width: 64 }} type="number" min={1} max={18} value={p.s} onChange={(e) => setP({ ...p, s: Number(e.target.value) })} /></label>
-          <label style={{ fontSize: 12, color: C.muted }}>по<br /><input className={inp} style={{ width: 64 }} type="number" min={1} max={18} value={p.po} onChange={(e) => setP({ ...p, po: Number(e.target.value) })} /></label>
+          <label style={{ fontSize: 12, color: C.muted }}>Строки с<br /><input className={inp} style={{ width: 64 }} type="number" min={1} max={kniga.strok_na_razvorote} value={p.s} onChange={(e) => setP({ ...p, s: Number(e.target.value) })} /></label>
+          <label style={{ fontSize: 12, color: C.muted }}>по<br /><input className={inp} style={{ width: 64 }} type="number" min={1} max={kniga.strok_na_razvorote} value={p.po} onChange={(e) => setP({ ...p, po: Number(e.target.value) })} /></label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={p.nomera} onChange={(e) => setP({ ...p, nomera: e.target.checked })} /> строка номеров граф</label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={p.setka} onChange={(e) => setP({ ...p, setka: e.target.checked })} /> сетка</label>
           <button type="button" onClick={pechat} style={btn}>🖨 Скачать вкладыш</button>
@@ -413,6 +422,15 @@ function Pechat({ kniga, reload, oshibka, toast }) {
           {num("nachalo_stroka", "в строке")}
           {num("kultury_s_goda", "Билеты и списания с года")}
           {num("shrift_pt", "Шрифт, pt", 70)}
+        </div>
+        <div className="flex flex-wrap items-end" style={{ gap: 10, marginTop: 10 }}>
+          <label style={{ fontSize: 12, color: C.muted }}>Своё лесничество (пусто — {kniga.svoe.lesnichestvo || "из Настроек"})<br />
+            <input className={inp} style={{ width: 240 }} list="kniga-lesn" value={f.nazvanie_lesnichestva || ""} onChange={(e) => setF({ ...f, nazvanie_lesnichestva: e.target.value })} placeholder={kniga.svoe.lesnichestvo} /></label>
+          <label style={{ fontSize: 12, color: C.muted }}>Свой лесхоз (пусто — {kniga.svoe.leshoz || "самый частый"})<br />
+            <input className={inp} style={{ width: 240 }} list="kniga-lx" value={f.nazvanie_leshoza || ""} onChange={(e) => setF({ ...f, nazvanie_leshoza: e.target.value })} placeholder={kniga.svoe.leshoz} /></label>
+          <datalist id="kniga-lesn">{[...new Set(kniga.lesnichestva.map((x) => x.lesnichestvo).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist>
+          <datalist id="kniga-lx">{[...new Set(kniga.lesnichestva.map((x) => x.leshoz).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist>
+          <span style={{ fontSize: 12, color: C.muted, maxWidth: 360 }}>Делянки и культуры другого лесничества или лесхоза (рубим у соседей) в книгу не предлагаются.</span>
         </div>
         <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
           <label style={{ fontSize: 12, color: C.muted }}>Ширины граф части 1 (19 чисел, см) — сумма {sum(f.shiriny_1).toFixed(2)} см

@@ -64,6 +64,8 @@ def spisok(conn=Depends(get_conn), _u=Depends(get_current_user)):
         "vidy_zemel": kn.VIDY_ZEMEL,
         "strok_na_razvorote": kn.STROK_NA_RAZVOROTE,
         "sleduyushchiy_nomer": kn.sleduyushchiy_nomer(conn),
+        "svoe": kn.svoe(conn),
+        "lesnichestva": kn.lesnichestva(conn),
     }
 
 
@@ -146,9 +148,9 @@ def na_bumage(zid: int, body: BumagaIn, conn=Depends(get_conn), _u=Depends(requi
 @router.delete("/{zid}")
 def udalit(zid: int, conn=Depends(get_conn), _u=Depends(require_permission(PRAVO))):
     try:
-        kn.udalit(conn, zid)
+        sdvinuto = kn.udalit(conn, zid)
     except KeyError:
         raise HTTPException(404, "Строка книги не найдена")
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"ok": True}
+    return {"ok": True, "sdvinuto": sdvinuto}
