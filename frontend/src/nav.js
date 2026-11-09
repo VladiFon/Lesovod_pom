@@ -19,10 +19,26 @@ export const ALIASES = {
   calendar: { screen: "zadachi", tab: "kalendar" },
 };
 
+// Шаг 4 разбора «сайт разбросан» (04.11.2026): меню по делам. Вкладки,
+// уехавшие с «С телефона» (теперь «Входящие» — только то, что ждёт
+// проверки): техника и топливо — свой экран, отчёты за смену и журнал
+// выполненных работ — в «Журнал работ». Старые адреса ведут туда же.
+export const TAB_ALIASES = {
+  telefon: {
+    tehnika: { screen: "tehnika", tab: "tehnika" },
+    toplivo: { screen: "tehnika", tab: "toplivo" },
+    smena: { screen: "raboty", tab: "smena" },
+    zhurnal: { screen: "raboty", tab: "zhurnal" },
+  },
+};
+
 /** Старый адрес экрана → новый экран + параметры вкладки. */
 export function resolveScreen(screen, p = {}) {
   const a = ALIASES[screen];
-  return a ? { screen: a.screen, params: { tab: a.tab, ...p } } : { screen, params: p };
+  if (a) return { screen: a.screen, params: { tab: a.tab, ...p } };
+  const t = TAB_ALIASES[screen]?.[p.tab];
+  if (t) return { screen: t.screen, params: { ...p, tab: t.tab } };
+  return { screen, params: p };
 }
 
 

@@ -5,6 +5,7 @@ import EmptyState from "../components/EmptyState.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { api } from "../api/client.js";
 import ZadachaModal from "../components/ZadachaModal.jsx";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 
 /**
  * Экран "Заметки" (часть раздела "Люди") — односторонняя лента
@@ -29,7 +30,7 @@ function NoteCard({ note, onMarkRead, onReply, onZadacha }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             {unread && <span className="h-2 w-2 rounded-full bg-pine shrink-0" aria-hidden="true" />}
-            <span className="font-ui font-bold text-[13.5px] text-ink">{note.sotrudnik_fio}</span>
+            <span className="font-ui text-[13.5px]"><ChelovekLink id={note.sotrudnik_id} fio={note.sotrudnik_fio} className="font-bold" /></span>
             <span className="text-muted-2 text-xs">{note.sotrudnik_dolzhnost}</span>
           </div>
           <p className="text-muted text-xs mt-0.5">{formatDateTime(note.created_at)}</p>

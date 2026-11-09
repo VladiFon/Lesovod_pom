@@ -13,6 +13,9 @@ import { useToast } from "../components/Toast.jsx";
 import KonturBlock from "../components/KonturBlock.jsx";
 import ProbyBlock from "../components/ProbyBlock.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
+import { useScreenParam } from "../nav.js";
+import ChelovekLink, { openVydel } from "../components/ChelovekLink.jsx";
+import { openScreen } from "../nav.js";
 
 /**
  * Экран "Лесные культуры" (screens/lesokultury/) — Этап 8 плана.
@@ -562,8 +565,62 @@ function IspolniteliYacheyka({ zapis, onSaved }) {
   }
   return (
     <div className="text-sm">
-      {isp.length ? isp.map((i) => <div key={i.fio}>👷 {i.fio}</div>) : <span className="text-muted">—</span>}
+      {isp.length ? isp.map((i) => <div key={i.fio}>👷 <ChelovekLink id={i.id} fio={i.fio} className="font-normal" />{!i.id && <span className="text-muted-2 text-xs"> (сторонний)</span>}</div>) : <span className="text-muted">—</span>}
       <button className="text-xs text-pine hover:underline" onClick={nachat}>{isp.length ? "изменить" : "＋ указать"}</button>
+    </div>
+  );
+}
+
+/**
+ * «Связи участка» (шаг 2 разбора «сайт разбросан», 04.11.2026): выдел в
+ * Таксации, пробы рубок ухода на этом участке и кто здесь работал — по
+ * клику на свои экраны. Сервер: GET /lesokultury/uchastki/{id}/svyazi.
+ */
+function SvyaziUchastka({ uchastokId, lesnichestvo }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    setD(null);
+    api.get(`/lesokultury/uchastki/${uchastokId}/svyazi`).then(setD).catch(() => setD({ proby: [], lyudi: [] }));
+  }, [uchastokId]);
+  if (!d) return null;
+  return (
+    <div className="rounded-lg border border-border bg-surface-alt px-4 py-3 flex flex-col gap-2 text-[13px]">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-ui font-extrabold text-pine text-[14px]">Связи участка</span>
+        {d.kvartal && (
+          <button type="button" onClick={() => openVydel(d.kvartal, d.vydel, lesnichestvo || d.lesnichestvo)}
+            className="h-7 px-2.5 rounded-md border border-border bg-surface text-[12.5px] font-semibold text-muted hover:border-pine hover:text-pine">
+            🌲 Жизнь выдела кв.{d.kvartal} выд.{d.vydel}
+          </button>
+        )}
+        <button type="button" onClick={() => openScreen("uhody")}
+          className="h-7 px-2.5 rounded-md border border-border bg-surface text-[12.5px] font-semibold text-muted hover:border-pine hover:text-pine">
+          ✂️ Рубки ухода
+        </button>
+      </div>
+      <div>
+        <span className="text-muted-2">✂️ Пробы рубок ухода: </span>
+        {d.proby.length === 0 ? <span className="text-muted">на этом участке и выделе проб нет</span> : d.proby.map((p, i) => (
+          <React.Fragment key={p.id}>
+            {i > 0 && " · "}
+            <button type="button" onClick={() => openScreen("uhody", { p: p.id })}
+              className="text-pine font-semibold hover:underline decoration-dotted underline-offset-2">
+              №{p.id}{p.data ? ` от ${p.data}` : ""} — {p.zakryta ? "✅ закрыта" : p.pct != null ? `⏳ ${p.pct}%` : "📝 заложена"}
+              {!p.privyazana && <span className="text-muted-2 font-normal"> (на выделе кв.{p.kvartal} выд.{p.vydel})</span>}
+            </button>
+          </React.Fragment>
+        ))}
+      </div>
+      <div>
+        <span className="text-muted-2">👷 Кто здесь работал: </span>
+        {d.lyudi.length === 0 ? <span className="text-muted">пока никого не записано («Кто делал» в журнале или отчёт с телефона)</span> : d.lyudi.map((x, i) => (
+          <React.Fragment key={`${x.id}-${x.fio}`}>
+            {i > 0 && ", "}
+            <ChelovekLink id={x.id} fio={x.fio} className="font-semibold" />
+            <span className="text-muted-2 text-xs"> ({x.raz}×{x.posledniy ? `, посл. ${x.posledniy}` : ""})</span>
+          </React.Fragment>
+        ))}
+      </div>
     </div>
   );
 }
@@ -697,6 +754,8 @@ function UchastokDetail({ uchastokId, onListChanged }) {
             <Button variant="danger" size="sm" onClick={handleDelete} loading={deleting}>Удалить</Button>
           </div>
         </div>
+
+        <SvyaziUchastka uchastokId={uchastokId} lesnichestvo={uchastok.lesnichestvo} />
 
         <UchastokFormFields form={form} setForm={setForm} />
 
@@ -1296,6 +1355,15 @@ export default function Lesokultury() {
   const [loading, setLoading] = useState(true);
   const [includeSpisannye, setIncludeSpisannye] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  // Ссылка снаружи (#/forestry?u=5 — карточка человека, журнал работ):
+  // открыть участок сразу.
+  const [uParam, setUParam] = useScreenParam("forestry", "u");
+  useEffect(() => {
+    if (uParam) {
+      setSelectedId(Number(uParam));
+      setUParam("");
+    }
+  }, [uParam]); // eslint-disable-line react-hooks/exhaustive-deps
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [kartochkiOpen, setKartochkiOpen] = useState(false);

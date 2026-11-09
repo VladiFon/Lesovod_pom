@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from app import legacy_bridge  # noqa: F401
 
 from app import map_features
+from app import raboty_sotrudnika
 from app.auth import get_current_user
 from app.auth import require_permission
 from app.database import get_conn
@@ -95,7 +96,7 @@ def _ensure_completed_cols(conn) -> None:
     """Делянка/участок культур из отчёта раньше терялись при одобрении
     (анализ 03.11.2026, Б5) — храним их и в журнале работ."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(completed_works)").fetchall()}
-    for c in ("delyanka_id", "lesokultury_uchastok_id"):
+    for c in ("delyanka_id", "lesokultury_uchastok_id", "sotrudnik_id"):
         if c not in cols:
             conn.execute(f"ALTER TABLE completed_works ADD COLUMN {c} INTEGER")
 
@@ -139,11 +140,12 @@ def approve_report(report_id: int, body: ApproveIn, conn=Depends(get_conn), _use
     conn.execute(
         "INSERT INTO completed_works "
         "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, photo_path, lesnichestvo, opisanie, dolzhnost, "
-        "delyanka_id, lesokultury_uchastok_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "delyanka_id, lesokultury_uchastok_id, sotrudnik_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (data, ispolnitel, body.kvartal.strip(), body.vydel.strip(), body.tip_raboty.strip(),
          photo_path or None, lesnichestvo, (body.opisanie or "").strip() or None, dolzhnost,
-         _raw_col(conn, report_id, "delyanka_id"), _raw_col(conn, report_id, "lesokultury_uchastok_id")),
+         _raw_col(conn, report_id, "delyanka_id"), _raw_col(conn, report_id, "lesokultury_uchastok_id"),
+         raboty_sotrudnika.najti_po_fio(conn, ispolnitel)),
     )
     map_features.mark_items_in_progress(conn, body.kvartal, body.vydel.split(","), lesnichestvo)
     conn.execute("UPDATE raw_reports SET status='обработано' WHERE id=?", (report_id,))
@@ -181,16 +183,17 @@ def list_completed(
         conditions.append("dolzhnost = ?")
         params.append(dolzhnost)
     where_clause = " AND ".join(conditions)
+    _ensure_completed_cols(conn)
     try:
         rows = conn.execute(
             f"SELECT id, data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, "
-            f"photo_path, lesnichestvo, opisanie, dolzhnost FROM completed_works "
+            f"photo_path, lesnichestvo, opisanie, dolzhnost, sotrudnik_id FROM completed_works "
             f"WHERE {where_clause} ORDER BY id DESC LIMIT 500",
             params,
         ).fetchall()
     except sqlite3.OperationalError:
         return []
-    cols = ["id", "data_vypolneniya", "ispolnitel_fio", "kvartal", "vydel", "tip_raboty", "photo_path", "lesnichestvo", "opisanie", "dolzhnost"]
+    cols = ["id", "data_vypolneniya", "ispolnitel_fio", "kvartal", "vydel", "tip_raboty", "photo_path", "lesnichestvo", "opisanie", "dolzhnost", "sotrudnik_id"]
     return [dict(zip(cols, r)) for r in rows]
 
 

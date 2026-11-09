@@ -411,7 +411,7 @@ def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:
     for lesnichestvo, data_vypolneniya, tip in recent_works:
         entries.append({
             "category": "Работы",
-            "screen": "telefon",
+            "screen": "raboty",
             "params": {"tab": "zhurnal"},
             "timestamp": str(data_vypolneniya or "—"),
             "title": f"{tip or 'Работа'} ({lesnichestvo or '—'})",

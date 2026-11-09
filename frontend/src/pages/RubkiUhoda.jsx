@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { poiskKvVyd } from "../kvVyd.js";
 import { api } from "../api/client.js";
 import {
   calculateProba,
@@ -24,6 +25,9 @@ import AuthImage from "../components/AuthImage.jsx";
 import { useToast } from "../components/Toast.jsx";
 import UhodyVypolnenie from "../components/UhodyVypolnenie.jsx";
 import HvorostProba from "../components/HvorostProba.jsx";
+import { useScreenParam } from "../nav.js";
+import { ChelovekList, openVydel } from "../components/ChelovekLink.jsx";
+import { openScreen } from "../nav.js";
 
 /**
  * Экран "Рубки ухода" (C.3 плана) — независимые пробы (не привязаны к
@@ -454,7 +458,8 @@ export default function RubkiUhoda() {
     const q = probySearch.trim().toLowerCase();
     const po = proby.filter((p) => (vkladka === "hvorost") === !!p.delyanka_id);
     if (!q) return po;
-    return po.filter((p) => `${p.kvartal}/${p.vydel} ${p.delyanka_nazvanie || ""}`.toLowerCase().includes(q));
+    // «71/2» — ровно кв.71 выд.2, «71» — сначала квартал 71 (src/kvVyd.js)
+    return poiskKvVyd(po, q, { fields: (p) => [p.kvartal, p.vydel, p.delyanka_nazvanie, p.avtor_fio, p.data_zamera] });
   }, [proby, probySearch, vkladka]);
 
   // ------------------------------------------------------------------- //
@@ -609,6 +614,16 @@ export default function RubkiUhoda() {
       toast.show({ tone: "danger", title: "Не удалось открыть пробу", description: e.message });
     }
   };
+
+  // Ссылка снаружи (#/uhody?p=3 — карточка человека, журнал работ): открыть пробу.
+  const [pParam, setPParam] = useScreenParam("uhody", "p");
+  useEffect(() => {
+    if (pParam) {
+      setVkladka("uhod");
+      openProba(Number(pParam));
+      setPParam("");
+    }
+  }, [pParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------------------- //
   //   Таблица укладок
@@ -865,7 +880,7 @@ export default function RubkiUhoda() {
             + Новая проба
           </Button>
           <TextField
-            placeholder="Фильтр по кварталу/выделу…"
+            placeholder="Поиск: 71/2, кв 71, ФИО…"
             value={probySearch}
             onChange={(e) => setProbySearch(e.target.value)}
           />
@@ -932,6 +947,21 @@ export default function RubkiUhoda() {
               reloadProby();
             }}
           />
+        )}
+        {isEditing && !hvDelyanka.id && kvartal && vydel && (
+          <div className="flex items-center gap-1.5 flex-wrap -mb-1">
+            <span className="text-muted-2 text-xs">Эта проба в:</span>
+            <button type="button" onClick={() => openVydel(kvartal, vydel, form.lesnichestvo)}
+              className="h-7 px-2.5 rounded-md border border-border bg-surface text-[12.5px] font-semibold text-muted hover:border-pine hover:text-pine">
+              🌲 Жизнь выдела кв.{kvartal} выд.{vydel}
+            </button>
+            {lesokulturySelectedInfo.map((u) => (
+              <button key={u.id} type="button" onClick={() => openScreen("forestry", { u: u.id })}
+                className="h-7 px-2.5 rounded-md border border-border bg-surface text-[12.5px] font-semibold text-muted hover:border-pine hover:text-pine">
+                🌱 Культуры кв.{u.kvartal} выд.{u.vydel}
+              </button>
+            ))}
+          </div>
         )}
         {isEditing && !hvDelyanka.id && <UhodyVypolnenie probaId={selectedId} onChanged={onVypolnenieChanged} />}
         {/* Поиск участка */}
@@ -1303,7 +1333,10 @@ export default function RubkiUhoda() {
                   key={u.id}
                   className="inline-flex items-center gap-1.5 bg-mint text-pine text-sm font-medium rounded-full px-3 py-1"
                 >
-                  Кв. {u.kvartal || "—"} / Выд. {u.vydel || "—"}{u.glavnaya_poroda ? ` · ${u.glavnaya_poroda}` : ""}
+                  <button type="button" onClick={() => openScreen("forestry", { u: u.id })} title="Открыть участок в «Лесокультурах»"
+                    className="hover:underline decoration-dotted underline-offset-2">
+                    Кв. {u.kvartal || "—"} / Выд. {u.vydel || "—"}{u.glavnaya_poroda ? ` · ${u.glavnaya_poroda}` : ""} ↗
+                  </button>
                   <button
                     type="button"
                     onClick={() => toggleLesokulturyPick(u)}
@@ -1317,7 +1350,7 @@ export default function RubkiUhoda() {
             </div>
           )}
           <TextField
-            placeholder="Поиск участка: квартал, выдел, лесничество, порода"
+            placeholder="Поиск участка: 71/2, кв 71, лесничество, порода"
             value={lesokulturySearch}
             onChange={(e) => setLesokulturySearch(e.target.value)}
           />
@@ -1387,6 +1420,9 @@ export default function RubkiUhoda() {
             <Button variant="secondary" onClick={handleUncomplete}>
               ✅ Закрыта ({ispolniteli.map((i) => i.fio).join(", ")}) — открыть снова
             </Button>
+          )}
+          {isEditing && completedAt && ispolniteli.length > 0 && (
+            <span className="text-sm text-muted self-center">Работали: <ChelovekList people={ispolniteli} /></span>
           )}
           {isEditing && (
             <Button variant="danger" onClick={handleDelete}>

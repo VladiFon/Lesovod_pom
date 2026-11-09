@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client.js";
 import { useToast } from "../components/Toast.jsx";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 
 /**
  * «🚜 Отчёты за смену» — что трактористы и рабочие прислали с телефона
@@ -42,7 +43,7 @@ export default function OtchetySmeny() {
     const m = {};
     for (const r of d?.otchety || []) {
       for (const who of [{ id: r.sotrudnik_id, fio: r.fio }, ...r.naparniki]) {
-        const x = m[who.id] || (m[who.id] = { fio: who.fio, chasy: 0, trel: 0, nas: 0, zag: 0, reysov: 0, ga: 0, remont: 0, toplivo: 0, dney: new Set() });
+        const x = m[who.id] || (m[who.id] = { id: who.id, fio: who.fio, chasy: 0, trel: 0, nas: 0, zag: 0, reysov: 0, ga: 0, remont: 0, toplivo: 0, dney: new Set() });
         x.dney.add(r.data);
         if (who.id !== r.sotrudnik_id) continue; // объём — у автора, чтобы не задваивать
         x.chasy += r.chasy || 0;
@@ -108,7 +109,7 @@ export default function OtchetySmeny() {
             <tbody>
               {itogi.map((x) => (
                 <tr key={x.fio} style={{ borderTop: `1px solid ${C.line}` }}>
-                  <td style={{ padding: "6px 12px", fontWeight: 700 }}>{x.fio}</td>
+                  <td style={{ padding: "6px 12px", fontWeight: 700 }}><ChelovekLink id={x.id} fio={x.fio} /></td>
                   <td style={{ padding: "6px 12px" }}>{x.dney.size}</td>
                   <td style={{ padding: "6px 12px" }}>{ch(x.chasy)}</td>
                   <td style={{ padding: "6px 12px" }}>{ch(x.trel || "", "м³")}</td>
@@ -133,7 +134,7 @@ export default function OtchetySmeny() {
           <div key={r.id} className="flex items-start" style={{ gap: 12, padding: "10px 12px", borderTop: `1px solid ${C.line}` }}>
             <span style={{ fontSize: 22 }}>{r.emoji}</span>
             <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
-              <div><b>{r.vid_title}</b> · {r.fio}{r.naparniki.length > 0 && <span style={{ color: C.muted }}> + {r.naparniki.map((n) => n.fio).join(", ")}</span>}
+              <div><b>{r.vid_title}</b> · <ChelovekLink id={r.sotrudnik_id} fio={r.fio} className="font-normal" />{r.naparniki.length > 0 && <span style={{ color: C.muted }}> + {r.naparniki.map((n, i) => <React.Fragment key={n.id}>{i > 0 && ", "}<ChelovekLink id={n.id} fio={n.fio} className="font-normal" /></React.Fragment>)}</span>}
                 <span style={{ color: C.muted }}> · {ru(r.data)}</span></div>
               <div>
                 {r.mesto && <span>{r.mesto} · </span>}

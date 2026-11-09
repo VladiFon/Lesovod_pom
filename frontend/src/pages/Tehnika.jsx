@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client.js";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 import { useToast } from "../components/Toast.jsx";
 
 /**
@@ -97,7 +98,7 @@ export default function Tehnika() {
             <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
               <div><b>{t.nazvanie}</b>{t.nomer && <span style={{ color: C.muted }}> · {t.nomer}</span>}{t.toplivo && <span style={{ color: C.muted }}> · {t.toplivo}</span>}{!t.aktivna && <span style={{ color: C.danger }}> · списана</span>}</div>
               <div style={{ color: C.muted }}>
-                {t.zakreplen ? <>🔑 {t.zakreplen}</> : "не закреплена"}
+                {t.zakreplen ? <>🔑 <ChelovekLink id={t.zakreplen_sotrudnik_id} fio={t.zakreplen} className="font-normal" /></> : "не закреплена"}
                 {t.otchetov > 0 && <> · отчётов: {t.otchetov}, последний {t.posledniy_otchet}</>}
                 {t.kommentariy && <> · {t.kommentariy}</>}
               </div>

@@ -8,6 +8,7 @@ import Modal from "../components/Modal.jsx";
 import DataTable from "../components/DataTable.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 import ZadachaModal from "../components/ZadachaModal.jsx";
 
 /**
@@ -62,6 +63,10 @@ export default function PlanRabot() {
   const [lookingUp, setLookingUp] = useState(false);
   const [lesokulturyOptions, setLesokulturyOptions] = useState([]);
   const [lesokulturyLoading, setLesokulturyLoading] = useState(false);
+  // Показывать и списанные/переведённые участки культур (запоминается в браузере)
+  const [lkVse, setLkVse] = useState(() => {
+    try { return localStorage.getItem("plan.lkVse") === "1"; } catch { return false; }
+  });
 
   useEffect(() => {
     api.get("/work-plan/sotrudniki").then(setSotrudniki).catch(() => {});
@@ -73,13 +78,13 @@ export default function PlanRabot() {
     setLesokulturyLoading(true);
     const t = setTimeout(() => {
       api
-        .get("/work-plan/lesokultury-uchastki", { search: form.lesokulturySearch.trim() || undefined })
+        .get("/work-plan/lesokultury-uchastki", { search: form.lesokulturySearch.trim() || undefined, ...(lkVse ? { vse: true } : {}) })
         .then(setLesokulturyOptions)
         .catch(() => {})
         .finally(() => setLesokulturyLoading(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [modalOpen, form.targetType, form.lesokulturySearch]);
+  }, [modalOpen, form.targetType, form.lesokulturySearch, lkVse]);
 
   const loadTasks = useCallback(() => {
     setTasks(null);
@@ -233,7 +238,7 @@ export default function PlanRabot() {
       { key: "data", header: "Дата", sortable: true },
       { key: "sotrudnik_fio", header: "Сотрудник", sortable: true, render: (t) => (
         <div>
-          <div className="text-ink">{t.sotrudnik_fio}</div>
+          <div><ChelovekLink id={t.sotrudnik_id} fio={t.sotrudnik_fio} className="font-normal" /></div>
           {t.sotrudnik_dolzhnost && <div className="text-xs text-muted">{t.sotrudnik_dolzhnost}</div>}
         </div>
       ) },
@@ -406,10 +411,18 @@ export default function PlanRabot() {
                   </p>
                 )}
                 <TextField
-                  placeholder="Поиск участка: квартал, выдел, лесничество, порода"
+                  placeholder="Поиск участка: 71/2, кв 71, лесничество, порода"
                   value={form.lesokulturySearch}
                   onChange={(e) => setForm((f) => ({ ...f, lesokulturySearch: e.target.value }))}
                 />
+                <label className="mt-2 flex items-center gap-2 text-[12.5px] text-muted cursor-pointer select-none">
+                  <input type="checkbox" className="w-4 h-4 accent-pine" checked={lkVse}
+                    onChange={(e) => {
+                      setLkVse(e.target.checked);
+                      try { localStorage.setItem("plan.lkVse", e.target.checked ? "1" : "0"); } catch { /* приватный режим */ }
+                    }} />
+                  Показывать списанные и переведённые
+                </label>
                 <div className="mt-2 max-h-48 overflow-y-auto border border-border rounded-md">
                   {lesokulturyLoading ? (
                     <div className="p-3 flex justify-center">

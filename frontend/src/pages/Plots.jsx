@@ -1350,12 +1350,13 @@ export default function Plots() {
   const [tolkoDubli, setTolkoDubli] = useState(false);
   const searchRef = React.useRef(null);
 
-  // «/» или Ctrl+K — сразу в поиск.
+  // «/» — сразу в поиск (Ctrl+K теперь общий поиск по всему сайту, 04.11.2026).
+  // Только когда экран виден: вкладки остаются смонтированными.
   useEffect(() => {
     const h = (e) => {
       const tag = (e.target?.tagName || "").toLowerCase();
       const vPole = tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable;
-      if ((e.key === "/" && !vPole) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
+      if (e.key === "/" && !vPole && searchRef.current?.offsetParent) {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
@@ -1450,7 +1451,7 @@ export default function Plots() {
                 ×
               </button>
             ) : (
-              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10.5px] font-mono text-muted-2 border border-border rounded px-1" title="Нажмите / или Ctrl+K, чтобы искать">/</span>
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10.5px] font-mono text-muted-2 border border-border rounded px-1" title="Нажмите /, чтобы искать здесь; Ctrl+K — поиск по всему сайту">/</span>
             )}
           </div>
           <div className="flex flex-wrap gap-1">

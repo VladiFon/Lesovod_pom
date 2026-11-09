@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date, datetime
 
 from app import legacy_bridge  # noqa: F401
@@ -38,6 +39,9 @@ CREATE INDEX IF NOT EXISTS idx_uhody_vypolnenie_proba ON uhody_vypolnenie(proba_
 
 def ensure(conn):
     conn.executescript(SCHEMA)
+    # исполнитель ссылкой на справочник (карточка человека, 04.11.2026)
+    if not any(r[1] == "ispolnitel_id" for r in conn.execute("PRAGMA table_info(uhody_vypolnenie)").fetchall()):
+        conn.execute("ALTER TABLE uhody_vypolnenie ADD COLUMN ispolnitel_id INTEGER")
     hvorost.ensure(conn)
 
 
@@ -101,7 +105,7 @@ def _otchety(conn):
                   COALESCE(lu.kvartal, di.kvartal), COALESCE(lu.vydel, di.vydel),
                   COALESCE(lu.lesnichestvo, di.lesnichestvo),
                   (SELECT COUNT(*) FROM otchet_smeny_uchastnik u WHERE u.otchet_id = o.id AND u.sotrudnik_id <> o.sotrudnik_id),
-                  o.uhody_proba_id
+                  o.uhody_proba_id, o.sotrudnik_id
            FROM otchet_smeny o
            JOIN sotrudniki s ON s.id = o.sotrudnik_id
            LEFT JOIN lesokultury_uchastok lu ON lu.id = o.lesokultury_uchastok_id
@@ -115,10 +119,10 @@ def raspredelit(conn):
     proby = _proby(conn)
     po_id = {p["id"]: p for p in proby}
     out = {}
-    for oid, d, ga, fio, uid, kv, vd, lesn, nap, pid in _otchety(conn):
+    for oid, d, ga, fio, uid, kv, vd, lesn, nap, pid, sid in _otchety(conn):
         if pid:  # телефон 0.11.2+: отчёт сразу по пробе
             if pid in po_id:
-                out.setdefault(pid, []).append({"id": oid, "data": d, "ga": _r(ga), "fio": fio, "naparnikov": nap or 0})
+                out.setdefault(pid, []).append({"id": oid, "data": d, "ga": _r(ga), "fio": fio, "sotrudnik_id": sid, "naparnikov": nap or 0})
             continue
         dd = _data(d)
         kv, vd, lesn = _norm(kv), _norm(vd), _norm_lesn(lesn)
@@ -134,13 +138,13 @@ def raspredelit(conn):
                 best = p
         if best:
             out.setdefault(best["id"], []).append({
-                "id": oid, "data": d, "ga": _r(ga), "fio": fio, "naparnikov": nap or 0,
+                "id": oid, "data": d, "ga": _r(ga), "fio": fio, "sotrudnik_id": sid, "naparnikov": nap or 0,
             })
     return out
 
 
 def _ruchnye(conn, proba_ids=None):
-    q = "SELECT id, proba_id, data, ga, ispolnitel, kommentariy, created_by FROM uhody_vypolnenie"
+    q = "SELECT id, proba_id, data, ga, ispolnitel, kommentariy, created_by, ispolnitel_id FROM uhody_vypolnenie"
     args = []
     if proba_ids is not None:
         if not proba_ids:
@@ -148,8 +152,8 @@ def _ruchnye(conn, proba_ids=None):
         q += f" WHERE proba_id IN ({','.join('?' * len(proba_ids))})"
         args = list(proba_ids)
     out = {}
-    for rid, pid, d, ga, isp, kom, kto in conn.execute(q + " ORDER BY data, id", args).fetchall():
-        out.setdefault(pid, []).append({"id": rid, "data": d, "ga": _r(ga), "ispolnitel": isp,
+    for rid, pid, d, ga, isp, kom, kto, isp_id in conn.execute(q + " ORDER BY data, id", args).fetchall():
+        out.setdefault(pid, []).append({"id": rid, "data": d, "ga": _r(ga), "ispolnitel": isp, "ispolnitel_id": isp_id,
                                         "kommentariy": kom, "created_by": kto})
     return out
 
@@ -199,10 +203,13 @@ def svodka(conn, proba_id):
 
 def dobavit(conn, proba_id, data, ga, ispolnitel=None, kommentariy=None, created_by=None):
     ensure(conn)
+    from app.raboty_sotrudnika import najti_po_fio
+    isp = (ispolnitel or "").strip()[:200] or None
     conn.execute(
-        "INSERT INTO uhody_vypolnenie (proba_id, data, ga, ispolnitel, kommentariy, created_by) VALUES (?,?,?,?,?,?)",
-        (proba_id, data, ga, (ispolnitel or "").strip()[:200] or None, (kommentariy or "").strip()[:1000] or None,
-         created_by))
+        "INSERT INTO uhody_vypolnenie (proba_id, data, ga, ispolnitel, kommentariy, created_by, ispolnitel_id) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (proba_id, data, ga, isp, (kommentariy or "").strip()[:1000] or None, created_by,
+         najti_po_fio(conn, isp) if isp else None))
     conn.commit()
 
 
@@ -292,6 +299,15 @@ def ispolniteli(conn, proba_id):
                 ids.append(sid)
         elif name.casefold() not in {n.casefold() for n in storonnie}:
             storonnie.append(name)
+    # табель: кто отмечен «работал» на этой пробе (09.11.2026)
+    try:
+        for (sid,) in conn.execute(
+                "SELECT DISTINCT sotrudnik_id FROM tabel_zapis WHERE uhody_proba_id = ? AND status = 'работал'",
+                (proba_id,)).fetchall():
+            if sid not in ids:
+                ids.append(sid)
+    except sqlite3.OperationalError:
+        pass
     return ids, storonnie
 
 

@@ -6,6 +6,7 @@ import Modal from "../components/Modal.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { api } from "../api/client.js";
+import ChelovekLink from "../components/ChelovekLink.jsx";
 
 /**
  * Экран "Присутствие" (часть раздела "Люди") — табель за месяц поверх
@@ -47,6 +48,8 @@ const TABEL_OFF = "не работал";
 const TABEL_SICK = "больничный";
 const TABEL_VACATION = "отпуск";
 const TABEL_DAYOFF = "выходной";
+const TABEL_REMONT = "ремонт";
+const TABEL_KOMANDIROVKA = "командировка";
 
 // код для ячейки (цвет не единственный признак), подпись, тон чипа в деталях, классы ячейки
 const DAY_KINDS = {
@@ -55,7 +58,11 @@ const DAY_KINDS = {
   off: { code: "Н", label: "Не работал", tone: "neutral", cell: "bg-hover text-muted border border-border" },
   vacation: { code: "О", label: "Отпуск", tone: "warning", cell: "bg-oak text-white" },
   dayoff: { code: "В", label: "Выходной", tone: "neutral", cell: "bg-surface-alt text-faint border border-border" },
+  remont: { code: "Рм", label: "Ремонт", tone: "warning", cell: "bg-oak-soft text-oak border border-oak" },
+  komandirovka: { code: "К", label: "Командировка", tone: "info", cell: "bg-pine-deep text-white" },
 };
+// Дни «на работе» для итога «Р»: работал, ремонт, командировка.
+const NA_RABOTE_KINDS = ["worked", "remont", "komandirovka"];
 
 const STATUS_TONE = { [STATUS_WORKED]: "success", [STATUS_OFF]: "neutral", [STATUS_SICK]: "danger" };
 
@@ -66,6 +73,8 @@ const TABEL_STATUS_KIND = {
   [TABEL_OFF]: "off",
   [TABEL_VACATION]: "vacation",
   [TABEL_DAYOFF]: "dayoff",
+  [TABEL_REMONT]: "remont",
+  [TABEL_KOMANDIROVKA]: "komandirovka",
 };
 
 function tabelLocation(entry) {
@@ -74,6 +83,9 @@ function tabelLocation(entry) {
   }
   if (entry.delyanka_item_id) {
     return `кв. ${entry.d_kvartal || "—"} / выд. ${entry.d_vydel || "—"}`;
+  }
+  if (entry.uhody_proba_id) {
+    return `рубки ухода · кв. ${entry.up_kvartal || "—"} / выд. ${entry.up_vydel || "—"}`;
   }
   return null;
 }
@@ -169,7 +181,7 @@ export default function Attendance() {
         day.marks?.sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
       });
       const kinds = Object.values(e.days).map(cellDayKind).filter(Boolean);
-      e.worked = kinds.filter((k) => k === "worked").length;
+      e.worked = kinds.filter((k) => NA_RABOTE_KINDS.includes(k)).length;
       e.sick = kinds.filter((k) => k === "sick").length;
     });
     return list.sort((a, b) => a.fio.localeCompare(b.fio, "ru"));
@@ -262,7 +274,7 @@ export default function Attendance() {
                       <div className="text-[9.5px] leading-3 font-normal">{day.weekday}</div>
                     </th>
                   ))}
-                  <th className="px-2 py-2 text-center text-muted font-semibold bg-surface-alt border-b border-l border-border" title="Дней работал">
+                  <th className="px-2 py-2 text-center text-muted font-semibold bg-surface-alt border-b border-l border-border" title="Дней на работе (работал, ремонт, командировка)">
                     Р
                   </th>
                   <th className="px-2 py-2 text-center text-muted font-semibold bg-surface-alt border-b border-border" title="Дней на больничном">
@@ -274,7 +286,7 @@ export default function Attendance() {
                 {employees.map((emp) => (
                   <tr key={emp.id} className="group">
                     <td className="sticky left-0 z-10 bg-surface px-3 py-1.5 border-b border-border group-hover:bg-hover">
-                      <div className="font-medium text-ink text-[13px] leading-4">{emp.fio}</div>
+                      <div className="text-[13px] leading-4"><ChelovekLink id={emp.id} fio={emp.fio} className="font-medium" /></div>
                       <div className="text-muted-2 text-[11px]">{emp.dolzhnost || "—"}</div>
                     </td>
                     {days.map((day) => {

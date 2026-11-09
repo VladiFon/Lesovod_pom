@@ -4,9 +4,20 @@ import NotificationBell from "./NotificationBell.jsx";
 import SlovarButton from "./Slovar.jsx";
 import ZhdetMenya from "./ZhdetMenya.jsx";
 import { useVid } from "../vid.jsx";
+import { api } from "../api/client.js";
+import { openScreen } from "../nav.js";
 
 const MONO = "'JetBrains Mono', monospace";
 const MAX_TABS = 8;
+
+// Значки результатов общего поиска (/api/poisk, app/routers/poisk.py).
+const TIP = {
+  chelovek: { emoji: "👤", label: "человек" },
+  delyanka: { emoji: "🪓", label: "делянка" },
+  vydel: { emoji: "🌲", label: "выдел" },
+  kultury: { emoji: "🌱", label: "культуры" },
+  proba: { emoji: "✂️", label: "проба" },
+};
 
 const GROUP_OF = {};
 NAV_GROUPS.forEach((g) => g.items.forEach(([k, label]) => (GROUP_OF[k] = { label, group: g.title })));
@@ -46,15 +57,38 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
     return () => window.removeEventListener("keydown", onKey);
   }, [tabs, dispatch]);
 
+  // Ctrl+K — общий поиск (04.11.2026, «сайт разбросан»): экраны + люди,
+  // делянки, выдел «71/2», лесные культуры, пробы рубок ухода.
+  const [naydeno, setNaydeno] = useState([]);
+  const [vybor, setVybor] = useState(0);
+  useEffect(() => {
+    const q = query.trim();
+    if (!palette || q.length < 2) { setNaydeno([]); return undefined; }
+    let zhiv = true;
+    const t = setTimeout(() => {
+      api.get("/poisk", { q }).then((r) => zhiv && setNaydeno(r.naydeno || [])).catch(() => zhiv && setNaydeno([]));
+    }, 200);
+    return () => { zhiv = false; clearTimeout(t); };
+  }, [query, palette]);
+
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return Object.keys(GROUP_OF)
+    const ekrany = Object.keys(GROUP_OF)
       .map((k) => ({ key: k, ...GROUP_OF[k] }))
-      .filter((it) => !q || it.label.toLowerCase().includes(q) || it.group.includes(q));
-  }, [query]);
+      .filter((it) => !q || it.label.toLowerCase().includes(q) || it.group.includes(q))
+      .map((it) => ({ ...it, emoji: "▦", meta: it.group }));
+    const nashli = naydeno.map((n, i) => ({
+      key: `n${i}-${n.screen}-${JSON.stringify(n.params)}`, label: n.title, hint: n.hint,
+      emoji: TIP[n.tip]?.emoji || "•", meta: TIP[n.tip]?.label || "", ssylka: n,
+    }));
+    return q ? [...nashli, ...ekrany] : ekrany;
+  }, [query, naydeno]);
+  useEffect(() => setVybor(0), [items.length, query]);
 
-  const openFromPalette = (key) => {
-    dispatch({ type: "open", id: key });
+  const openFromPalette = (it) => {
+    if (!it) return;
+    if (it.ssylka) openScreen(it.ssylka.screen, it.ssylka.params || {});
+    else dispatch({ type: "open", id: it.key });
     setPalette(false);
     setQuery("");
   };
@@ -269,23 +303,40 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && items[0] && openFromPalette(items[0].key)}
-              placeholder="Экран…"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") openFromPalette(items[vybor] || items[0]);
+                else if (e.key === "ArrowDown") { e.preventDefault(); setVybor((v) => Math.min(v + 1, items.length - 1)); }
+                else if (e.key === "ArrowUp") { e.preventDefault(); setVybor((v) => Math.max(v - 1, 0)); }
+              }}
+              placeholder="Найти: фамилия, делянка, 71/2, проба 12 или экран…"
               style={{ width: "100%", height: 48, border: 0, borderBottom: "1px solid #e5e2db", padding: "0 16px", fontSize: 15, color: "#1c1c18", outline: "none" }}
             />
-            <div className="overflow-y-auto" style={{ maxHeight: 300, padding: 6 }}>
-              {items.map((it) => (
+            <div className="overflow-y-auto" style={{ maxHeight: 380, padding: 6 }}>
+              {items.map((it, i) => (
                 <button
                   key={it.key}
                   type="button"
-                  onClick={() => openFromPalette(it.key)}
-                  className="flex items-center justify-between w-full text-left hover:!bg-[#f1eee7]"
-                  style={{ gap: 10, background: "transparent", border: 0, borderRadius: 10, padding: "10px 12px", fontSize: 14, color: "#1c1c18", cursor: "pointer" }}
+                  onClick={() => openFromPalette(it)}
+                  onMouseEnter={() => setVybor(i)}
+                  className="flex items-center justify-between w-full text-left"
+                  style={{ gap: 10, background: i === vybor ? "#f1eee7" : "transparent", border: 0, borderRadius: 10, padding: it.hint ? "7px 12px" : "10px 12px", fontSize: 14, color: "#1c1c18", cursor: "pointer" }}
                 >
-                  <span>{it.label}</span>
-                  <span style={{ fontFamily: MONO, fontSize: 10.5, color: "#6b7268" }}>{it.group}</span>
+                  <span className="flex items-center min-w-0" style={{ gap: 10 }}>
+                    <span style={{ width: 20, textAlign: "center", flexShrink: 0, color: "#6b7268" }}>{it.emoji}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate">{it.label}</span>
+                      {it.hint && <span className="block truncate" style={{ fontSize: 11.5, color: "#6b7268" }}>{it.hint}</span>}
+                    </span>
+                  </span>
+                  <span style={{ fontFamily: MONO, fontSize: 10.5, color: "#6b7268", flexShrink: 0 }}>{it.meta}</span>
                 </button>
               ))}
+              {!items.length && (
+                <div style={{ padding: "14px 12px", fontSize: 13, color: "#6b7268" }}>Ничего не нашлось. Квартал и выдел можно писать так: 71/2 или «кв 71 выд 2».</div>
+              )}
+            </div>
+            <div style={{ borderTop: "1px solid #e5e2db", padding: "7px 14px", fontFamily: MONO, fontSize: 10, color: "#8a8f86" }}>
+              ↑↓ выбрать · Enter открыть · Esc закрыть
             </div>
           </div>
         </div>

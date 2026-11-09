@@ -1088,6 +1088,12 @@ def migrate_schema(conn):
     existing_cw_cols2 = {row[1] for row in conn.execute("PRAGMA table_info(completed_works)").fetchall()}
     if existing_cw_cols2 and "lk_meropriyatie_id" not in existing_cw_cols2:
         conn.execute("ALTER TABLE completed_works ADD COLUMN lk_meropriyatie_id INTEGER")
+    # Исполнитель ссылкой на справочник (Влад, 04.11.2026, карточка человека):
+    # раньше был только текст ispolnitel_fio — опечатка или однофамилец, и
+    # работа «терялась» из истории человека. Старые строки заполняет
+    # app/raboty_sotrudnika.zapolnit_ssylki по точному совпадению ФИО.
+    if existing_cw_cols2 and "sotrudnik_id" not in existing_cw_cols2:
+        conn.execute("ALTER TABLE completed_works ADD COLUMN sotrudnik_id INTEGER")
     # Поля участка культур под текущие изменения (приказ Минлесхоза №130,
     # прил. 7) и загрузку «Книги производства л/к»: старый номер выдела (до
     # новой таксации), подвыдел, способ обработки почвы, схема посадки,
@@ -2244,6 +2250,10 @@ def delete_uhody_proba(conn, proba_id):
     пробы выполненной (см. mark_uhody_proba_completed), чтобы не остались
     «висячие» ссылки на удалённую пробу."""
     conn.execute("DELETE FROM lesokultury_meropriyatiya WHERE proba_id = ?", (proba_id,))
+    try:  # табель: место «проба рубок ухода» — снимаем, запись дня остаётся
+        conn.execute("UPDATE tabel_zapis SET uhody_proba_id = NULL WHERE uhody_proba_id = ?", (proba_id,))
+    except sqlite3.OperationalError:
+        pass
     conn.execute("DELETE FROM uhody_proby WHERE id = ?", (proba_id,))
     conn.commit()
 
@@ -2297,11 +2307,11 @@ def mark_uhody_proba_completed(conn, proba_id, sotrudnik_ids, storonnie=None):
 
     conn.executemany(
         "INSERT INTO completed_works "
-        "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, dolzhnost, opisanie) "
-        "VALUES (?, ?, ?, ?, 'Рубки ухода', ?, ?, ?)",
+        "(data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, dolzhnost, opisanie, sotrudnik_id) "
+        "VALUES (?, ?, ?, ?, 'Рубки ухода', ?, ?, ?, ?)",
         [
             (today, i["fio"], proba["kvartal"], proba["vydel"], lesnichestvo, i["dolzhnost"],
-             f"Проба рубок ухода №{proba_id}")
+             f"Проба рубок ухода №{proba_id}", i["id"])
             for i in ispolniteli
         ],
     )
@@ -3029,11 +3039,53 @@ def get_lesokultury_uchastki(conn, include_spisannye=False, god=None, search=Non
     result = [dict(zip(columns, row)) for row in rows]
     if not include_spisannye:
         result = [r for r in result if r["status"] == "активен"]
-    q = (search or "").strip().casefold()
-    if q:
+    if (search or "").strip():
         fields = ("kvartal", "vydel", "lesnichestvo", "glavnaya_poroda", "delyanka_nazvanie")
-        result = [r for r in result if any(q in str(r[f] or "").casefold() for f in fields)]
+        result = poisk_kv_vyd(result, search, fields)
     return result
+
+
+def razobrat_kv_vyd(search):
+    """«71/2», «71 2», «71-2», «кв 71 выд 2», «кв.71 в.2» → ("71", "2");
+    «71» или «кв 71» → ("71", None); иначе None. Регистр не важен."""
+    import re
+    q = (search or "").strip().casefold()
+    if not q:
+        return None
+    q = re.sub(r"(?<![0-9a-zа-яё])(квартал|кв|выдел|выд|в)\.?\s*", " ", q)
+    parts = [p for p in re.split(r"[\s/\\,;:\-]+", q) if p]
+    if not parts or len(parts) > 2 or not parts[0][:1].isdigit():
+        return None
+    if not all(p.isalnum() for p in parts):
+        return None
+    return (parts[0], parts[1] if len(parts) == 2 else None)
+
+
+def poisk_kv_vyd(items, search, fields, kv_key="kvartal", vd_key="vydel"):
+    """Удобный поиск по кварталу/выделу (просьба Влада 09.11.2026).
+    «71/2» — ровно квартал 71 выдел 2 (а не 171/20 и т.п.); «71» — сначала
+    квартал 71, потом остальное, где встречается «71»; любой другой текст —
+    все слова должны встретиться в полях fields (лесничество, порода…)."""
+    q = (search or "").strip().casefold()
+    if not q:
+        return list(items)
+    norm = lambda v: str(v or "").strip().casefold()
+    kv_vd = razobrat_kv_vyd(search)
+    if kv_vd:
+        kv, vd = kv_vd
+        if vd is not None:
+            tochno = [i for i in items if norm(i.get(kv_key)) == kv and norm(i.get(vd_key)) == vd]
+            if tochno:
+                return tochno
+        else:
+            tochno = [i for i in items if norm(i.get(kv_key)) == kv]
+            ostalnye = [i for i in items if norm(i.get(kv_key)) != kv
+                        and any(q in norm(i.get(f)) for f in fields)]
+            return tochno + ostalnye
+    words = [w for w in q.replace("/", " ").replace(",", " ").split() if w]
+    def stog(i):
+        return " ".join(norm(i.get(f)) for f in fields)
+    return [i for i in items if all(w in stog(i) for w in words)]
 
 
 def get_lesokultury_gody(conn):
@@ -3157,9 +3209,9 @@ def set_meropriyatie_ispolniteli(conn, meropriyatie_id, sotrudnik_ids=None, stor
     if ispolniteli:
         conn.executemany(
             "INSERT INTO completed_works (data_vypolneniya, ispolnitel_fio, kvartal, vydel, tip_raboty, lesnichestvo, "
-            "dolzhnost, opisanie, lk_meropriyatie_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "dolzhnost, opisanie, lk_meropriyatie_id, sotrudnik_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(_iso_data(m[1]), i["fio"], m[2], m[3], m[0], m[4], i["dolzhnost"],
-              f"Лесные культуры, участок №{m[5]}", meropriyatie_id) for i in ispolniteli],
+              f"Лесные культуры, участок №{m[5]}", meropriyatie_id, i["id"]) for i in ispolniteli],
         )
     conn.commit()
     return ispolniteli

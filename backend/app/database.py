@@ -60,6 +60,14 @@ def init_db() -> None:
         proby_karta.ensure_schema(conn)
         from app import korzina
         korzina.ensure_schema(conn)
+        # исполнители старых записей журнала → ссылки на справочник
+        # (карточка человека, 04.11.2026)
+        try:
+            from app import uhody_vypolnenie, raboty_sotrudnika
+            uhody_vypolnenie.ensure(conn)
+            raboty_sotrudnika.zapolnit_ssylki(conn)
+        except Exception:  # noqa: BLE001 — не мешать старту сервера
+            pass
     finally:
         conn.close()
 

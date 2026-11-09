@@ -5,6 +5,7 @@ import Button from "./Button.jsx";
 import TextField from "./TextField.jsx";
 import DateField from "./DateField.jsx";
 import { useToast } from "./Toast.jsx";
+import ChelovekLink from "./ChelovekLink.jsx";
 
 const f1 = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("ru-RU", { maximumFractionDigits: 2 }));
 const ruDate = (s) => {
@@ -105,8 +106,8 @@ export default function UhodyVypolnenie({ probaId, onChanged }) {
 
   const pct = Math.min(d.pct || 0, 100);
   const stroki = [
-    ...d.otchety.map((o) => ({ ...o, kto: o.fio + (o.naparnikov ? ` +${o.naparnikov}` : ""), otkuda: "📱" })),
-    ...d.ruchnye.map((r) => ({ ...r, kto: r.ispolnitel || "—", otkuda: "✍️" })),
+    ...d.otchety.map((o) => ({ ...o, kto: <><ChelovekLink id={o.sotrudnik_id} fio={o.fio} className="font-normal" />{o.naparnikov ? ` +${o.naparnikov}` : ""}</>, otkuda: "📱" })),
+    ...d.ruchnye.map((r) => ({ ...r, kto: <ChelovekLink id={r.ispolnitel_id} fio={r.ispolnitel || "—"} className="font-normal" />, otkuda: "✍️" })),
   ].sort((a, b) => String(a.data).localeCompare(String(b.data)));
 
   return (

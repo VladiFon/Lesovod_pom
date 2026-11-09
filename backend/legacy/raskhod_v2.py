@@ -230,6 +230,8 @@ def _canonical_poroda_code(poroda):
     s = str(poroda).strip()
     if s in POROda_DISPLAY_NAMES:
         return s
+    if s.upper() in POROda_DISPLAY_NAMES:  # «Кл», «Лп», «Олс» в МДО
+        return s.upper()
     normalized = s.replace("ё", "е").replace("Ё", "Е").casefold()
     for code, full_name in POROda_DISPLAY_NAMES.items():
         if normalized == full_name.replace("ё", "е").replace("Ё", "Е").casefold():
@@ -483,9 +485,15 @@ def compute_ploshad_summary(conn, item, item_id):
 # МДО породы хранятся короткими кодами (см. ALL_SPECIES выше) — если у
 # вас в проекте уже есть такой словарь в другом месте, лучше
 # переиспользовать его вместо этого.
+# «Р» — Рябина (как в формуле состава и в листке сигнализации), а не
+# «Разные»: ЕГАИС пишет «Рябина», и с «Разными» порода раздваивалась на две
+# карточки в Расходе — «Р» (лимит + наряд) и «Рябина» (ЕГАИС) (Влад, 04.11.2026).
+# Остальные коды — для пород, которые встречаются в МДО реже.
 POROda_DISPLAY_NAMES = {
     "Е": "Ель", "С": "Сосна", "Б": "Береза", "ОС": "Осина",
-    "Д": "Дуб", "ОЛЧ": "Ольха черная", "Р": "Разные", "ОЛС": "Ольха серая",
+    "Д": "Дуб", "ОЛЧ": "Ольха черная", "Р": "Рябина", "ОЛС": "Ольха серая",
+    "Г": "Граб", "КЛ": "Клен", "Я": "Ясень", "ЛП": "Липа", "ИВ": "Ива", "ИВД": "Ива древовидная",
+    "ЛЦ": "Лиственница", "Т": "Тополь", "ВЯЗ": "Вяз",
 }
 
 
@@ -504,8 +512,8 @@ def canonical_poroda(poroda):
     if not poroda:
         return poroda
     s = str(poroda).strip()
-    if s in POROda_DISPLAY_NAMES:
-        return POROda_DISPLAY_NAMES[s]
+    if s.upper() in POROda_DISPLAY_NAMES:
+        return POROda_DISPLAY_NAMES[s.upper()]
     normalized = " ".join(s.replace("ё", "е").replace("Ё", "Е").split())
     for full_name in POROda_DISPLAY_NAMES.values():
         full_norm = full_name.replace("ё", "е").replace("Ё", "Е")
@@ -2151,7 +2159,7 @@ def compute_egais_balance_check(conn, item):
         корректировками, ничего дополнительно делать не нужно, кроме как
         разобрать именно их)."""
     resolution = resolve_egais_sklady(conn)
-    columns = ("tip_dokumenta", "nomer_dokumenta", "osnovanie", "nomer_osnovaniya", "sklad", "vydel", "obyom")
+    columns = ("tip_dokumenta", "nomer_dokumenta", "osnovanie", "nomer_osnovaniya", "sklad", "vydel", "obyom", "poroda")
     matched = [
         tuple(r[c] for c in columns)
         for r in _egais_journal_rows_for_item(conn, item, columns, resolution)
@@ -2161,9 +2169,15 @@ def compute_egais_balance_check(conn, item):
     item_keys = _sklad_keys_for_item(resolution, item)
 
     linked = _egais_linked_doc_numbers(conn)
+    # Приход на ФЛС, который на разборе отметили «отдельная заготовка
+    # (учесть)», в балансе делянки уже считается (load_egais_snapshot), а
+    # сверка его пропускала — и на делянках, где весь приход идёт на ФЛС,
+    # писала «расход больше прихода» при сходящемся журнале (Влад,
+    # 04.11.2026: кв.124 выд.20 л.4, кв.178 выд.4 л.2).
+    fls_uchteno = _fls_prihod_counted_docs(conn)
     prihod_chisty = 0.0
     rashod_realizatsii = 0.0
-    for tip, nomer, osnovanie, osnovanie_num, sklad, vydel, obyom in matched:
+    for tip, nomer, osnovanie, osnovanie_num, sklad, vydel, obyom, poroda in matched:
         obyom = obyom or 0.0
         if tip == _EGAIS_DOC_TYPE_PRIHOD:
             is_linked_pair = bool(nomer) and nomer in linked
@@ -2172,7 +2186,10 @@ def compute_egais_balance_check(conn, item):
             if is_linked_pair or (has_osnovanie and not is_fls):
                 continue  # вторичный приход (задвоение) - не считаем
             if is_fls:
-                continue  # ФЛС-приход - отдельно, через fls_unresolved ниже
+                if (nomer or "", _canonical_poroda_code(poroda) or "") in fls_uchteno \
+                        or (nomer or "", "*") in fls_uchteno:
+                    prihod_chisty += obyom  # разобран как «учесть»
+                continue  # неразобранный ФЛС-приход - через fls_unresolved ниже
             prihod_chisty += obyom
         elif tip == _EGAIS_DOC_TYPE_REALIZATSIYA:
             rashod_realizatsii += abs(obyom)
@@ -3096,6 +3113,28 @@ def load_egais_snapshot(conn):
         default=None,
     )
     return data, imported_at
+
+
+def _fls_prihod_counted_docs(conn):
+    """{(номер документа, код породы)} приходов на ФЛС, разобранных как
+    «отдельная заготовка (учесть)»; (номер, "*") — если все строки этого
+    документа в очереди разобраны так (порода в очереди могла записаться
+    иначе, чем в журнале)."""
+    try:
+        rows = conn.execute(
+            "SELECT nomer_dokumenta, poroda, status FROM egais_fls_prihod_review WHERE nomer_dokumenta <> ''"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return set()
+    out, po_doc = set(), {}
+    for nomer, poroda, status in rows:
+        po_doc.setdefault(nomer, set()).add(status)
+        if status == "schitat_otdelno":
+            out.add((nomer, _canonical_poroda_code(poroda) or ""))
+    for nomer, st in po_doc.items():
+        if st == {"schitat_otdelno"}:
+            out.add((nomer, "*"))
+    return out
 
 
 def _fls_prihod_counted_separately(conn):
