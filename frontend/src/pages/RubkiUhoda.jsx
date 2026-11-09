@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { poiskKvVyd } from "../kvVyd.js";
 import { api } from "../api/client.js";
 import {
   calculateProba,
@@ -457,7 +458,8 @@ export default function RubkiUhoda() {
     const q = probySearch.trim().toLowerCase();
     const po = proby.filter((p) => (vkladka === "hvorost") === !!p.delyanka_id);
     if (!q) return po;
-    return po.filter((p) => `${p.kvartal}/${p.vydel} ${p.delyanka_nazvanie || ""}`.toLowerCase().includes(q));
+    // «71/2» — ровно кв.71 выд.2, «71» — сначала квартал 71 (src/kvVyd.js)
+    return poiskKvVyd(po, q, { fields: (p) => [p.kvartal, p.vydel, p.delyanka_nazvanie, p.avtor_fio, p.data_zamera] });
   }, [proby, probySearch, vkladka]);
 
   // ------------------------------------------------------------------- //
@@ -878,7 +880,7 @@ export default function RubkiUhoda() {
             + Новая проба
           </Button>
           <TextField
-            placeholder="Фильтр по кварталу/выделу…"
+            placeholder="Поиск: 71/2, кв 71, ФИО…"
             value={probySearch}
             onChange={(e) => setProbySearch(e.target.value)}
           />
@@ -1348,7 +1350,7 @@ export default function RubkiUhoda() {
             </div>
           )}
           <TextField
-            placeholder="Поиск участка: квартал, выдел, лесничество, порода"
+            placeholder="Поиск участка: 71/2, кв 71, лесничество, порода"
             value={lesokulturySearch}
             onChange={(e) => setLesokulturySearch(e.target.value)}
           />

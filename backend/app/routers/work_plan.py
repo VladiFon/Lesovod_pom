@@ -60,12 +60,13 @@ def list_sotrudniki_for_picker(
 @router.get("/lesokultury-uchastki")
 def list_lesokultury_uchastki_for_picker(
     search: Optional[str] = None,
+    vse: bool = False,
     user=Depends(require_permission("work_plan.edit")), conn=Depends(get_conn)
 ) -> list[dict]:
     """Лёгкий список активных участков лесных культур — для переключателя
     "Делянка / Лесные культуры" в форме постановки задачи."""
     import db as legacy_db  # локальный импорт, как в остальных роутерах — после legacy_bridge
-    return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=False, search=search)
+    return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=vse, search=search)
 
 
 class WorkPlanCreateIn(BaseModel):

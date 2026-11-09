@@ -24,6 +24,7 @@
 экран как раз для них и делался, поэтому переведено на
 require_office_or_master, как и у остальных мобильных экранов
 руководителей.)"""
+import json
 import re
 from datetime import datetime
 from typing import Literal, Optional
@@ -70,6 +71,7 @@ def create_vid_raboty(
 @router.get("/lesokultury-uchastki")
 def list_lesokultury_uchastki_for_picker(
     search: Optional[str] = None,
+    vse: bool = False,
     user=Depends(require_office_or_master), conn=Depends(get_conn),
 ) -> list[dict]:
     """Тот же принцип и источник, что GET /api/work-plan/lesokultury-uchastki
@@ -77,7 +79,45 @@ def list_lesokultury_uchastki_for_picker(
     чтобы права экрана "Табель" не были завязаны на право экрана "План
     работ" (даже если сейчас у них один и тот же круг ролей)."""
     import db as legacy_db  # локальный импорт, как в остальных роутерах — после legacy_bridge
-    return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=False, search=search)
+    # vse=1 — показать и переведённые/списанные (переключатель в окне выбора)
+    return legacy_db.get_lesokultury_uchastki(conn, include_spisannye=vse, search=search)
+
+
+@router.get("/uhody-proby")
+def list_uhody_proby_for_picker(
+    search: Optional[str] = None,
+    vse: bool = False,
+    user=Depends(require_office_or_master), conn=Depends(get_conn),
+) -> list[dict]:
+    """Пробы рубок ухода — место работы в табеле (просьба Влада 09.11.2026):
+    где люди работают и делают уходы. По умолчанию — незакрытые (заложена /
+    в работе), vse=1 — и выполненные. Поиск «71/2», «кв 71», лесничество.
+    Пробы «хворост делянки» (delyanka_id) — не рубки ухода, не показываем."""
+    import db as legacy_db
+    from app import uhody_vypolnenie
+    uhody_vypolnenie.ensure(conn)
+    proby = [p for p in legacy_db.list_uhody_proby(conn) if not p.get("delyanka_id")]
+    if not vse:
+        proby = [p for p in proby if not p.get("completed_at")]
+    itogi = uhody_vypolnenie.kratko_vse(conn)
+    lesn = {}
+    for pid, dj in conn.execute("SELECT id, data_json FROM uhody_proby").fetchall():
+        try:
+            lesn[pid] = (json.loads(dj or "{}") or {}).get("lesnichestvo") or ""
+        except (ValueError, TypeError):
+            lesn[pid] = ""
+    out = []
+    for p in proby:
+        v = itogi.get(p["id"]) or {}
+        out.append({
+            "id": p["id"], "kvartal": p.get("kvartal"), "vydel": p.get("vydel"),
+            "lesnichestvo": lesn.get(p["id"], ""),
+            "ploshad_vydela": p.get("ploshad_vydela"), "ploshad_proby": p.get("ploshad_proby"),
+            "data_zamera": p.get("data_zamera"),
+            "zakryta": bool(p.get("completed_at")),
+            "sdelano_ga": v.get("sdelano_ga"), "ploshad": v.get("ploshad"),
+        })
+    return legacy_db.poisk_kv_vyd(out, search, ("kvartal", "vydel", "lesnichestvo"))[:200]
 
 
 def _check_date(data: str) -> str:
@@ -147,9 +187,11 @@ class TabelEntryIn(BaseModel):
     sotrudnik_id: int
     # Тот же набор, что CHECK в tabel_zapis: неверное значение — 422 с
     # понятным текстом, а не 500 от IntegrityError.
-    status: Literal["работал", "не работал", "больничный", "отпуск", "выходной"]
+    status: Literal["работал", "не работал", "больничный", "отпуск", "выходной", "ремонт", "командировка"]
     delyanka_item_id: Optional[int] = None
     lesokultury_uchastok_id: Optional[int] = None
+    # Проба рубок ухода — третий вид места работы (09.11.2026).
+    uhody_proba_id: Optional[int] = None
     vid_raboty_id: Optional[int] = None
     kommentariy: str = ""
 

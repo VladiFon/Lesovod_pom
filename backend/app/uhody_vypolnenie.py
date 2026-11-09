@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date, datetime
 
 from app import legacy_bridge  # noqa: F401
@@ -298,6 +299,15 @@ def ispolniteli(conn, proba_id):
                 ids.append(sid)
         elif name.casefold() not in {n.casefold() for n in storonnie}:
             storonnie.append(name)
+    # табель: кто отмечен «работал» на этой пробе (09.11.2026)
+    try:
+        for (sid,) in conn.execute(
+                "SELECT DISTINCT sotrudnik_id FROM tabel_zapis WHERE uhody_proba_id = ? AND status = 'работал'",
+                (proba_id,)).fetchall():
+            if sid not in ids:
+                ids.append(sid)
+    except sqlite3.OperationalError:
+        pass
     return ids, storonnie
 
 

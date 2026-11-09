@@ -85,23 +85,27 @@ def sobrat(conn, ot: str, do: str, sotrudnik_ids=None):
 
     # табель
     if _est_tablica(conn, "tabel_zapis"):
-        for sid, d, st, kv, vd, nazv, lkv, lvd, lles, vid, kom, did, luid in conn.execute(
+        for sid, d, st, kv, vd, nazv, lkv, lvd, lles, vid, kom, did, luid, pkv, pvd, pid in conn.execute(
                 """SELECT t.sotrudnik_id, t.data, t.status, di.kvartal, di.vydel, dl.nazvanie,
-                          lu.kvartal, lu.vydel, lu.lesnichestvo, v.nazvanie, t.kommentariy, dl.id, lu.id
+                          lu.kvartal, lu.vydel, lu.lesnichestvo, v.nazvanie, t.kommentariy, dl.id, lu.id,
+                          up.kvartal, up.vydel, up.id
                    FROM tabel_zapis t
                    LEFT JOIN delyanka_item di ON di.id = t.delyanka_item_id
                    LEFT JOIN delyanka dl ON dl.id = di.delyanka_id
                    LEFT JOIN lesokultury_uchastok lu ON lu.id = t.lesokultury_uchastok_id
+                   LEFT JOIN uhody_proby up ON up.id = t.uhody_proba_id
                    LEFT JOIN vidy_rabot v ON v.id = t.vid_raboty_id
                    WHERE t.data BETWEEN ? AND ?""", (ot, do)).fetchall():
             s = slot(sid, d)
             if s is None:
                 continue
             gde = (f"{nazv or 'делянка'} · кв.{kv} выд.{vd}" if kv or nazv else
-                   f"л/к кв.{lkv} выд.{lvd}" + (f" · {lles}" if lles else "") if lkv else None)
+                   f"л/к кв.{lkv} выд.{lvd}" + (f" · {lles}" if lles else "") if lkv else
+                   f"рубки ухода кв.{pkv} выд.{pvd}" if pid else None)
             s["tabel"] = {"status": st, "gde": gde, "vid": vid, "kommentariy": kom or None,
                           "ssylka": ({"screen": "plots", "params": {"d": did}} if did else
-                                     {"screen": "forestry", "params": {"u": luid}} if luid else None)}
+                                     {"screen": "forestry", "params": {"u": luid}} if luid else
+                                     {"screen": "uhody", "params": {"p": pid}} if pid else None)}
 
     # отчёты за смену
     if _est_tablica(conn, "otchet_smeny"):
