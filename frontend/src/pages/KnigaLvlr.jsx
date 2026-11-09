@@ -444,12 +444,26 @@ function Pechat({ kniga, reload, oshibka, toast }) {
         <div className="flex flex-wrap items-end" style={{ gap: 10, marginTop: 10 }}>
           <label style={{ fontSize: 12, color: C.muted }}>Своё лесничество (пусто — {kniga.svoe.lesnichestvo || "из Настроек"})<br />
             <input className={inp} style={{ width: 240 }} list="kniga-lesn" value={f.nazvanie_lesnichestva || ""} onChange={(e) => setF({ ...f, nazvanie_lesnichestva: e.target.value })} placeholder={kniga.svoe.lesnichestvo} /></label>
-          <label style={{ fontSize: 12, color: C.muted }}>Свой лесхоз (пусто — {kniga.svoe.leshoz || "самый частый"})<br />
+          <label style={{ fontSize: 12, color: C.muted }}>Свой лесхоз (необязательно — пусто: не проверять)<br />
             <input className={inp} style={{ width: 240 }} list="kniga-lx" value={f.nazvanie_leshoza || ""} onChange={(e) => setF({ ...f, nazvanie_leshoza: e.target.value })} placeholder={kniga.svoe.leshoz} /></label>
           <datalist id="kniga-lesn">{[...new Set(kniga.lesnichestva.map((x) => x.lesnichestvo).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist>
           <datalist id="kniga-lx">{[...new Set(kniga.lesnichestva.map((x) => x.leshoz).filter(Boolean))].map((v) => <option key={v} value={v} />)}</datalist>
-          <span style={{ fontSize: 12, color: C.muted, maxWidth: 360 }}>Делянки и культуры другого лесничества или лесхоза (рубим у соседей) в книгу не предлагаются.</span>
+          <span style={{ fontSize: 12, color: C.muted, maxWidth: 360 }}>Свой/чужой решается по лесничеству из МДО делянки. Чужие (рубим у соседей) в книгу не предлагаются; любую делянку можно поправить галочкой в её карточке.</span>
         </div>
+        {kniga.lesnichestva.length > 0 && (
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
+            Лесничества в делянках:{" "}
+            {Object.entries(kniga.lesnichestva.reduce((a, x) => { if (x.lesnichestvo) a[x.lesnichestvo] = (a[x.lesnichestvo] || 0) + x.delyanok; return a; }, {}))
+              .sort((a, b) => b[1] - a[1])
+              .map(([ln, k], i) => (
+                <span key={ln}>{i > 0 && " · "}
+                  <button type="button" className="underline" title="Сделать своим" onClick={() => setF({ ...f, nazvanie_lesnichestva: ln })}
+                    style={{ fontWeight: ln === kniga.svoe.lesnichestvo ? 700 : 400, color: ln === kniga.svoe.lesnichestvo ? C.pine : C.muted }}>{ln}</button> ({k})
+                </span>
+              ))}
+            {" "}— жирным своё, клик — выбрать и «Сохранить».
+          </div>
+        )}
         <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
           <label style={{ fontSize: 12, color: C.muted }}>Ширины граф части 1 (19 чисел, см) — сумма {sum(f.shiriny_1).toFixed(2)} см
             <input className={inp + " w-full"} value={f.shiriny_1} onChange={(e) => setF({ ...f, shiriny_1: e.target.value })} /></label>

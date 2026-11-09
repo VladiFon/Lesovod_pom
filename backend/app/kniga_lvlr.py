@@ -725,6 +725,9 @@ def lesnichestva(conn) -> List[dict]:
 
 
 def svoe(conn, n: Optional[dict] = None) -> dict:
+    """Своё лесничество — главное (Влад 09.11: решаем по лесничеству, не по
+    лесхозу). Из настроек книги, иначе из Настроек (вход), иначе самое
+    частое в делянках. Лесхоз сверяется, только если задан в настройках книги."""
     n = n or nastroyki(conn)
     ln = (n.get("nazvanie_lesnichestva") or "").strip()
     if not ln:
@@ -733,30 +736,27 @@ def svoe(conn, n: Optional[dict] = None) -> dict:
             ln = (r[0] if r else "") or ""
         except Exception:  # noqa: BLE001
             ln = ""
-    lx = (n.get("nazvanie_leshoza") or "").strip()
-    vse = lesnichestva(conn)
-    if not lx:
-        po_lx: Dict[str, int] = {}
-        for x in vse:
-            if x["leshoz"]:
-                po_lx[x["leshoz"]] = po_lx.get(x["leshoz"], 0) + x["delyanok"]
-        lx = max(po_lx, key=po_lx.get) if po_lx else ""
     if not ln:
-        sv = [x for x in vse if x["lesnichestvo"] and _sovpadaet(x["leshoz"], lx)]
-        ln = sv[0]["lesnichestvo"] if sv else ""
-    return {"lesnichestvo": ln, "leshoz": lx}
+        po_ln: Dict[str, int] = {}
+        for x in lesnichestva(conn):
+            if x["lesnichestvo"]:
+                po_ln[x["lesnichestvo"]] = po_ln.get(x["lesnichestvo"], 0) + x["delyanok"]
+        ln = max(po_ln, key=po_ln.get) if po_ln else ""
+    return {"lesnichestvo": ln, "leshoz": (n.get("nazvanie_leshoza") or "").strip()}
 
 
 def chuzhoe(sv: dict, mesta) -> bool:
     """mesta — [(лесхоз, лесничество), …] частей делянки / участка. Чужое —
-    если ни одна часть не в своём лесничестве (или лесхоз другой)."""
-    mesta = [(lx, ln) for lx, ln in mesta if (lx or ln)]
-    if not mesta:
+    если ни одна часть не в своём лесничестве. Лесничество не указано — своё.
+    Лесхоз проверяется, только если свой лесхоз задан в настройках."""
+    if not sv.get("lesnichestvo") and not sv.get("leshoz"):
         return False
     for lx, ln in mesta:
-        if _sovpadaet(lx, sv["leshoz"]) and _sovpadaet(ln, sv["lesnichestvo"]):
+        ln_ok = not str(ln or "").strip() or not sv.get("lesnichestvo") or _sovpadaet(ln, sv["lesnichestvo"])
+        lx_ok = not sv.get("leshoz") or not str(lx or "").strip() or _sovpadaet(lx, sv["leshoz"])
+        if ln_ok and lx_ok:
             return False
-    return True
+    return bool(mesta)
 
 
 def ne_na_bumage(z: dict) -> List[int]:
