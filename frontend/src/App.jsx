@@ -28,6 +28,8 @@ import Putevye from "./pages/Putevye.jsx";
 import Archive from "./pages/Archive.jsx";
 import CalendarScreen from "./pages/Calendar.jsx";
 import { RawReportsTab, CompletedTab } from "./pages/AiLog.jsx";
+import TabelMesyac from "./pages/TabelMesyac.jsx";
+import Otchety from "./pages/Otchety.jsx";
 import { makeMergedScreen } from "./components/MergedScreen.jsx";
 import Settings from "./pages/Settings.jsx";
 import ComponentGallery from "./pages/ComponentGallery.jsx";
@@ -89,6 +91,7 @@ const Tabel = makeMergedScreen("tabel", [
   // Игровой вид (переключатель в шапке/Настройках) — «Перекличка» вместо
   // обычного ввода; обычный ввод никуда не делся.
   { key: "vvod", label: "Ввод табеля", Page: poVidu(TabelRuchnoy, TabelIgra) },
+  { key: "mesyac", label: "📅 Месяц", Page: TabelMesyac },
   { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
 ]);
 // Игровой вид Дашборда (03.11.2026): «Штаб» — карта всех игровых экранов.
@@ -144,6 +147,7 @@ const READY_SCREENS = {
   // Плоты сами управляют своим тулбаром (поиск, "Показывать архивные",
   // "Импорт МДО" в левой колонке) — по аналогии с Settings/Dashboard,
   // TopBar здесь без search/primaryAction, чтобы не дублировать поиск.
+  otchety: { title: "Отчёты", subtitle: "Сводка месяца для начальства и все выгрузки сайта в одном месте", Page: Otchety },
   plots: { title: "Делянки", subtitle: "Карточки делянок, документы, импорт из МДО", Page: poVidu(Plots, PlotsIgra) },
   // Этап 5 (часть 2): сквозной список документов по всем делянкам, с
   // фильтрами и массовыми действиями — см. pages/Documents.jsx.

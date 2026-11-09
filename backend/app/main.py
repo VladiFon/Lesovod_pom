@@ -59,6 +59,7 @@ from app.routers import (
     notes,
     notifications,
     otsrochka,
+    otchety,
     proby,
     raskhod,
     settings as settings_router,
@@ -146,6 +147,7 @@ app.include_router(korzina_router.router)
 app.include_router(proby.router)
 app.include_router(zhdet.router)
 app.include_router(otsrochka.router)
+app.include_router(otchety.router)
 app.include_router(kvesty.router)
 app.include_router(tabel_igra.router)
 app.include_router(uhody_igra.router)

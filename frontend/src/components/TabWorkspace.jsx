@@ -1,3 +1,4 @@
+import { napechatat } from "./pechat.js";
 import React, { useEffect, useMemo, useState } from "react";
 import { NAV_GROUPS } from "./Sidebar.jsx";
 import NotificationBell from "./NotificationBell.jsx";
@@ -235,6 +236,7 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
           return (
             <div
               key={id}
+              data-panel
               className="flex-col overflow-hidden"
               style={{
                 display: role ? "flex" : "none",
@@ -266,6 +268,19 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
                     </span>
                   </div>
                 </div>
+                <div className="shrink-0 flex items-center" style={{ gap: 6 }}>
+                <button
+                  type="button"
+                  title="Напечатать этот экран начисто: без меню и кнопок, на белом листе"
+                  onClick={(e) => {
+                    const body = e.currentTarget.closest("[data-panel]")?.querySelector("[data-panel-body]");
+                    napechatat(body, { title: meta?.title ?? id, landscape: body && body.scrollWidth > 900 });
+                  }}
+                  className="shrink-0 hover:!border-[#1a4331] hover:!text-[#1a4331]"
+                  style={{ height: 28, width: 32, border: "1px solid #e5e2db", background: "#fff", color: "#414944", borderRadius: 8, fontSize: 13, cursor: "pointer" }}
+                >
+                  🖨
+                </button>
                 <button
                   type="button"
                   title={role === "right" ? "Вернуть в одну панель" : "Открыть эту вкладку во второй панели"}
@@ -275,8 +290,9 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
                 >
                   {role === "right" ? "Закрыть" : "Рядом"}
                 </button>
+                </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto">
+              <div data-panel-body className="flex-1 min-h-0 overflow-y-auto">
                 {Page ? <Page currentUser={currentUser} onOpenTab={(k) => dispatch({ type: "open", id: k })} /> : <div className="p-8 text-muted">Экран «{id}» не найден</div>}
               </div>
             </div>

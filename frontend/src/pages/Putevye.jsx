@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client.js";
 import { useScreenParam } from "../nav.js";
 import { useToast } from "../components/Toast.jsx";
+import { napechatat } from "../components/pechat.js";
 
 /**
  * «📝 Путевые листы» (09.11.2026, просьба Влада). Листы пишутся рукой —
@@ -365,6 +366,57 @@ function Svodka({ mesyac, toast }) {
 
 // --------------------------------------------------------------- экран ---
 
+// Бланк путевого листа для печати (09.11.2026, разбор сайта шаг 2):
+// упрощённая форма — всё, что считает программа, плюс места для подписей.
+// По два листа на страницу A4.
+function BlankList({ x, m, ed }) {
+  const td = { border: "1px solid #444", padding: "3px 6px" };
+  const strochka = (t, v) => (
+    <div style={{ display: "flex", gap: 6, marginTop: 3 }}>
+      <span style={{ color: "#444", whiteSpace: "nowrap" }}>{t}</span>
+      <span style={{ flex: 1, borderBottom: "1px solid #888", fontWeight: 600, minHeight: 16 }}>{v}</span>
+    </div>
+  );
+  const [y, mo, dd] = x.data.split("-");
+  return (
+    <div style={{ border: "1.5px solid #222", borderRadius: 4, padding: "10px 14px", fontSize: 11.5, color: "#111", height: 128 * 3.6, boxSizing: "border-box", breakInside: "avoid", marginBottom: 14, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <b style={{ fontSize: 15, letterSpacing: ".02em" }}>ПУТЕВОЙ ЛИСТ № {x.nomer || "____"}</b>
+        <span>от <b>{dd}.{mo}.{y}</b></span>
+      </div>
+      {strochka("Организация:", "")}
+      {strochka("Машина:", `${m.nazvanie}${m.marka ? `, ${m.marka}` : ""}${m.nomer ? ` · гос. № ${m.nomer}` : ""}`)}
+      {strochka("Водитель:", x.fio || "")}
+      {strochka("Маршрут:", x.marshrut || m.marshrut || "")}
+      <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 8, textAlign: "center" }}>
+        <thead><tr><th style={{ ...td, textAlign: "left" }} /><th style={td}>Выезд</th><th style={td}>Возврат</th></tr></thead>
+        <tbody>
+          <tr><td style={{ ...td, textAlign: "left" }}>Время</td><td style={td}>{x.vremya_vyezd || ""}</td><td style={td}>{x.vremya_vozvrat || ""}</td></tr>
+          <tr><td style={{ ...td, textAlign: "left" }}>{ed === "км" ? "Спидометр, км" : "Счётчик, моточасы"}</td><td style={td}>{num(x.spid_vyezd, 1)}</td><td style={td}>{num(x.spid_vozvrat, 1)}</td></tr>
+          <tr><td style={{ ...td, textAlign: "left" }}>Остаток топлива, л</td><td style={td}>{num(x.ost_vyezd)}</td><td style={td}>{num(x.ost_vozvrat)}</td></tr>
+        </tbody>
+      </table>
+      <div style={{ display: "flex", gap: 18, marginTop: 6 }}>
+        <span>Пробег: <b>{num(x.probeg)} {ed}</b></span>
+        <span>Заправлено: <b>{num(x.zapravka) || "0"} л</b></span>
+        <span>Расход по норме{x.norma != null ? ` (${String(x.norma).replace(".", ",")} л/${ed})` : ""}: <b>{num(x.rashod)} л</b></span>
+      </div>
+      <div style={{ flex: 1 }} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", fontSize: 10.5, color: "#333" }}>
+        <span>Водитель ______________</span>
+        <span>Выпуск разрешил (механик) ______________</span>
+        <span>Медосмотр пройден ______________</span>
+        <span>Машину принял ______________</span>
+      </div>
+    </div>
+  );
+}
+
+function BlankiListov({ d }) {
+  const ed = d.mashina.edinica || "км";
+  return <div>{d.listy.map((x) => <BlankList key={x.id} x={x} m={d.mashina} ed={ed} />)}</div>;
+}
+
 export default function Putevye() {
   const toast = useToast();
   const [mParam, setMParam] = useScreenParam("tehnika", "m");
@@ -376,6 +428,9 @@ export default function Putevye() {
   const [gen, setGen] = useState(false);
   const [vid, setVid] = useState("mashina");
   const [detal, setDetal] = useState(null);
+  const [pechatListov, setPechatListov] = useState(false);
+  const vedomostRef = useRef(null);
+  const listyRef = useRef(null);
 
   const loadSpisok = useCallback(async () => {
     try {
@@ -391,6 +446,13 @@ export default function Putevye() {
   }, [mParam, mesyac]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadSpisok(); }, [loadSpisok]);
   useEffect(() => { load(); setGen(false); setDetal(null); }, [load]);
+  // Печать бланков: сначала рисуем их (скрыто), потом печатаем копию
+  useEffect(() => {
+    if (!pechatListov || !d) return;
+    const [gg, mn] = mesyac.split("-").map(Number);
+    napechatat(listyRef.current, { title: `Путевые листы · ${d.mashina.nazvanie} · ${MES[mn - 1]} ${gg}` });
+    setPechatListov(false);
+  }, [pechatListov, d, mesyac]);
   const obnovit = () => { load(); loadSpisok(); };
 
   const poDnyam = useMemo(() => Object.fromEntries((d?.listy || []).map((x) => [x.data, x])), [d]);
@@ -466,12 +528,20 @@ export default function Putevye() {
             {d.zakryt
               ? <button type="button" onClick={() => zakryt(false)} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 14px" }}>🔓 Открыть месяц</button>
               : <button type="button" onClick={() => zakryt(true)} disabled={ro || !d.listy.length} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 14px", color: ro || !d.listy.length ? C.muted : undefined }}>🔒 Закрыть месяц (сдан)</button>}
+            <span style={{ flex: 1 }} />
+            <button type="button" onClick={() => setPechatListov(true)} disabled={!d.listy.length}
+              title="Каждый лист месяца — бланком, по два на страницу A4: машина, водитель, маршрут, время, спидометр, топливо, места для подписей"
+              style={{ border: `1px solid ${C.line}`, background: "#fff", color: d.listy.length ? C.pine : C.muted, borderRadius: 8, padding: "8px 14px", fontWeight: 700 }}>🖨 Листы на печать ({d.listy.length})</button>
+            <button type="button" onClick={() => napechatat(vedomostRef.current, { title: `Путевые листы · ${m.nazvanie}${m.nomer ? ` ${m.nomer}` : ""} · ${MES[mm - 1]} ${g}`, landscape: true })}
+              disabled={!d.listy.length}
+              title="Таблица месяца на одном листе — сдать в бухгалтерию"
+              style={{ border: `1px solid ${C.line}`, background: "#fff", color: d.listy.length ? C.pine : C.muted, borderRadius: 8, padding: "8px 14px", fontWeight: 700 }}>🖨 Ведомость месяца</button>
           </div>
 
           {(kart || nuzhnaKartochka) && <Kartochka m={{ ...m, normy: d.normy }} d={spisok} edinica={ed} onSaved={obnovit} toast={toast} />}
           {gen && <Generator d={d} lyudi={spisok.lyudi} onClose={() => setGen(false)} onSaved={() => { setGen(false); obnovit(); }} toast={toast} />}
 
-          <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, overflowX: "auto" }}>
+          <div ref={vedomostRef} style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, overflowX: "auto" }}>
             <table style={{ fontSize: 13, minWidth: 900, width: "100%", borderCollapse: "collapse" }}>
               <thead><tr style={{ color: C.muted, textAlign: "right", fontSize: 12 }}>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>День</th><th style={{ padding: "6px 8px" }}>№</th>
@@ -480,7 +550,7 @@ export default function Putevye() {
                 <th style={{ padding: "6px 8px" }}>{ed === "км" ? "Спидометр" : "Счётчик"} возврат</th>
                 <th style={{ padding: "6px 8px", color: C.pine }}>Заправка, л ✍</th>
                 <th style={{ padding: "6px 8px" }}>Остаток выезд</th><th style={{ padding: "6px 8px" }}>Расход</th>
-                <th style={{ padding: "6px 8px" }}>Остаток возврат</th><th style={{ textAlign: "left", padding: "6px 8px" }}>Подсказки</th><th /></tr></thead>
+                <th style={{ padding: "6px 8px" }}>Остаток возврат</th><th style={{ textAlign: "left", padding: "6px 8px" }}>Подсказки</th><th data-no-print /></tr></thead>
               <tbody>
                 {d.dni.map((den) => {
                   const x = poDnyam[den.data];
@@ -490,7 +560,7 @@ export default function Putevye() {
                       <tr key={den.data} style={{ borderTop: `1px solid ${C.line}`, color: C.muted, background: den.rabochiy ? undefined : C.grey }}>
                         <td style={{ padding: "4px 8px" }}>{ddmm(den.data)} {dn}</td>
                         <td colSpan={8} style={{ padding: "4px 8px", fontSize: 12 }}>{den.prichina || ""}</td>
-                        <td style={{ padding: "4px 8px" }}>{!ro && <button type="button" onClick={() => novyy(den.data)} style={{ color: C.pine, fontSize: 12 }}>＋ лист</button>}</td><td />
+                        <td style={{ padding: "4px 8px" }}>{!ro && <button data-no-print type="button" onClick={() => novyy(den.data)} style={{ color: C.pine, fontSize: 12 }}>＋ лист</button>}</td><td data-no-print />
                       </tr>
                     );
                   }
@@ -512,7 +582,7 @@ export default function Putevye() {
                           <Preduprezhdeniya list={x.preduprezhdeniya} onZapravka={ro ? null : (v) => sohranitList(x, { zapravka: v })} />
                           {x.fio && <span style={{ fontSize: 11.5, color: C.muted }}>{x.fio}</span>}
                         </td>
-                        <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>
+                        <td data-no-print style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>
                           <button type="button" onClick={() => setDetal(otkryt ? null : x.id)} title="Подробнее">✏️</button>
                           {!ro && <button type="button" onClick={() => udalit(x)} title="Удалить" style={{ color: C.muted, marginLeft: 4 }}>🗑</button>}
                         </td>
@@ -522,8 +592,20 @@ export default function Putevye() {
                   );
                 })}
               </tbody>
+              <tfoot><tr style={{ borderTop: `2px solid ${C.pine}`, textAlign: "right", fontWeight: 700 }}>
+                <td style={{ textAlign: "left", padding: "6px 8px" }}>Итого</td><td style={{ padding: "6px 8px", color: C.muted }}>листов: {d.itogi.listov}</td><td />
+                <td style={{ padding: "6px 8px" }}>{num(d.itogi.probeg)}</td><td />
+                <td style={{ padding: "6px 8px" }}>{num(d.itogi.zapravka)}</td><td />
+                <td style={{ padding: "6px 8px" }}>{num(d.itogi.rashod)}</td>
+                <td style={{ padding: "6px 8px" }}>{num(d.itogi.ost_konec)}</td><td /><td data-no-print />
+              </tr></tfoot>
             </table>
           </div>
+          {pechatListov && (
+            <div style={{ position: "fixed", left: -10000, top: 0, width: 760 }} aria-hidden="true">
+              <div ref={listyRef}><BlankiListov d={d} /></div>
+            </div>
+          )}
           <div style={{ fontSize: 11.5, color: C.muted }}>
             ✍ — вводите только пробег и заправку (Enter или Tab сохраняет), остальное считается от прошлого листа. Правка в середине месяца пересчитывает все листы после неё.
             Лист, поправленный руками, при повторном «Заполнить месяц» остаётся как есть. 📌 — показание при выезде прибито руками (например, заменили спидометр).

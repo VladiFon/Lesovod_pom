@@ -12,7 +12,7 @@ import { useVid } from "../vid.jsx";
 export const NAV_GROUPS = [
   {
     title: "сегодня",
-    items: [["dashboard", "Дашборд"], ["telefon", "📥 Входящие"], ["skhema", "🗺 Схема сайта"], ["kvesty", "🎯 Квесты"], ["gazeta", "📰 Газета"]],
+    items: [["dashboard", "Дашборд"], ["otchety", "📊 Отчёты"], ["telefon", "📥 Входящие"], ["skhema", "🗺 Схема сайта"], ["kvesty", "🎯 Квесты"], ["gazeta", "📰 Газета"]],
   },
   {
     title: "заготовка",

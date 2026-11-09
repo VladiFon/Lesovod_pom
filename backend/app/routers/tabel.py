@@ -30,6 +30,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app import legacy_bridge  # noqa: F401 — обязателен до import webext
@@ -39,6 +40,7 @@ from app.auth import require_office_or_master
 from app.database import get_conn
 from app import storonnyaya
 from app import raboty_sotrudnika
+from app import tabel_mesyac
 
 router = APIRouter(prefix="/api/tabel", tags=["tabel"])
 
@@ -235,3 +237,54 @@ def get_istoriya(sotrudnik_id: int, dney: int = Query(31, ge=1, le=366), do: Opt
                  user=Depends(require_office_or_master), conn=Depends(get_conn)) -> dict:
     """Где был и что делал человек за последние dney дней (по дням)."""
     return raboty_sotrudnika.istoriya(conn, sotrudnik_id, dney, _check_date(do) if do else None)
+
+
+# --------------------------------------------------------------------------- #
+#   Табель за месяц (app/tabel_mesyac.py, разбор сайта 09.11.2026 шаг 2)
+# --------------------------------------------------------------------------- #
+@router.get("/mesyac")
+def get_tabel_mesyac(ym: str, user=Depends(require_office_or_master), conn=Depends(get_conn)) -> dict:
+    """Сетка «люди × числа» за месяц ГГГГ-ММ с кодами Т-13 и итогами."""
+    try:
+        return tabel_mesyac.get_mesyac(conn, ym)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+class MesyacZapolnitIn(BaseModel):
+    ym: str
+    sotrudnik_ids: list[int]
+    dni: list[int]
+    status: str = ""  # "" — стереть
+
+
+@router.post("/mesyac/zapolnit")
+def post_tabel_mesyac_zapolnit(body: MesyacZapolnitIn, user=Depends(require_office_or_master), conn=Depends(get_conn)) -> dict:
+    """Массово поставить статус людям на выбранные числа («протянул мышкой»)."""
+    try:
+        n = tabel_mesyac.zapolnit(conn, body.ym, body.sotrudnik_ids, body.dni, body.status, user["login"])
+        return {"sdelano": n, **tabel_mesyac.get_mesyac(conn, body.ym)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _organizaciya(conn) -> str:
+    try:
+        from app import kniga_lvlr
+        sv = kniga_lvlr.svoe(conn)
+        return " · ".join(x for x in (sv.get("leshoz"), sv.get("lesnichestvo")) if x)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+@router.get("/mesyac.xlsx")
+def get_tabel_mesyac_xlsx(ym: str, user=Depends(require_office_or_master), conn=Depends(get_conn)):
+    """Табель за месяц в Excel по образцу формы Т-13."""
+    try:
+        data = tabel_mesyac.xlsx(conn, ym, _organizaciya(conn))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return Response(
+        data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="tabel_{ym}.xlsx"'},
+    )
