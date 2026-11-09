@@ -66,32 +66,6 @@ const FIRE_CLASSES = {
   5: { bg: "#ffb3ab", fg: "#7a0000", text: "Чрезвычайная. Лесозаготовительные работы приостановлены." },
 };
 
-// Строка ленты с screen/params открывает нужный экран (шаг 4 разбора
-// 03.11.2026): переруб — Расход делянки, бригады — Распределение и т.д.
-function InsightEntry({ category, timestamp, title, description, severity, screen, params }) {
-  const color =
-    severity === "critical" ? "var(--color-error, #ba1a1a)" : severity === "warning" ? "var(--color-oak)" : "var(--color-pine)";
-  const Tag = screen ? "button" : "div";
-  return (
-    <Tag
-      type={screen ? "button" : undefined}
-      onClick={screen ? () => openScreen(screen, params || {}) : undefined}
-      className={["border-l-4 pl-3 py-0.5 text-left w-full", screen ? "rounded-r-md hover:bg-hover cursor-pointer" : ""].join(" ")}
-      style={{ borderLeftColor: color }}
-      title={screen ? "Открыть" : undefined}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-bold tracking-wide uppercase" style={{ color }}>
-          {category}
-        </span>
-        <span className="text-faint text-xs shrink-0">{timestamp}</span>
-      </div>
-      <div className="font-semibold text-ink text-sm mt-0.5">{title}</div>
-      <div className="text-muted text-sm">{description}{screen && <span className="text-pine font-semibold"> → открыть</span>}</div>
-    </Tag>
-  );
-}
-
 // Строка «Как идёт заготовка» (разбор 09.11.2026): полоска освоения с
 // чертой 100%, срок и сколько дней осталось; клик — эта делянка.
 const LEVEL_BAR = { norma: "bg-pine", vnimanie: "bg-oak", preduprezhdenie: "bg-oak", pererub: "bg-error", net_limita: "bg-border" };
@@ -129,6 +103,14 @@ function DelyankaRow({ d }) {
         </span>
       </span>
       <span className={["justify-self-end rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap", srok.cls].join(" ")}>{srok.text}</span>
+      {d.prognoz_tekst && (
+          <span style={{ gridColumn: "1 / -1" }} className={["block text-[11.5px] truncate -mt-0.5", d.uspevaem === false ? "text-error font-semibold" : "text-faint"].join(" ")}
+            title={d.uspevaem === false && d.dney > 0 ? `Чтобы успеть, нужно ≈${Math.ceil(d.ostatok_m3 / d.dney)} м³ в день (осталось ${d.ostatok_m3} м³)` : undefined}>
+            {d.uspevaem === false ? "⚠ " : ""}{d.prognoz_tekst}
+            {d.uspevaem === false && d.dney > 0 ? ` · надо ≈${Math.ceil(d.ostatok_m3 / d.dney)} м³/день` : ""}
+            {d.uspevaem === false && d.dney != null && d.dney <= 0 ? " · срок уже вышел" : ""}
+          </span>
+        )}
     </button>
   );
 }
@@ -242,6 +224,37 @@ function SetPlanModal({ open, onClose, periods, months, onSave, saving }) {
   );
 }
 
+// «Дела на сегодня» (шаг 3 разбора 09.11.2026): то, что раньше было в
+// четырёх местах (колокольчик, «Ждёт меня», «Сегодня надо» в Схеме,
+// «ИИ-аналитика»), — одним списком, у каждой строки кнопка «сделать».
+const TONE_DELA = {
+  danger: { dot: "bg-error", chip: "bg-error-soft text-error" },
+  warning: { dot: "bg-oak", chip: "bg-oak-soft text-[#8a5a00]" },
+  info: { dot: "bg-info", chip: "bg-info-soft text-info" },
+};
+const TONE_ORDER = { danger: 0, warning: 1, info: 2 };
+const SEVERITY_TONE = { critical: "danger", warning: "warning" };
+function DeloRow({ tone = "info", title, hint, count, onGo, knopka = "Открыть" }) {
+  const t = TONE_DELA[tone] || TONE_DELA.info;
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-0">
+      <span className={["h-2.5 w-2.5 rounded-full shrink-0", t.dot].join(" ")} />
+      <div className="min-w-0 flex-1">
+        <div className="text-[13.5px] font-semibold text-ink leading-snug">{title}</div>
+        {hint && <div className="text-[12px] text-muted leading-snug truncate" title={hint}>{hint}</div>}
+      </div>
+      {count != null && <span className={["shrink-0 rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums", t.chip].join(" ")}>{count}</span>}
+      {onGo && (
+        <button type="button" onClick={onGo} className="shrink-0 h-7 px-2.5 rounded-[8px] border border-border bg-surface text-pine text-[12px] font-semibold hover:bg-mint-soft hover:border-pine transition-colors">
+          {knopka} →
+        </button>
+      )}
+    </div>
+  );
+}
+
+const KNOPKA_DELA = { otchety: "Проверить", zametki: "Прочитать", egais: "Разобрать", akty_prosr: "Составить акт", akty_skoro: "Составить акт", zakryt: "Закрыть", otsrochka: "Оформить", chernoviki: "Внести билет" };
+
 export default function Dashboard({ onOpenTab }) {
   const toast = useToast();
 
@@ -257,6 +270,16 @@ export default function Dashboard({ onOpenTab }) {
   // период для «Выполнено работ» и «Заготовлено за год»: год или всё время
   const tekGod = new Date().getFullYear();
   const [god, setGod] = useState(String(tekGod));
+
+  const [dela, setDela] = useState(null);
+  const loadDela = useCallback(() => {
+    api.get("/zhdet").then((d) => setDela(d.items || [])).catch(() => setDela([]));
+  }, []);
+  useEffect(() => {
+    loadDela();
+    window.addEventListener("focus", loadDela);
+    return () => window.removeEventListener("focus", loadDela);
+  }, [loadDela]);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
@@ -312,6 +335,10 @@ export default function Dashboard({ onOpenTab }) {
   const chart = summary?.chart;
   const plots = summary?.plots ?? [];
   const insights = summary?.insights ?? [];
+  // из ленты «Требует внимания» — только то, что требует действия
+  // и без повторов того, что уже есть в списке «Ждёт меня» (тот же экран и вкладка)
+  const vazhnye = insights.filter((e) => (e.severity === "critical" || e.severity === "warning")
+    && !(dela || []).some((i) => i.screen === e.screen && (i.params?.tab || "") === (e.params?.tab || "")));
   const limitVsego = plots.reduce((sum, d) => sum + (Number(String(d.limit_fmt).replace(",", ".")) || 0), 0);
   const goryat = plots.reduce((acc, d) => {
     if (d.dney == null) return acc;
@@ -364,7 +391,58 @@ export default function Dashboard({ onOpenTab }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-[14px]">
-        <div className="lg:col-span-2 flex flex-col gap-[14px]">
+        <div className="lg:col-span-2">
+          <Card title="Дела на сегодня" icon="✅" iconTone="oak" divider padding={false}
+            subtitle={dela == null ? "Собираю…" : (dela.length + vazhnye.length) ? `${dela.length + vazhnye.length} — сверху то, что горит` : "Всё разобрано"}
+            actions={<Button variant="ghost" size="sm" onClick={() => { loadDela(); loadSummary(); }}>Обновить</Button>}>
+            {dela == null || loading ? (
+              <div className="p-4 flex flex-col gap-3">{[0, 1, 2].map((i) => <div key={i} className="h-9 rounded bg-hover animate-pulse" />)}</div>
+            ) : (dela.length + vazhnye.length) === 0 ? (
+              <div className="px-4 py-6 text-center text-muted text-[13.5px]">🌲 Ничего не горит — можно заняться планом.</div>
+            ) : (
+              <div className="flex flex-col">
+                {[...dela].sort((x, y) => (TONE_ORDER[x.tone] ?? 3) - (TONE_ORDER[y.tone] ?? 3)).map((i) => (
+                  <DeloRow key={i.kod} tone={i.tone} title={i.title} hint={i.hint} count={i.count} knopka={KNOPKA_DELA[i.kod] || "Открыть"} onGo={() => openScreen(i.screen, i.params || {})} />
+                ))}
+                {vazhnye.map((e, i) => (
+                  <DeloRow key={`i${i}`} tone={SEVERITY_TONE[e.severity] || "info"} title={e.title} hint={[e.category, e.description].filter(Boolean).join(" · ")}
+                    onGo={e.screen ? () => openScreen(e.screen, e.params || {}) : null} />
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+        <WeatherCard weather={summary?.weather} loading={weatherLoading} error={weatherError} onRefresh={handleRefreshWeather} />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-[14px]">
+        <div className="xl:col-span-3">
+          <Card
+            title="Как идёт заготовка"
+            subtitle="Все делянки в работе · прогноз по темпу последних 3 недель · сверху те, у кого раньше срок"
+            icon="🪓"
+            divider
+            actions={
+              <Button variant="ghost" size="sm" onClick={() => openScreen("plots")}>
+                Все делянки
+              </Button>
+            }
+            padding={false}
+          >
+            {loading ? (
+              <div className="p-4 flex flex-col gap-3">
+                {[0, 1, 2].map((i) => <div key={i} className="h-10 rounded-md bg-hover animate-pulse" />)}
+              </div>
+            ) : plots.length ? (
+              <div className="flex flex-col py-1.5">
+                {plots.map((d) => <DelyankaRow key={d.id} d={d} />)}
+              </div>
+            ) : (
+              <div className="p-5 text-sm text-muted">Активных делянок нет — создайте делянку на экране «Делянки».</div>
+            )}
+          </Card>
+        </div>
+        <div className="xl:col-span-2">
           <Card
             title="Обзор заготовки"
             icon="📊"
@@ -398,51 +476,6 @@ export default function Dashboard({ onOpenTab }) {
               </>
             )}
           </Card>
-
-          <Card
-            title="Как идёт заготовка"
-            subtitle="Все делянки в работе · сверху те, у которых раньше срок"
-            icon="🪓"
-            divider
-            actions={
-              <Button variant="ghost" size="sm" onClick={() => openScreen("plots")}>
-                Все делянки
-              </Button>
-            }
-            padding={false}
-          >
-            {loading ? (
-              <div className="p-4 flex flex-col gap-3">
-                {[0, 1, 2].map((i) => <div key={i} className="h-10 rounded-md bg-hover animate-pulse" />)}
-              </div>
-            ) : plots.length ? (
-              <div className="flex flex-col py-1.5">
-                {plots.map((d) => <DelyankaRow key={d.id} d={d} />)}
-              </div>
-            ) : (
-              <div className="p-5 text-sm text-muted">Активных делянок нет — создайте делянку на экране «Делянки».</div>
-            )}
-          </Card>
-        </div>
-
-        <div className="flex flex-col gap-[14px]">
-          <Card title="Требует внимания" icon="🔔" iconTone="oak">
-            {loading ? (
-              <div className="flex flex-col gap-3">
-                {[0, 1].map((i) => (
-                  <div key={i} className="h-10 rounded bg-hover animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {insights.map((entry, i) => (
-                  <InsightEntry key={i} {...entry} />
-                ))}
-              </div>
-            )}
-          </Card>
-
-          <WeatherCard weather={summary?.weather} loading={weatherLoading} error={weatherError} onRefresh={handleRefreshWeather} />
         </div>
       </div>
 

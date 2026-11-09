@@ -87,6 +87,12 @@ const TehnikaToplivo = makeMergedScreen("tehnika", [
   { key: "toplivo", label: "⛽ Топливо", Page: Toplivo },
   { key: "putevye", label: "📝 Путевые листы", Page: Putevye },
 ]);
+// Шаг 3 разбора сайта (09.11.2026): «Формы и книги» — всё, что сдаётся
+// бумагой по лесу. Старые адреса tek_izm / kniga_lvlr — алиасы в nav.js.
+const Formy = makeMergedScreen("formy", [
+  { key: "tek_izm", label: "📑 Текущие изменения", Page: TekushchieIzmeneniya },
+  { key: "kniga", label: "📗 Книга ЛВ и ЛР", Page: KnigaLvlr },
+]);
 const Tabel = makeMergedScreen("tabel", [
   // Игровой вид (переключатель в шапке/Настройках) — «Перекличка» вместо
   // обычного ввода; обычный ввод никуда не делся.
@@ -143,7 +149,7 @@ const Zadachi = makeMergedScreen("zadachi", [
 // "dashboard"/"gallery" (моковые, из Этапа 3). Остальные пункты Sidebar
 // пока ведут на заглушку со ссылкой "что уже готово".
 const READY_SCREENS = {
-  dashboard: { title: "Дашборд", subtitle: "Обзор по всем делянкам за текущий период", Page: poVidu(Dashboard, DashboardIgra), search: true, primaryAction: true },
+  dashboard: { title: "Сегодня", subtitle: "Дела на сегодня, как идёт заготовка и когда закончим делянки", Page: poVidu(Dashboard, DashboardIgra), search: true, primaryAction: true },
   // Плоты сами управляют своим тулбаром (поиск, "Показывать архивные",
   // "Импорт МДО" в левой колонке) — по аналогии с Settings/Dashboard,
   // TopBar здесь без search/primaryAction, чтобы не дублировать поиск.
@@ -159,8 +165,7 @@ const READY_SCREENS = {
   forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: poVidu(Lesokultury, LesokulturyIgra) },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
   // Книга учёта площадей ЛВ и ЛР (прил. 6 Положения, Влад 09.11.2026).
-  kniga_lvlr: { title: "Книга ЛВ и ЛР", subtitle: "Книга учёта площадей лесовосстановления и лесоразведения: что вписать, развороты, вкладыш для печати", Page: KnigaLvlr },
-  tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса по приказу №130: прил. 1–15", Page: TekushchieIzmeneniya },
+  formy: { title: "Формы и книги", subtitle: "Текущие изменения (прил. 1–15 для Белгослеса) и Книга учёта площадей ЛВ и ЛР", Page: Formy },
   raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: poVidu(Raskhod, RaskhodIgra) },
   inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: poVidu(Inspection, InspectionIgra) },
   // C.3 плана — независимые пробы рубок ухода (не привязаны к делянке,
@@ -230,7 +235,10 @@ export default function App() {
     let saved = null;
     try {
       const raw = JSON.parse(localStorage.getItem(TABS_KEY) || "null");
-      const tabs = Array.isArray(raw?.tabs) ? raw.tabs.filter((t) => READY_SCREENS[t]) : [];
+      // старые ключи (tek_izm → formy и т.п.) — на новые, без повторов
+      const tabs = Array.isArray(raw?.tabs)
+        ? [...new Set(raw.tabs.map((t) => ALIASES[t]?.screen || t))].filter((t) => READY_SCREENS[t])
+        : [];
       if (tabs.length) {
         const rightId = tabs.includes(raw.rightId) ? raw.rightId : null;
         saved = { tabs, activeId: tabs.includes(raw.activeId) && raw.activeId !== rightId ? raw.activeId : tabs[0], rightId };

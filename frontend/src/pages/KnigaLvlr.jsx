@@ -38,7 +38,7 @@ const adres = (z) => (z.razvorot ? `разв. ${z.razvorot}, стр. ${z.stroka}
 
 export default function KnigaLvlr() {
   const toast = useToast();
-  const [tabParam, setTabState] = useScreenParam("kniga_lvlr", "tab");
+  const [tabParam, setTabState] = useScreenParam("formy", "kt");
   const tab = tabParam || "vpisat";
   const [kniga, setKniga] = useState(null);
   const [vpisat, setVpisat] = useState(null);
