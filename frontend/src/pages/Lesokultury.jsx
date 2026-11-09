@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState, useMemo } from "react";
+import QgisButton from "../components/QgisButton.jsx";
 import IspolniteliPicker from "../components/IspolniteliPicker.jsx";
 import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
@@ -752,6 +753,8 @@ function UchastokDetail({ uchastokId, onListChanged }) {
             <p className="text-muted text-sm mt-0.5">{uchastok.lesnichestvo || "—"} · заведён {(uchastok.created_at || "").slice(0, 10).split("-").reverse().join(".") || "—"}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <QgisButton tip="lesokultury" id={uchastok.id} kvartal={uchastok.kvartal} vydel={String(uchastok.vydel || "").split(/[,;]/)[0]}
+              lesnichestvo={uchastok.lesnichestvo} nazvanie={`кв. ${uchastok.kvartal || "—"} / выд. ${uchastok.vydel || "—"}`} />
             {uchastok.status !== "переведён" && (
               <Button variant="secondary" size="sm" onClick={() => handleStatusChange("переведён")} disabled={saving}>
                 🌲 В покрытые лесом

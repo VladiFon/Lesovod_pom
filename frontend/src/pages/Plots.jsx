@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import QgisButton from "../components/QgisButton.jsx";
 import { api, API_BASE_URL } from "../api/client.js";
 import { pollTask } from "../hooks/useTaskPolling.js";
 import Card from "../components/Card.jsx";
@@ -950,6 +951,8 @@ function PlotDetail({ delyankaId, onListChanged }) {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <QgisButton tip="delyanka" id={delyanka.id} kvartal={items[0]?.kvartal} vydel={items[0]?.vydel}
+              lesnichestvo={items[0]?.lesnichestvo} nazvanie={delyanka.nazvanie} />
             {/* Перекрёстные переходы — ряд DelyankaNav под заголовком
                 (Расход · Инспекция · Документы), шаг 4 разбора 03.11.2026. */}
             {delyanka.status === "активна" && can("delyanka.edit") && (

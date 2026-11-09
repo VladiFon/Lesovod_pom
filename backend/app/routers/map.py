@@ -890,3 +890,59 @@ def generate_map(lesnichestvo_num: str, background_tasks: BackgroundTasks,
     task_id = webext.create_task(conn, "generate_map")
     background_tasks.add_task(_run_generate_map, task_id, lesnichestvo_num, created_by)
     return {"task_id": task_id}
+
+
+# --------------------------------------------------------------------------- #
+#   «Показать в QGIS» (шаг 5 разбора сайта 09.11.2026)
+#
+#   Карта на сайте не нужна — для неё есть QGIS (Влад). Кнопка на сайте
+#   кладёт сюда «что показать», плагин «Лесовод-мост» раз в пару секунд
+#   спрашивает «есть новое?» и сам приближает карту к делянке / участку /
+#   выделу. Держим в памяти только последние запросы: после перезапуска
+#   сервера старые «покажи» никому не нужны.
+# --------------------------------------------------------------------------- #
+import itertools as _itertools
+import threading as _threading
+import time as _time
+
+_POKAZAT_ZHIVET_S = 90
+_pokazat_lock = _threading.Lock()
+_pokazat_schet = _itertools.count(int(_time.time()))
+_pokazat_poslednie: list = []
+
+
+class PokazatVQgisIn(BaseModel):
+    tip: str  # delyanka | lesokultury | vydel | proba
+    id: Optional[int] = None
+    kvartal: Optional[str] = None
+    vydel: Optional[str] = None
+    lesnichestvo: Optional[str] = None
+    nazvanie: Optional[str] = None
+
+
+@router.post("/qgis/pokazat")
+def post_pokazat_v_qgis(body: PokazatVQgisIn, user=Depends(get_current_user)):
+    if body.tip not in ("delyanka", "lesokultury", "vydel", "proba"):
+        raise HTTPException(400, "Неизвестно, что показать")
+    if not body.id and not body.kvartal:
+        raise HTTPException(400, "Нужен id или квартал")
+    with _pokazat_lock:
+        z = {**body.model_dump(), "nomer": next(_pokazat_schet), "kto": user.get("fio") or user.get("login"),
+             "kogda": _time.time()}
+        _pokazat_poslednie.append(z)
+        del _pokazat_poslednie[:-20]
+    return {"nomer": z["nomer"]}
+
+
+@router.get("/qgis/pokazat")
+def get_pokazat_v_qgis(token: str, posle: int = -1):
+    """Для плагина: последний запрос «покажи» новее posle (и не старше 90 с).
+    posle<0 — только узнать текущий номер, ничего не показывать (запуск QGIS)."""
+    _check_service_token(token)
+    with _pokazat_lock:
+        svezhie = [z for z in _pokazat_poslednie if _time.time() - z["kogda"] < _POKAZAT_ZHIVET_S]
+        posledniy = _pokazat_poslednie[-1]["nomer"] if _pokazat_poslednie else 0
+    if posle < 0:
+        return {"nomer": posledniy}
+    novye = [z for z in svezhie if z["nomer"] > posle]
+    return {"nomer": posledniy, "pokazat": novye[-1] if novye else None}

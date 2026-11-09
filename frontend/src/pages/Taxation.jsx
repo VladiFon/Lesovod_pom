@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import QgisButton from "../components/QgisButton.jsx";
 import { useCan } from "../auth.jsx";
 import { openScreen, useScreenParam } from "../nav.js";
 import ChelovekLink from "../components/ChelovekLink.jsx";
@@ -365,6 +366,8 @@ export default function Taxation() {
                 </div>
                 <div className="font-mono text-[10.5px] text-muted-2 mt-[3px]">лесничество {card.lesnichestvo || "—"}</div>
               </div>
+              <QgisButton tip="vydel" kvartal={card.kvartal_nomer} vydel={card.nomer} lesnichestvo={card.lesnichestvo}
+                nazvanie={`кв. ${card.kvartal_nomer} / выд. ${card.nomer}`} />
             </div>
 
             <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
