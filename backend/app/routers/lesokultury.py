@@ -94,11 +94,11 @@ def delete_uchastok(uchastok_id: int, conn=Depends(get_conn), _user=Depends(requ
         raise HTTPException(404, "Участок не найден")
     nazvanie = f"Кв. {u.get('kvartal') or '—'} / Выд. {u.get('vydel') or '—'}" + (f", {u.get('god_sozdaniya')} г." if u.get("god_sozdaniya") else "")
     snap = korzina.snapshot_uchastok(conn, uchastok_id)
-    korzina.polozhit(conn, "lesokultury_uchastok", uchastok_id, nazvanie,
+    korzina_id = korzina.polozhit(conn, "lesokultury_uchastok", uchastok_id, nazvanie,
                      snap, _user["login"])
     korzina.otvyazat(conn, snap)
     legacy_db.delete_lesokultury_uchastok(conn, uchastok_id)
-    return {"ok": True, "v_korzine": True}
+    return {"ok": True, "v_korzine": True, "korzina_id": korzina_id}
 
 
 class ObedinitIn(BaseModel):

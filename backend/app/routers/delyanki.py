@@ -231,11 +231,11 @@ def delete_delyanka(delyanka_id: int, user=Depends(require_permission("delyanka.
         raise HTTPException(404, "Делянка не найдена")
     # Сначала в корзину (можно вернуть 30 дней), потом прежнее удаление.
     snap = korzina.snapshot_delyanka(conn, delyanka_id)
-    korzina.polozhit(conn, "delyanka", delyanka_id, d.get("nazvanie"),
+    korzina_id = korzina.polozhit(conn, "delyanka", delyanka_id, d.get("nazvanie"),
                      snap, user["login"])
     korzina.otvyazat(conn, snap)
     delyanka.delete_delyanka(conn, delyanka_id)
-    return {"ok": True, "v_korzine": True}
+    return {"ok": True, "v_korzine": True, "korzina_id": korzina_id}
 
 
 @router.post("/{delyanka_id}/archive")

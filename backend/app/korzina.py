@@ -140,6 +140,8 @@ def polozhit(conn, tip, obj_id, nazvanie, snapshot, user_login):
         "INSERT INTO korzina (tip, obj_id, nazvanie, snapshot, deleted_by) VALUES (?, ?, ?, ?, ?)",
         (tip, obj_id, nazvanie, json.dumps(snapshot, ensure_ascii=False, default=str), user_login),
     )
+    # id записи корзины — сайт показывает «Удалено · Вернуть» (разбор 09.11.2026)
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     # Без commit: запись в корзину, отвязка и само удаление — одна
     # транзакция (её завершает commit в delete_delyanka / delete_uchastok).
 

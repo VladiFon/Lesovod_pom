@@ -883,11 +883,21 @@ function PlotDetail({ delyankaId, onListChanged }) {
 
   const handleDelete = async () => {
     const name = delyanka?.nazvanie || `делянку №${delyankaId}`;
-    if (!window.confirm(`Удалить ${name} вместе со всеми выделами и нарядами? Она попадёт в «Корзину» (Прочее → Корзина), оттуда её можно вернуть в течение 30 дней.`)) return;
+    // Разбор 09.11.2026: без «Вы уверены?» — удаление сразу, а в
+    // уведомлении 10 секунд кнопка «↩ Вернуть» (и 30 дней — Корзина).
     setBusyAction("delete");
     try {
-      await api.delete(`/delyanki/${delyankaId}`);
-      toast.show({ tone: "success", title: "Делянка удалена", description: "Вернуть можно в «Корзине» 30 дней" });
+      const res = await api.delete(`/delyanki/${delyankaId}`);
+      toast.show({
+        tone: "success", title: "Делянка удалена", description: "Вернуть можно в «Корзине» 30 дней",
+        duration: 10000,
+        action: res?.korzina_id ? {
+          label: "↩ Вернуть",
+          onClick: () => api.post(`/korzina/${res.korzina_id}/restore`)
+            .then(() => { toast.show({ tone: "success", title: "Вернул на место" }); onListChanged(true); })
+            .catch((e) => toast.show({ tone: "danger", title: "Не удалось вернуть", description: e.message })),
+        } : undefined,
+      });
       onListChanged(true);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
