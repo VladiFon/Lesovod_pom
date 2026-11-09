@@ -531,11 +531,10 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
           </p>
         )}
         <TextField label="№ лесорубочного билета" value={nomer} onChange={(e) => setNomer(e.target.value)} />
-        <TextField
+        <DateField
           label="Дата лесорубочного билета"
-          placeholder="ДД.ММ.ГГГГ"
           value={data}
-          onChange={(e) => setData(normalizeDateInput(e.target.value))}
+          onChange={(v) => setData(normalizeDateInput(v))}
         />
         <p className="text-[12.5px] text-muted-2 -mb-2">Сроки из билета — по ним Инспекция считает срок акта и шлёт напоминания:</p>
         <div className="grid grid-cols-2 gap-3">
@@ -1180,11 +1179,10 @@ function PlotDetail({ delyankaId, onListChanged }) {
                   value={form.listok_obnaruzhil_fio}
                   onChange={setField("listok_obnaruzhil_fio")}
                 />
-                <TextField
+                <DateField
                   label="Обнаружил, дата"
-                  placeholder="ДД.ММ.ГГГГ"
                   value={form.listok_obnaruzhil_data}
-                  onChange={setField("listok_obnaruzhil_data")}
+                  onChange={(v) => setField("listok_obnaruzhil_data")({ target: { value: v } })}
                 />
               </div>
               <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
@@ -1198,11 +1196,10 @@ function PlotDetail({ delyankaId, onListChanged }) {
                   value={form.listok_proveril_fio}
                   onChange={setField("listok_proveril_fio")}
                 />
-                <TextField
+                <DateField
                   label="Проверил, дата"
-                  placeholder="ДД.ММ.ГГГГ"
                   value={form.listok_proveril_data}
-                  onChange={setField("listok_proveril_data")}
+                  onChange={(v) => setField("listok_proveril_data")({ target: { value: v } })}
                 />
               </div>
               <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">

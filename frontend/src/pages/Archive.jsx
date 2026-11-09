@@ -3,6 +3,7 @@ import { api, API_BASE_URL } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
+import DateField from "../components/DateField.jsx";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
@@ -130,7 +131,7 @@ function UploadModal({ open, onClose, docTypes, onUploaded }) {
               ))}
             </select>
           </div>
-          <TextField label="Дата документа" placeholder="ДД.ММ.ГГГГ" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
+          <DateField label="Дата документа" value={docDate} onChange={setDocDate} />
         </div>
         <TextField label="Ключевые слова / теги" placeholder="через запятую" value={tags} onChange={(e) => setTags(e.target.value)} />
       </div>

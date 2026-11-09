@@ -4,6 +4,7 @@ import { pollTask } from "../hooks/useTaskPolling.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
+import DateField from "../components/DateField.jsx";
 import TextAreaField from "../components/TextAreaField.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Modal from "../components/Modal.jsx";
@@ -510,6 +511,24 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
   // limitKubaturaTotal приходят с /raskhod/items/{id}/ploshad через
   // ItemWorkspace — если МДО ещё не загружен (лимита нет) или у выдела
   // не указана площадь, честно предупреждаем вместо тихого деления на 0.
+  // Разбор 09.11.2026: площадь считается сама по кубатуре, пока её не
+  // поправили руками (тогда 🧮 — пересчитать заново).
+  const [ploshadRuchnaya, setPloshadRuchnaya] = useState(false);
+
+  const raschetPloshadi = (rows) => {
+    if (!limitKubaturaTotal || limitKubaturaTotal <= 0 || !ploshadDelyanki || ploshadDelyanki <= 0) return null;
+    const kubaturaNaryada = rows.reduce((sum, p) => sum + (Number(p.obyom) || 0), 0);
+    if (kubaturaNaryada <= 0) return "";
+    return ((kubaturaNaryada * ploshadDelyanki) / limitKubaturaTotal).toFixed(2);
+  };
+
+  useEffect(() => {
+    if (!open || ploshadRuchnaya) return;
+    const v = raschetPloshadi(pozitsii);
+    if (v != null) setPloshad(v);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pozitsii, open, ploshadRuchnaya]);
+
   const handleCalcPloshad = () => {
     if (!limitKubaturaTotal || limitKubaturaTotal <= 0) {
       toast.show({
@@ -526,6 +545,7 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
     const kubaturaNaryada = pozitsii.reduce((sum, p) => sum + (Number(p.obyom) || 0), 0);
     const calculated = (kubaturaNaryada * ploshadDelyanki) / limitKubaturaTotal;
     setPloshad(calculated.toFixed(2));
+    setPloshadRuchnaya(false);
   };
 
   useEffect(() => {
@@ -536,9 +556,14 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
       setPloshad(editing.ploshad || "");
       setPrimechanie(editing.primechanie || "");
       setPozitsii(editing.pozitsii?.length ? editing.pozitsii.map((p) => ({ ...p, obyom: String(p.obyom) })) : [emptyPozitsiya()]);
+      setPloshadRuchnaya(true); // у сохранённого наряда площадь не трогаем
     } else {
-      setData("");
-      setNomer("");
+      // Разбор 09.11.2026: дата — сегодня, № — следующий после последнего.
+      const d = new Date();
+      setData(`${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`);
+      const nomera = (naryady || []).map((n) => parseInt(String(n.nomer_naryada || "").replace(/\D+/g, ""), 10)).filter((x) => Number.isFinite(x));
+      setNomer(nomera.length ? String(Math.max(...nomera) + 1) : "");
+      setPloshadRuchnaya(false);
       setPloshad("");
       setPrimechanie("");
       setPozitsii([emptyPozitsiya()]);
@@ -555,6 +580,16 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
   const handleSubmit = async () => {
     if (!data.trim()) {
       toast.show({ tone: "warning", title: "Укажите дату наряда" });
+      return;
+    }
+    // Раньше строка с породой, но без объёма молча выкидывалась.
+    const nedopisany = pozitsii.filter((p) => (p.poroda && p.obyom === "") || (!p.poroda && p.obyom !== ""));
+    if (nedopisany.length) {
+      toast.show({
+        tone: "warning",
+        title: "Не все строки дописаны",
+        description: nedopisany.map((p) => (p.poroda ? `${p.poroda}: нет объёма` : `объём ${p.obyom} м³ без породы`)).join("; ") + ". Допишите или удалите строку ✕.",
+      });
       return;
     }
     const preduprezhdeniya = naryadPreduprezhdeniya({ pozitsii, naryady, editing, limit: limitKubaturaTotal || 0 });
@@ -599,12 +634,12 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
     >
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-3 gap-4">
-          <TextField label="Дата" placeholder="ДД.ММ.ГГГГ" value={data} onChange={(e) => setData(e.target.value)} />
+          <DateField label="Дата" value={data} onChange={setData} />
           <TextField label="№ наряда" value={nomer} onChange={(e) => setNomer(e.target.value)} />
           <TextField
-            label="Площадь, га"
+            label={ploshadRuchnaya ? "Площадь, га" : "Площадь, га (считается сама)"}
             value={ploshad}
-            onChange={(e) => setPloshad(e.target.value)}
+            onChange={(e) => { setPloshad(e.target.value); setPloshadRuchnaya(true); }}
             suffix={
               <button
                 type="button"

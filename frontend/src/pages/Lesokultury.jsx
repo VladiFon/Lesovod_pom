@@ -4,6 +4,7 @@ import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
+import DateField from "../components/DateField.jsx";
 import TextAreaField from "../components/TextAreaField.jsx";
 import DataTable from "../components/DataTable.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
@@ -480,7 +481,7 @@ function AddMeropriyatieForm({ uchastokId, zapis, onAdded, onStatusChanged, onCa
             ))}
           </select>
         </div>
-        <TextField label="Дата" placeholder="ДД.ММ.ГГГГ" value={data} onChange={(e) => setData(e.target.value)} />
+        <DateField label="Дата" value={data} onChange={setData} />
         <TextField
           label="Приживаемость, %"
           type="number"
