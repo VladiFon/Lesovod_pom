@@ -35,7 +35,7 @@ NASTROYKI_DEFAULT = {
     "nachalo_nomer": 847,      # первый № п/п, который ведёт программа (2026 год)
     "nachalo_razvorot": 1,     # где он стоит в бумажной книге
     "nachalo_stroka": 1,
-    "kultury_s_goda": 2026,    # участки культур старше — не предлагать как новые строки
+    "kultury_s_goda": 2026,    # билеты и списания раньше этого года — не предлагать (уже в бумажной книге)
     "shiriny_1": SHIRINY_1,
     "shiriny_2": SHIRINY_2,
     "shrift_pt": 7,
@@ -79,7 +79,13 @@ AVTO_GRAFY = {2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 20, 21, 22}
 
 VIDY_ZEMEL = ["вырубка", "гарь", "прогалина", "пустырь", "редина", "погибшие насаждения",
               "погибшие лесные культуры", "несомкнувшиеся культуры", "земли сельхозназначения"]
-SPLOSHNYE_KODY = {"СПЛ", "ССР"}
+SPLOSHNYE_KODY = {"СПЛ", "ССР", "РСП", "РР"}
+# Какие рубки идут в книгу (Влад, 09.11.2026): все, кроме выборочных — сплошные
+# главного пользования, сплошные санитарные, с сохранением подроста,
+# реконструкции, постепенные. Рубки ухода, выборочные санитарные и прочие — нет.
+# Вид не распознан — тоже предлагаем (с пометкой), пусть решит человек.
+V_KNIGU_KODY = SPLOSHNYE_KODY | {"ПСТ"}
+VID_SPISANIE = "spisanie"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kniga_lvlr (
@@ -92,6 +98,7 @@ CREATE TABLE IF NOT EXISTS kniga_lvlr (
     grafy_json TEXT NOT NULL DEFAULT '{}',
     na_bumage_json TEXT NOT NULL DEFAULT '{}',
     primechanie TEXT,
+    vid TEXT,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
@@ -112,6 +119,9 @@ PORODY = [
 
 def ensure(conn) -> None:
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(kniga_lvlr)").fetchall()}
+    if "vid" not in cols:  # строка из списания культур — 'spisanie'
+        conn.execute("ALTER TABLE kniga_lvlr ADD COLUMN vid TEXT")
 
 
 # --------------------------------------------------------------------------- #
@@ -440,6 +450,28 @@ def avto_iz_uchastka(conn, uid) -> Dict[int, str]:
     return {k: v for k, v in g.items() if v}
 
 
+def spisanie_uchastka(u) -> Optional[dict]:
+    """Последняя запись «Списание» в журнале участка (или None)."""
+    sp = [m for m in u["zhurnal"] if (m["tip"] or "") == "Списание"]
+    return sp[-1] if sp else None
+
+
+def avto_iz_spisaniya(conn, uid) -> Dict[int, str]:
+    """Списанные лесные культуры — новая строка книги: участок снова ждёт
+    лесовосстановления (вид земель «погибшие лесные культуры»)."""
+    u = _uchastok(conn, uid)
+    if u is None:
+        return {}
+    m = spisanie_uchastka(u) or {}
+    d = m.get("dannye") or {}
+    pl = _num(d.get("ploshad")) or _num(u.get("ploshad"))
+    t = _vydel(conn, u.get("lesnichestvo"), u.get("kvartal"), u.get("vydel_staryy") or u.get("vydel"))
+    tlu = u.get("tlu") or t.get("tlu") or ""
+    g: Dict[int, str] = {2: _mesto_uchastka(u), 3: d.get("vid_zemel") or "погибшие лесные культуры",
+                         4: " — ".join(x for x in (fmt(pl), tlu) if x)}
+    return {k: v for k, v in g.items() if v}
+
+
 def privyazannyy_uchastok(conn, did) -> Optional[int]:
     r = conn.execute("SELECT id FROM lesokultury_uchastok WHERE delyanka_id = ? "
                      "AND (status IS NULL OR status != 'удалён') ORDER BY id LIMIT 1", (did,)).fetchone()
@@ -448,6 +480,8 @@ def privyazannyy_uchastok(conn, did) -> Optional[int]:
 
 def avto(conn, z: dict) -> Dict[int, str]:
     """Что программа подставила бы в графы этой строки сейчас."""
+    if z.get("vid") == VID_SPISANIE and z.get("uchastok_id"):
+        return avto_iz_spisaniya(conn, z["uchastok_id"])
     if z.get("delyanka_id"):
         g = avto_iz_delyanki(conn, z["delyanka_id"])
         if z.get("uchastok_id") and z["uchastok_id"] != privyazannyy_uchastok(conn, z["delyanka_id"]):
@@ -465,7 +499,7 @@ def avto(conn, z: dict) -> Dict[int, str]:
 #   Записи книги и их адрес на бумаге
 # --------------------------------------------------------------------------- #
 _COLS = ["id", "nomer", "god", "strok", "delyanka_id", "uchastok_id", "grafy_json", "na_bumage_json",
-         "primechanie", "created_at", "updated_at"]
+         "primechanie", "created_at", "updated_at", "vid"]
 
 
 def _zapis(r) -> dict:
@@ -505,11 +539,28 @@ def sleduyushchiy_nomer(conn) -> int:
     return max((r[0] or 0) + 1, n["nachalo_nomer"])
 
 
-def sozdat(conn, delyanka_id=None, uchastok_id=None, grafy=None, god=None) -> dict:
+def sozdat(conn, delyanka_id=None, uchastok_id=None, grafy=None, god=None, vid=None) -> dict:
     ensure(conn)
+    if vid == VID_SPISANIE:
+        if not uchastok_id:
+            raise ValueError("Для списания нужен участок культур")
+        if conn.execute("SELECT 1 FROM kniga_lvlr WHERE uchastok_id = ? AND vid = ?", (uchastok_id, vid)).fetchone():
+            raise ValueError("Списание этого участка уже есть в книге")
+        g = avto_iz_spisaniya(conn, uchastok_id)
+        for k, v in (grafy or {}).items():
+            if int(k) in GRAFY:
+                g[int(k)] = str(v or "").strip()
+        nomer = sleduyushchiy_nomer(conn)
+        cur = conn.execute(
+            "INSERT INTO kniga_lvlr(nomer, god, uchastok_id, vid, grafy_json) VALUES (?, ?, ?, ?, ?)",
+            (nomer, god or date.today().year, uchastok_id, vid,
+             json.dumps({str(k): v for k, v in g.items() if v}, ensure_ascii=False)))
+        conn.commit()
+        return zapis(conn, cur.lastrowid)
     if delyanka_id and conn.execute("SELECT 1 FROM kniga_lvlr WHERE delyanka_id = ?", (delyanka_id,)).fetchone():
         raise ValueError("Эта делянка уже есть в книге")
-    if uchastok_id and conn.execute("SELECT 1 FROM kniga_lvlr WHERE uchastok_id = ?", (uchastok_id,)).fetchone():
+    if uchastok_id and conn.execute("SELECT 1 FROM kniga_lvlr WHERE uchastok_id = ? AND COALESCE(vid, '') != ?",
+                                    (uchastok_id, VID_SPISANIE)).fetchone():
         raise ValueError("Этот участок культур уже есть в книге")
     g = {}
     if delyanka_id or uchastok_id:
@@ -552,8 +603,8 @@ def obnovit(conn, zid, grafy=None, strok=None, primechanie=None, uchastok_id=...
         sets.append("primechanie = ?")
         params.append(primechanie)
     if uchastok_id is not ...:
-        if uchastok_id and conn.execute("SELECT 1 FROM kniga_lvlr WHERE uchastok_id = ? AND id != ?",
-                                        (uchastok_id, zid)).fetchone():
+        if uchastok_id and conn.execute("SELECT 1 FROM kniga_lvlr WHERE uchastok_id = ? AND id != ? "
+                                        "AND COALESCE(vid, '') != ?", (uchastok_id, zid, VID_SPISANIE)).fetchone():
             raise ValueError("Этот участок культур уже привязан к другой строке книги")
         sets.append("uchastok_id = ?")
         params.append(uchastok_id)
@@ -607,38 +658,48 @@ def chto_vpisat(conn, vse_rubki: bool = False) -> dict:
     v_knige_d = {z["delyanka_id"] for z in vse if z["delyanka_id"]}
     v_knige_u = {z["uchastok_id"] for z in vse if z["uchastok_id"]}
 
-    # 1) Делянки с актом (или справкой стороннего заготовителя) — новая строка.
+    # 1) Делянки — как только выписан лесорубочный билет (и свои, и сторонние);
+    #    акт освидетельствования потом сам попадёт в «дописать» (гр. 10).
     novye = []
-    ids = {r[0] for r in conn.execute("SELECT DISTINCT delyanka_id FROM osvidetelstvovanie_acts").fetchall()}
-    try:
-        ids |= {r[0] for r in conn.execute(
-            "SELECT id FROM delyanka WHERE zagotovka_storonnyaya = 1 AND storonnyaya_json LIKE '%ploshad_fakt%'").fetchall()}
-    except Exception:  # noqa: BLE001 — старая база без колонок сторонней заготовки
-        pass
-    for did in sorted(ids - v_knige_d):
+    s_goda = n["kultury_s_goda"]
+    for did, bilet, data_b, status in conn.execute(
+            "SELECT id, nomer_lesorubochnogo_bileta, data_lesorubochnogo_bileta, status FROM delyanka "
+            "WHERE TRIM(COALESCE(nomer_lesorubochnogo_bileta, '')) != ''").fetchall():
+        if did in v_knige_d or status == "удалена":
+            continue
+        god_b = _god(data_b)
+        if god_b and god_b < s_goda:
+            continue
         d = _delyanka(conn, did)
-        if d is None or d.get("status") == "удалена":
+        if d is None:
             continue
         kody = vid_rubki_kody(d)
-        sploshnaya = bool(set(kody) & SPLOSHNYE_KODY)
-        if not sploshnaya and not vse_rubki:
+        v_knigu = bool(set(kody) & V_KNIGU_KODY)
+        neizvesten = not kody
+        if not (v_knigu or neizvesten or vse_rubki):
             continue
         akt = _akt(conn, did) or {}
         g = avto_iz_delyanki(conn, did)
         novye.append({"tip": "delyanka", "delyanka_id": did, "mesto": g.get(2) or d.get("nazvanie"),
-                      "akt_data": akt.get("act_date") or "", "sploshnaya": sploshnaya,
+                      "akt_data": akt.get("act_date") or "", "bilet": f"№{bilet} от {data_b}" if data_b else f"№{bilet}",
+                      "sploshnaya": v_knigu, "vid_neizvesten": neizvesten,
+                      "storonnyaya": bool(d.get("zagotovka_storonnyaya")),
                       "vid_rubki": ", ".join(kody), "grafy": g})
-    # 2) Новые участки культур не на месте делянки из книги.
-    for uid, did, god in conn.execute(
-            "SELECT id, delyanka_id, god_sozdaniya FROM lesokultury_uchastok "
-            "WHERE status IS NULL OR status NOT IN ('списан', 'удалён')").fetchall():
-        if uid in v_knige_u or (did and did in v_knige_d):
+    # 2) Списанные лесные культуры (созданные культуры отдельной строкой не вносятся).
+    spisany = {z["uchastok_id"] for z in vse if z.get("vid") == VID_SPISANIE}
+    for (uid,) in conn.execute("SELECT DISTINCT uchastok_id FROM lesokultury_meropriyatiya WHERE tip = 'Списание'").fetchall():
+        if uid in spisany:
             continue
-        if (_god(god) or 0) < n["kultury_s_goda"]:
+        u = _uchastok(conn, uid)
+        if u is None:
             continue
-        g = avto_iz_uchastka(conn, uid)
-        novye.append({"tip": "uchastok", "uchastok_id": uid, "delyanka_id": did, "mesto": g.get(2),
-                      "akt_data": "", "sploshnaya": False, "vid_rubki": "", "grafy": g})
+        m = spisanie_uchastka(u) or {}
+        god_s = _god((m.get("dannye") or {}).get("akt_data")) or _god(m.get("data"))
+        if god_s and god_s < s_goda:
+            continue
+        g = avto_iz_spisaniya(conn, uid)
+        novye.append({"tip": "spisanie", "uchastok_id": uid, "delyanka_id": u.get("delyanka_id"), "mesto": g.get(2),
+                      "akt_data": _kd(m.get("data")), "sploshnaya": False, "vid_rubki": "", "grafy": g})
 
     # 3) В строках книги: программа знает больше, чем записано (пусто → есть).
     dopisat, rashozhdeniya, na_bumagu = [], [], []

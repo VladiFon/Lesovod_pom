@@ -99,7 +99,9 @@ function ChtoVpisat({ d, kniga, vseRubki, setVseRubki, reload, oshibka, otkryt }
     setZanyat(true);
     try { await fn(); await reload(); } catch (e) { oshibka(title)(e); } finally { setZanyat(false); }
   };
-  const vnesti = (x) => raz(() => api.post("/kniga-lvlr", { delyanka_id: x.tip === "delyanka" ? x.delyanka_id : null, uchastok_id: x.tip === "uchastok" ? x.uchastok_id : null }), "Не внеслось");
+  const vnesti = (x) => raz(() => api.post("/kniga-lvlr", x.tip === "delyanka"
+    ? { delyanka_id: x.delyanka_id }
+    : { uchastok_id: x.uchastok_id, vid: x.tip === "spisanie" ? "spisanie" : null }), "Не внеслось");
   const dopisat = (spisok) => raz(async () => {
     const po = {};
     spisok.forEach((x) => { (po[x.id] = po[x.id] || {})[x.grafa] = x.znachenie || x.seychas; });
@@ -116,23 +118,27 @@ function ChtoVpisat({ d, kniga, vseRubki, setVseRubki, reload, oshibka, otkryt }
   return (
     <>
       <div style={{ ...karta, background: C.moss, borderColor: "#cfe5d3", fontSize: 13 }}>
-        Следующий № п/п — <b>{d.sleduyushchiy_nomer}</b>. Программа следит за актами освидетельствования, лесными культурами
-        (техприёмка, перевод, списание) и подсказывает, что и куда вписать в бумажную книгу.
+        Следующий № п/п — <b>{d.sleduyushchiy_nomer}</b>. В книгу идут делянки сразу после выписки лесорубочного билета
+        (все рубки, кроме выборочных и рубок ухода, в том числе сторонние) и списанные лесные культуры. Акт освидетельствования,
+        посадка культур и перевод потом сами попадут в «дописать» — с адресом в бумажной книге.
       </div>
-      {pusto && <div style={{ ...karta, textAlign: "center", color: C.muted }}>Всё вписано 👌 Новое появится, когда будет акт по делянке или запись в журнале культур.</div>}
+      {pusto && <div style={{ ...karta, textAlign: "center", color: C.muted }}>Всё вписано 👌 Новое появится, когда на делянку выпишут билет, будет акт или запись в журнале культур.</div>}
 
       {(d.novye.length > 0 || vseRubki) && (
         <div style={karta}>
           <div className="flex flex-wrap items-center" style={{ gap: 10, marginBottom: 8 }}>
             <b>Новые строки ({d.novye.length})</b>
-            <label style={{ fontSize: 12, color: C.muted }}><input type="checkbox" checked={vseRubki} onChange={(e) => setVseRubki(e.target.checked)} /> показать и несплошные рубки</label>
+            <label style={{ fontSize: 12, color: C.muted }}><input type="checkbox" checked={vseRubki} onChange={(e) => setVseRubki(e.target.checked)} /> показать и выборочные рубки / рубки ухода</label>
           </div>
           {d.novye.map((x) => (
             <div key={`${x.tip}${x.delyanka_id || ""}${x.uchastok_id || ""}`} className="flex items-start" style={{ gap: 10, padding: "8px 0", borderTop: `1px solid ${C.line}` }}>
-              <span style={{ fontSize: 20 }}>{x.tip === "delyanka" ? "🪓" : "🌱"}</span>
+              <span style={{ fontSize: 20 }}>{x.tip === "delyanka" ? "🪓" : "🥀"}</span>
               <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
                 <div><b>{x.mesto || "без места"}</b>
-                  <span style={{ color: C.muted }}>{x.tip === "delyanka" ? ` · делянка${x.akt_data ? `, акт от ${x.akt_data}` : ""}${x.vid_rubki ? ` · ${x.vid_rubki}` : ""}` : " · участок лесных культур"}</span></div>
+                  <span style={{ color: C.muted }}>{x.tip === "delyanka"
+                    ? ` · билет ${x.bilet || ""}${x.akt_data ? ` · акт от ${x.akt_data}` : " · без акта (гр. 10 допишется после освид.)"}${x.vid_rubki ? ` · ${x.vid_rubki}` : ""}${x.storonnyaya ? " · рубит сторонний" : ""}`
+                    : ` · списанные лесные культуры${x.akt_data ? `, ${x.akt_data}` : ""}`}</span>
+                  {x.vid_neizvesten && <span style={{ color: "#a06800", fontSize: 12 }}> · ⚠ вид рубки не определён — проверьте, что она не выборочная</span>}</div>
                 <Grafy grafy={x.grafy} nazvaniya={kniga.nazvaniya} />
               </div>
               <button type="button" disabled={zanyat} onClick={() => vnesti(x)} style={btn}>Внести №{d.sleduyushchiy_nomer}</button>
@@ -405,7 +411,7 @@ function Pechat({ kniga, reload, oshibka, toast }) {
           {num("nachalo_nomer", "Первый № в программе")}
           {num("nachalo_razvorot", "Он стоит на развороте")}
           {num("nachalo_stroka", "в строке")}
-          {num("kultury_s_goda", "Культуры предлагать с года")}
+          {num("kultury_s_goda", "Билеты и списания с года")}
           {num("shrift_pt", "Шрифт, pt", 70)}
         </div>
         <div style={{ display: "grid", gap: 8, marginTop: 10 }}>

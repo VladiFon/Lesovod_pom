@@ -31,6 +31,7 @@ DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 class NovayaIn(BaseModel):
     delyanka_id: Optional[int] = None
     uchastok_id: Optional[int] = None
+    vid: Optional[str] = None  # 'spisanie' — строка из списания культур
     grafy: Dict[str, str] = {}
 
 
@@ -116,7 +117,7 @@ def predprosmotr(delyanka_id: Optional[int] = None, uchastok_id: Optional[int] =
 @router.post("")
 def sozdat(body: NovayaIn, conn=Depends(get_conn), _u=Depends(require_permission(PRAVO))):
     try:
-        z = kn.sozdat(conn, body.delyanka_id, body.uchastok_id, body.grafy)
+        z = kn.sozdat(conn, body.delyanka_id, body.uchastok_id, body.grafy, vid=body.vid)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return _otvet(z)
