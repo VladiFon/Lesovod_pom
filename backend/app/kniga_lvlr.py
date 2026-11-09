@@ -710,6 +710,8 @@ def _sovpadaet(a, b) -> bool:
     a, b = _norm_mesto(a), _norm_mesto(b)
     if not a or not b:
         return True  # не указано — не считаем чужим
+    if re.findall(r"\d+", a) != re.findall(r"\d+", b):
+        return False  # «Лесопункт №1» ≠ «Лесопункт №2»
     return a[:6] == b[:6] or a in b or b in a
 
 
@@ -724,6 +726,31 @@ def lesnichestva(conn) -> List[dict]:
     return out
 
 
+# Лесничества Влада (Настройки сайта → «Лесничество по умолчанию»).
+SPISOK_LESNICHESTV = [
+    "Болбасовское лесничество", "Дубровенское лесничество", "Кленовское лесничество",
+    "Клюковское лесничество", "Копысское лесничество", "Лесопункт №1", "Лесопункт №2",
+    "Ореховское лесничество", "Оршанское лесничество", "Осинторфское лесничество",
+]
+
+
+def nazvanie_lesnichestva(znach) -> str:
+    """Номер («5») или любое написание → название из списка; иначе как есть."""
+    t = str(znach or "").strip()
+    if not t:
+        return ""
+    if t.isdigit():
+        try:
+            from app import map_features
+            t = map_features.canonical_lesnichestvo(t) or t
+        except Exception:  # noqa: BLE001
+            pass
+    for x in SPISOK_LESNICHESTV:
+        if _norm_mesto(x) and _norm_mesto(x) == _norm_mesto(t):
+            return x
+    return t
+
+
 def svoe(conn, n: Optional[dict] = None) -> dict:
     """Своё лесничество — главное (Влад 09.11: решаем по лесничеству, не по
     лесхозу). Из настроек книги, иначе из Настроек (вход), иначе самое
@@ -733,7 +760,7 @@ def svoe(conn, n: Optional[dict] = None) -> dict:
     if not ln:
         try:
             r = conn.execute("SELECT lesnichestvo FROM app_login WHERE id = 1").fetchone()
-            ln = (r[0] if r else "") or ""
+            ln = nazvanie_lesnichestva((r[0] if r else "") or "")
         except Exception:  # noqa: BLE001
             ln = ""
     if not ln:
