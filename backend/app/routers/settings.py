@@ -17,6 +17,7 @@ import key_test as legacy_key_test
 import mdo_parser as legacy_mdo_parser
 import secrets_store
 
+from app import kniga_lvlr
 from app.auth import require_permission
 from app.database import get_conn
 
@@ -25,7 +26,11 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 @router.get("/lesnichiy")
 def get_lesnichiy(conn=Depends(get_conn)):
-    return legacy_db.get_app_login(conn)
+    d = legacy_db.get_app_login(conn)
+    if d and d.get("lesnichestvo"):
+        # раньше могло сохраниться номером («5») — показываем названием
+        d = {**d, "lesnichestvo": kniga_lvlr.nazvanie_lesnichestva(d["lesnichestvo"])}
+    return d
 
 
 class LesnichiyIn(BaseModel):
@@ -42,8 +47,12 @@ def set_lesnichiy(body: LesnichiyIn, conn=Depends(get_conn), _user=Depends(requi
 
 @router.get("/lesnichestva")
 def list_lesnichestva():
-    """Названия лесничеств из LCH_MAP (legacy/config.py + legacy/lch_map.json)."""
-    return list(legacy_config.LCH_MAP.keys())
+    """Список для выбора: лесничества Влада + прочие из LCH_MAP."""
+    out = list(kniga_lvlr.SPISOK_LESNICHESTV)
+    for k in legacy_config.LCH_MAP.keys():
+        if kniga_lvlr.nazvanie_lesnichestva(k) not in out:
+            out.append(k)
+    return out
 
 
 @router.get("/harvest-plan")

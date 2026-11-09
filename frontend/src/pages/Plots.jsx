@@ -17,6 +17,7 @@ import { useLegendy } from "../hooks/useLegendy.js";
 import { useCan } from "../auth.jsx";
 import StoronnyayaBlock from "../components/StoronnyayaBlock.jsx";
 import HvorostBlock from "../components/HvorostBlock.jsx";
+import KnigaLvlrBlock from "../components/KnigaLvlrBlock.jsx";
 import OsvoenieBadge from "../components/OsvoenieBadge.jsx";
 import { useScreenParam } from "../nav.js";
 import DelyankaNav, { EtapBadge } from "../components/DelyankaNav.jsx";
@@ -987,6 +988,8 @@ function PlotDetail({ delyankaId, onListChanged }) {
           <StoronnyayaBlock row={{ id: delyanka.id }} onChanged={() => { load(); onListChanged(); }} />
         )}
         {delyanka.status !== "черновик" && can("inspection.edit") && <HvorostBlock delyankaId={delyanka.id} />}
+        {/* Книга учёта площадей ЛВ и ЛР: в книге ли делянка, своя или чужая. */}
+        <KnigaLvlrBlock delyankaId={delyanka.id} canEdit={can("lesokultury.edit")} />
 
         <Modal open={!!chastiItem} onClose={() => setChastiItem(null)} title="Площадь по выделам" size="lg">
           {chastiItem && (

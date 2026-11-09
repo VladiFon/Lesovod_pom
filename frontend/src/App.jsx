@@ -8,6 +8,7 @@ import Documents from "./pages/Documents.jsx";
 import Taxation from "./pages/Taxation.jsx";
 import Lesokultury from "./pages/Lesokultury.jsx";
 import TekushchieIzmeneniya from "./pages/TekushchieIzmeneniya.jsx";
+import KnigaLvlr from "./pages/KnigaLvlr.jsx";
 import Raskhod from "./pages/Raskhod.jsx";
 import Inspection from "./pages/Inspection.jsx";
 import RubkiUhoda from "./pages/RubkiUhoda.jsx";
@@ -148,6 +149,8 @@ const READY_SCREENS = {
   taxation: { title: "Выдел", subtitle: "Таксация выдела и его жизнь: делянки, культуры, рубки ухода, кто работал", Page: Taxation },
   forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: poVidu(Lesokultury, LesokulturyIgra) },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
+  // Книга учёта площадей ЛВ и ЛР (прил. 6 Положения, Влад 09.11.2026).
+  kniga_lvlr: { title: "Книга ЛВ и ЛР", subtitle: "Книга учёта площадей лесовосстановления и лесоразведения: что вписать, развороты, вкладыш для печати", Page: KnigaLvlr },
   tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса по приказу №130: прил. 1–15", Page: TekushchieIzmeneniya },
   raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: poVidu(Raskhod, RaskhodIgra) },
   inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: poVidu(Inspection, InspectionIgra) },

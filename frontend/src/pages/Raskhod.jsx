@@ -299,7 +299,8 @@ function EgaisReviewModal({ open, onClose }) {
       // тогда фильтр не показываем, сравнивать не с чем.
       .then((l) => {
         const v = String(l?.lesnichestvo || "").trim();
-        setMoeLesnichestvo(/^\d+$/.test(v) ? "" : v);
+        // «Болбасовское лесничество» → «Болбасовское», чтобы совпадало с любым написанием
+        setMoeLesnichestvo(/^\d+$/.test(v) ? "" : v.replace(/\s*лесничество\s*$/i, "").trim());
       })
       .catch(() => {});
   }, [open]);

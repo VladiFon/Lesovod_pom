@@ -18,7 +18,7 @@ export const NAV_GROUPS = [
     title: "заготовка",
     items: [["plots", "Делянки"], ["raskhod", "Расход / ЕГАИС"], ["inspection", "Инспекция"], ["documents", "Документы"], ["raspredelenie", "Бригады"]],
   },
-  { title: "лес", items: [["taxation", "Выдел"], ["forestry", "Лесокультуры"], ["uhody", "Рубки ухода"], ["tek_izm", "Текущие изменения"]] },
+  { title: "лес", items: [["taxation", "Выдел"], ["forestry", "Лесокультуры"], ["kniga_lvlr", "Книга ЛВ и ЛР"], ["uhody", "Рубки ухода"], ["tek_izm", "Текущие изменения"]] },
   {
     title: "люди и техника",
     items: [

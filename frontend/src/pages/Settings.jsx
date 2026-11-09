@@ -872,19 +872,21 @@ export default function Settings({ currentUser }) {
             onChange={(e) => setLesnichiy((s) => ({ ...s, dolzhnost: e.target.value }))}
           />
           <div className="sm:col-span-2">
-            <TextField
-              label="Лесничество по умолчанию"
-              placeholder={lesnichestva.length ? "Выберите или введите вручную" : "Справочник недоступен — введите вручную"}
+            <label className="block text-[11.5px] font-semibold text-muted mb-1">Лесничество по умолчанию</label>
+            <select
               value={lesnichiy.lesnichestvo}
               disabled={loadingLesnichiy}
-              list="lesnichestva-list"
               onChange={(e) => setLesnichiy((s) => ({ ...s, lesnichestvo: e.target.value }))}
-            />
-            <datalist id="lesnichestva-list">
+              className="w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-9 text-[13.5px] text-ink outline-none"
+            >
+              <option value="">— выберите лесничество —</option>
+              {lesnichiy.lesnichestvo && !lesnichestva.includes(lesnichiy.lesnichestvo) && (
+                <option value={lesnichiy.lesnichestvo}>{lesnichiy.lesnichestvo} (сохранено раньше)</option>
+              )}
               {lesnichestva.map((name) => (
-                <option key={name} value={name} />
+                <option key={name} value={name}>{name}</option>
               ))}
-            </datalist>
+            </select>
           </div>
         </div>
         <Button variant="primary" className="mt-4" loading={savingLesnichiy} onClick={handleSaveLesnichiy}>
