@@ -26,7 +26,7 @@ export const NAV_GROUPS = [
       ["tabel", "Табель"],
       ["zadachi", "Задачи"],
       ["raboty", "Журнал работ"],
-      ["tehnika", "Техника и топливо"],
+      ["tehnika", "Техника, топливо, путевые"],
       ["reyting", "🏆 Рейтинг"],
       ["chellendzhi", "🔥 Челленджи"],
     ],

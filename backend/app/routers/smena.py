@@ -893,6 +893,23 @@ def svodka_topliva(conn, ot, do):
         x["zakreplen"] = zakrep.get(x["tehnika_id"])
         x["v_bake_primerno"] = round(bak[x["tehnika_id"]], 1) if x["tehnika_id"] in bak else None
         mashiny_out.append(x)
+    # Сверка с путевыми листами (09.11.2026): что по бумагам за тот же период.
+    try:
+        po_pl = {tid: (z, r) for tid, z, r in conn.execute(
+            "SELECT tehnika_id, SUM(zapravka), SUM(rashod) FROM putevoy_list WHERE data>=? AND data<=? GROUP BY tehnika_id",
+            (ot, do)).fetchall()}
+    except Exception:  # noqa: BLE001 — таблицы путевых ещё нет
+        po_pl = {}
+    for x in mashiny_out:
+        z, r = po_pl.pop(x["tehnika_id"], (None, None))
+        x["putevye"] = {"zapravka": round(z or 0, 1), "rashod": round(r or 0, 1)} if z is not None else None
+    # Машины, по которым есть только путевые (отчётов за смену нет).
+    for tid, (z, r) in po_pl.items():
+        t = conn.execute("SELECT nazvanie, toplivo FROM tehnika WHERE id=?", (tid,)).fetchone()
+        mashiny_out.append({"tehnika_id": tid, "nazvanie": t[0] if t else "?", "toplivo": t[1] if t else None,
+                            "po_toplivu": {}, "chasy": 0.0, "obyom": 0.0, "kto": [], "l_na_chas": None, "l_na_m3": None,
+                            "zakreplen": zakrep.get(tid), "v_bake_primerno": None,
+                            "putevye": {"zapravka": round(z or 0, 1), "rashod": round(r or 0, 1)}})
     mashiny_out.sort(key=lambda x: x["nazvanie"] or "")
     vsego = {t: {"rashod": round(sum(x["po_toplivu"].get(t, {}).get("rashod", 0) for x in lyudi_out), 1),
                  "zapravka": round(sum(x["po_toplivu"].get(t, {}).get("zapravka", 0) for x in lyudi_out), 1)}
