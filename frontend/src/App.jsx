@@ -49,7 +49,10 @@ import Pochta from "./pages/Pochta.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
+import TableExport from "./components/TableExport.jsx";
 import { api } from "./api/client.js";
+
+const TABS_KEY = "lesovod_tabs";
 
 const Padded = (Inner) => function PaddedTab() {
   return <div className="p-[18px] flex flex-col gap-[14px]"><Inner /></div>;
@@ -216,13 +219,34 @@ export default function App() {
   // необязательная правая — rightId.
   // Стартовая вкладка — из адреса (#/raskhod?d=5), чтобы F5 и
   // пересланная ссылка открывали тот же экран.
+  // Разбор 09.11.2026: набор вкладок и вторая панель запоминаются в
+  // браузере — после F5 / перезапуска рабочий стол такой же, как был.
   const [tabState, rawDispatch] = useReducer(tabsReducer, null, () => {
     const screen = readHash().screen ? resolveScreen(readHash().screen, readHash().params).screen : null;
+    let saved = null;
+    try {
+      const raw = JSON.parse(localStorage.getItem(TABS_KEY) || "null");
+      const tabs = Array.isArray(raw?.tabs) ? raw.tabs.filter((t) => READY_SCREENS[t]) : [];
+      if (tabs.length) {
+        const rightId = tabs.includes(raw.rightId) ? raw.rightId : null;
+        saved = { tabs, activeId: tabs.includes(raw.activeId) && raw.activeId !== rightId ? raw.activeId : tabs[0], rightId };
+      }
+    } catch { /* хранилище недоступно — начнём с дашборда */ }
+    if (saved) {
+      if (screen && READY_SCREENS[screen] && screen !== saved.rightId) {
+        const tabs = saved.tabs.includes(screen) ? saved.tabs : [...saved.tabs, screen];
+        return { ...saved, tabs, activeId: screen };
+      }
+      return saved;
+    }
     if (screen && READY_SCREENS[screen] && screen !== "dashboard") {
       return { tabs: ["dashboard", screen], activeId: screen, rightId: null };
     }
     return { tabs: ["dashboard"], activeId: "dashboard", rightId: null };
   });
+  useEffect(() => {
+    try { localStorage.setItem(TABS_KEY, JSON.stringify(tabState)); } catch { /* приватный режим */ }
+  }, [tabState]);
 
   // Открытие старого экрана (алиаса) — через openScreen, чтобы выбрать
   // нужную вкладку объединённого экрана.
@@ -321,6 +345,7 @@ export default function App() {
           currentUser={user}
         />
       </div>
+      <TableExport />
     </ToastProvider>
     </UserProvider>
   );

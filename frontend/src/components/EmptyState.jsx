@@ -11,7 +11,7 @@ export default function EmptyState({ icon, title, description, action, className
     <div
       className={[
         "flex flex-col items-center justify-center text-center gap-3 py-14 px-6",
-        "border border-dashed border-border rounded-lg bg-surface-alt/50",
+        "border border-dashed border-border rounded-lg bg-[#f6f3ec]/50",
         className,
       ].join(" ")}
     >

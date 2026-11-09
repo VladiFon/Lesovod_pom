@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Card from "../components/Card.jsx";
 import StatCard from "../components/StatCard.jsx";
-import DataTable from "../components/DataTable.jsx";
-import StatusBadge from "../components/StatusBadge.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
 import Modal from "../components/Modal.jsx";
@@ -94,6 +92,47 @@ function InsightEntry({ category, timestamp, title, description, severity, scree
   );
 }
 
+// Строка «Как идёт заготовка» (разбор 09.11.2026): полоска освоения с
+// чертой 100%, срок и сколько дней осталось; клик — эта делянка.
+const LEVEL_BAR = { norma: "bg-pine", vnimanie: "bg-oak", preduprezhdenie: "bg-oak", pererub: "bg-error", net_limita: "bg-border" };
+function ruDay(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}.${m[2]}` : "";
+}
+function DelyankaRow({ d }) {
+  const pct = d.pct == null ? null : Number(d.pct);
+  const width = pct == null ? 0 : Math.min(pct, 110) / 110;
+  let srok = { text: "срок не задан", cls: "text-faint bg-hover" };
+  if (d.dney != null) {
+    if (d.dney < 0) srok = { text: `просрочено ${-d.dney} дн.`, cls: "text-error bg-error-soft" };
+    else if (d.dney === 0) srok = { text: "срок сегодня", cls: "text-error bg-error-soft" };
+    else if (d.dney <= 14) srok = { text: `${d.dney} дн. · до ${ruDay(d.srok)}`, cls: "text-[#8a5a00] bg-oak-soft" };
+    else srok = { text: `${d.dney} дн. · до ${ruDay(d.srok)}`, cls: "text-pine bg-mint-soft" };
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => openScreen("plots", { d: d.id })}
+      className="group grid items-center gap-x-4 px-4 py-2.5 text-left hover:bg-[#f2faf3] transition-colors"
+      style={{ gridTemplateColumns: "minmax(150px, 1fr) minmax(200px, 2fr) 150px" }}
+      title="Открыть делянку"
+    >
+      <span className="font-semibold text-ink text-[13.5px] truncate group-hover:text-pine">{d.nazvanie}</span>
+      <span className="flex items-center gap-3 min-w-0">
+        <span className="relative flex-1 h-2 rounded-full bg-hover">
+          <span className={["absolute inset-y-0 left-0 rounded-full", LEVEL_BAR[d.level] || "bg-pine"].join(" ")} style={{ width: `${width * 100}%` }} />
+          <span className="absolute -top-[3px] -bottom-[3px] w-[2px] rounded bg-[#1c1c18]/40" style={{ left: `${(100 / 110) * 100}%` }} title="100% лимита" />
+        </span>
+        <span className="shrink-0 w-[128px] text-right tabular-nums text-[12.5px] whitespace-nowrap">
+          <b className="text-ink">{pct == null ? "—" : `${Math.round(pct)}%`}</b>
+          <span className="text-faint"> · {d.fakt_fmt}/{d.limit_fmt}</span>
+        </span>
+      </span>
+      <span className={["justify-self-end rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap", srok.cls].join(" ")}>{srok.text}</span>
+    </button>
+  );
+}
+
 function WeatherCard({ weather, loading, error, onRefresh }) {
   const fireClass = weather?.fire_danger_class ?? null;
   const fire = FIRE_CLASSES[fireClass];
@@ -101,6 +140,8 @@ function WeatherCard({ weather, loading, error, onRefresh }) {
   return (
     <Card
       title="Погода в лесу"
+      icon="🌤"
+      iconTone="info"
       actions={
         <button
           onClick={onRefresh}
@@ -271,11 +312,18 @@ export default function Dashboard({ onOpenTab }) {
   const chart = summary?.chart;
   const plots = summary?.plots ?? [];
   const insights = summary?.insights ?? [];
+  const limitVsego = plots.reduce((sum, d) => sum + (Number(String(d.limit_fmt).replace(",", ".")) || 0), 0);
+  const goryat = plots.reduce((acc, d) => {
+    if (d.dney == null) return acc;
+    if (d.dney < 0) acc.prosrocheno += 1;
+    else if (d.dney <= 14) acc.skoro += 1;
+    return acc;
+  }, { prosrocheno: 0, skoro: 0 });
 
   return (
     <div className="p-[18px] flex flex-col gap-[14px]">
       {loadError && (
-        <Card className="border-error/40">
+        <Card className="border-[#ebc0bc]">
           <p className="text-error text-base">{loadError}</p>
         </Card>
       )}
@@ -290,22 +338,28 @@ export default function Dashboard({ onOpenTab }) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <StatCard icon="🌳" title="Делянки в работе" value={loading ? "…" : String(metrics?.delyanki_count ?? 0)} caption={[
+        <StatCard icon="🌳" title="Делянки в работе" onClick={() => openScreen("plots")} value={loading ? "…" : String(metrics?.delyanki_count ?? 0)} caption={[
             metrics?.storonnie_count ? `из них ${metrics.storonnie_count} рубят другие` : "Активные делянки",
             metrics?.chernoviki_count ? `ещё ${metrics.chernoviki_count} в черновиках` : null,
           ].filter(Boolean).join(" · ")} />
-        <StatCard icon="✅" title="Выполнено работ" value={loading ? "…" : String(metrics?.completed_count ?? 0)} caption={god === "vse" ? "Журнал работ за всё время" : `Журнал работ за ${god} год`} />
-        <StatCard icon="🪵" title="Заготовлено на активных делянках, м³" value={loading ? "…" : metrics?.volume_m3_fmt ?? "0"} caption={[
-            "по нарядам",
-            metrics?.volume_egais_m3_fmt != null ? `по ЕГАИС ${metrics.volume_egais_m3_fmt}` : "ЕГАИС не загружен",
-            god === "vse" ? `всего по нарядам ${metrics?.volume_god_m3_fmt ?? "0"}` : `за ${god} год ${metrics?.volume_god_m3_fmt ?? "0"}`,
-          ].join(" · ")} />
+        <StatCard icon="🪵" title="Заготовлено на активных, м³" onClick={() => openScreen("raskhod")} value={loading ? "…" : metrics?.volume_m3_fmt ?? "0"}
+          progress={limitVsego > 0 ? (metrics?.volume_m3 || 0) / limitVsego : null} progressMark={1}
+          caption={[
+            limitVsego > 0 ? `${Math.round(((metrics?.volume_m3 || 0) / limitVsego) * 100)}% лимита делянок` : "по нарядам",
+            metrics?.volume_egais_m3_fmt != null ? `ЕГАИС ${metrics.volume_egais_m3_fmt}` : null,
+            god === "vse" ? `всего ${metrics?.volume_god_m3_fmt ?? "0"}` : `за ${god} год ${metrics?.volume_god_m3_fmt ?? "0"}`,
+          ].filter(Boolean).join(" · ")} />
+        <StatCard icon="⏰" title="Горят сроки заготовки" onClick={() => openScreen("inspection")}
+          tone={goryat.prosrocheno ? "error" : goryat.skoro ? "oak" : "pine"}
+          value={loading ? "…" : String(goryat.prosrocheno + goryat.skoro)}
+          caption={goryat.prosrocheno ? `${goryat.prosrocheno} просрочено · ${goryat.skoro} в ближайшие 14 дн.` : goryat.skoro ? "в ближайшие 14 дней" : "Сроков рядом нет"} />
         <StatCard
-          icon="🚨"
-          title="Очередь ИИ"
+          icon="📥"
+          title="Отчёты с телефона"
+          onClick={() => openScreen("telefon", { tab: "otchety" })}
+          tone={metrics?.ai_queue_count ? "info" : "pine"}
           value={loading ? "…" : String(metrics?.ai_queue_count ?? 0)}
-          caption={metrics?.ai_queue_count ? `${metrics.ai_queue_count} новых отчётов` : "Нет новых отчётов"}
-          alert={Boolean(metrics?.ai_queue_alert)}
+          caption={metrics?.ai_queue_count ? "ждут проверки — открыть Входящие" : "Всё разобрано"}
         />
       </div>
 
@@ -313,6 +367,7 @@ export default function Dashboard({ onOpenTab }) {
         <div className="lg:col-span-2 flex flex-col gap-[14px]">
           <Card
             title="Обзор заготовки"
+            icon="📊"
             subtitle={chart ? `План ${chart.total_plan.toFixed(1)} м³ · Факт ${chart.total_fact.toFixed(1)} м³` : "Последние 6 месяцев"}
             actions={
               <Button variant="ghost" size="sm" onClick={() => setPlanModalOpen(true)}>
@@ -331,10 +386,13 @@ export default function Dashboard({ onOpenTab }) {
                 />
                 <div className="flex items-center justify-center gap-6 mt-2">
                   <span className="inline-flex items-center gap-1.5 text-sm text-muted">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#e5e2db" }} /> План (м³)
+                    <span className="h-2.5 w-3 rounded-[3px] border-2 border-dashed" style={{ borderColor: "#cfcbc2" }} /> План (м³)
                   </span>
                   <span className="inline-flex items-center gap-1.5 text-sm text-muted">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#1a4331" }} /> Факт (м³)
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-sm text-muted">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "var(--color-green)" }} /> План выполнен
                   </span>
                 </div>
               </>
@@ -342,33 +400,33 @@ export default function Dashboard({ onOpenTab }) {
           </Card>
 
           <Card
-            title="Активные делянки"
+            title="Как идёт заготовка"
+            subtitle="Все делянки в работе · сверху те, у которых раньше срок"
+            icon="🪓"
+            divider
             actions={
-              <Button variant="ghost" size="sm" onClick={() => onOpenTab?.("plots")}>
-                Смотреть все
+              <Button variant="ghost" size="sm" onClick={() => openScreen("plots")}>
+                Все делянки
               </Button>
             }
             padding={false}
           >
-            <div className="px-5 pb-5">
-              <DataTable
-                loading={loading}
-                columns={[
-                  { key: "nazvanie", header: "Делянка", sortable: true },
-                  { key: "status", header: "Статус", sortable: true, render: (row) => <StatusBadge status={row.status} /> },
-                  { key: "created_at", header: "Создано", sortable: true },
-                ]}
-                rows={plots}
-                onRowClick={() => onOpenTab?.("plots")}
-                emptyTitle="Активных делянок нет"
-                emptyDescription="Создайте делянку на экране «Делянки», и она появится здесь."
-              />
-            </div>
+            {loading ? (
+              <div className="p-4 flex flex-col gap-3">
+                {[0, 1, 2].map((i) => <div key={i} className="h-10 rounded-md bg-hover animate-pulse" />)}
+              </div>
+            ) : plots.length ? (
+              <div className="flex flex-col py-1.5">
+                {plots.map((d) => <DelyankaRow key={d.id} d={d} />)}
+              </div>
+            ) : (
+              <div className="p-5 text-sm text-muted">Активных делянок нет — создайте делянку на экране «Делянки».</div>
+            )}
           </Card>
         </div>
 
         <div className="flex flex-col gap-[14px]">
-          <Card title="ИИ-аналитика">
+          <Card title="Требует внимания" icon="🔔" iconTone="oak">
             {loading ? (
               <div className="flex flex-col gap-3">
                 {[0, 1].map((i) => (

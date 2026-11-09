@@ -260,18 +260,54 @@ def _build_metrics(conn: sqlite3.Connection, god: Optional[str] = None) -> dict:
 
 
 def _build_plots_table(conn: sqlite3.Connection) -> list[dict]:
-    """1-в-1 с _load_plots_table(): последние 5 неархивных делянок."""
+    """Делянки в работе для виджета «Как идёт заготовка» (разбор 09.11.2026).
+
+    Раньше — «последние 5 созданных», что ничего не говорило. Теперь все
+    активные делянки: освоение (тот же расчёт, что «Освоение делянки»),
+    срок окончания заготовки и сколько дней до него; сверху — те, что
+    горят (меньше всего дней до срока / просрочены). Поля id/nazvanie/
+    status/created_at оставлены для совместимости."""
     try:
         rows = conn.execute(
-            "SELECT id, nazvanie, status, created_at FROM delyanka "
-            "WHERE status != 'архив' ORDER BY id DESC LIMIT 5"
+            "SELECT id, nazvanie, status, created_at, srok_okonchaniya_zagotovki FROM delyanka "
+            "WHERE status = 'активна'"
         ).fetchall()
     except sqlite3.OperationalError:
-        rows = []
-    return [
-        {"id": r[0], "nazvanie": r[1] or "—", "status": r[2] or "—", "created_at": r[3] or "—"}
-        for r in rows
-    ]
+        return []
+    try:
+        osv = compute_osvoenie_batch(conn, [r[0] for r in rows])
+    except Exception:  # noqa: BLE001 — виджет отказоустойчив
+        osv = {}
+    today = datetime.date.today()
+    out = []
+    for r in rows:
+        o = osv.get(r[0]) or {}
+        srok = _parse_srok(r[4])
+        out.append({
+            "id": r[0],
+            "nazvanie": r[1] or "—",
+            "status": r[2] or "—",
+            "created_at": r[3] or "—",
+            "pct": o.get("pct"),
+            "level": o.get("level") or "net_limita",
+            "fakt_fmt": _fmt_m3(o.get("fakt") or 0),
+            "limit_fmt": _fmt_m3(o.get("limit") or 0),
+            "srok": srok.isoformat() if srok else None,
+            "dney": (srok - today).days if srok else None,
+        })
+    out.sort(key=lambda d: (d["dney"] is None, d["dney"] if d["dney"] is not None else 0, -(d["pct"] or 0)))
+    return out
+
+
+def _parse_srok(value):
+    """Срок из базы: «ДД.ММ.ГГГГ» (как вводится в карточке) или ISO."""
+    s = str(value or "").strip()
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(s[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:

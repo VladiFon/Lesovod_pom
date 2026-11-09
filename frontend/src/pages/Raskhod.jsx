@@ -1358,7 +1358,7 @@ function EgaisBalanceBanner({ check, onOpenReview }) {
   if (!check?.has_history || !(check.deficit > 0.01)) return null;
   if (check.explained) {
     return (
-      <div className="rounded-lg border border-oak/40 bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
+      <div className="rounded-lg border border-[#f0d5b5] bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
         <div>
           <span className="font-semibold text-oak">Расход по ЕГАИС временно больше прихода на {check.deficit.toFixed(2)} м³.</span>{" "}
           Это покрывается ещё не разобранными записями (приход на ФЛС: {check.fls_unresolved.toFixed(2)} м³
@@ -1372,7 +1372,7 @@ function EgaisBalanceBanner({ check, onOpenReview }) {
     );
   }
   return (
-    <div className="rounded-lg border border-error/40 bg-error-soft px-3.5 py-2.5 text-sm text-ink">
+    <div className="rounded-lg border border-[#ebc0bc] bg-error-soft px-3.5 py-2.5 text-sm text-ink">
       <span className="font-semibold text-error">
         Расход по ЕГАИС больше прихода на {check.deficit.toFixed(2)} м³, и это не объясняется данными в журнале.
       </span>{" "}
@@ -1389,7 +1389,7 @@ function EgaisBalanceBanner({ check, onOpenReview }) {
 function EgaisUnresolvedSkladyBanner({ sklady, onOpenReview }) {
   if (!sklady?.length) return null;
   return (
-    <div className="rounded-lg border border-oak/40 bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
+    <div className="rounded-lg border border-[#f0d5b5] bg-oak-soft px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap">
       <div>
         <span className="font-semibold text-oak">
           Склады ЕГАИС, похожие на этот выдел, но не привязанные однозначно ({sklady.length}):
@@ -1517,7 +1517,7 @@ function DelyankaEgaisSummary({ check, onOpenReview }) {
   const tone = unexplained.length > 0 ? "danger" : "warning";
   return (
     <div className={["rounded-lg border px-3.5 py-2.5 text-sm text-ink flex items-center justify-between gap-3 flex-wrap",
-      tone === "danger" ? "border-error/40 bg-error-soft" : "border-oak/40 bg-oak-soft"].join(" ")}>
+      tone === "danger" ? "border-[#ebc0bc] bg-error-soft" : "border-[#f0d5b5] bg-oak-soft"].join(" ")}>
       <div>
         <span className={["font-semibold", tone === "danger" ? "text-error" : "text-oak"].join(" ")}>
           Расход по ЕГАИС не сходится с приходом на {withDeficit.length} из {check.items.length} {check.items.length === 1 ? "выделе" : "выделов"} делянки

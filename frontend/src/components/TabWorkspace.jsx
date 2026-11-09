@@ -8,7 +8,7 @@ import { api } from "../api/client.js";
 import { openScreen } from "../nav.js";
 
 const MONO = "'JetBrains Mono', monospace";
-const MAX_TABS = 8;
+const MAX_TABS = 12;
 
 // Значки результатов общего поиска (/api/poisk, app/routers/poisk.py).
 const TIP = {

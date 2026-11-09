@@ -425,7 +425,7 @@ function UsersCard() {
             "text-xs font-semibold rounded-full px-2.5 py-1 border",
             u.is_active
               ? "border-pine text-pine bg-mint-soft hover:bg-mint"
-              : "border-error text-error bg-error-soft hover:bg-error-soft/70",
+              : "border-error text-error bg-error-soft hover:bg-[#fbeaea]/70",
           ].join(" ")}
         >
           {u.is_active ? "Активен" : "Отключён"}
@@ -823,7 +823,7 @@ export default function Settings({ currentUser }) {
       </div>
 
       {loadError && (
-        <Card className="border-error/40">
+        <Card className="border-[#ebc0bc]">
           <p className="text-error text-base">{loadError}</p>
         </Card>
       )}

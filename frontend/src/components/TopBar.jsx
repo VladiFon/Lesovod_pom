@@ -21,7 +21,7 @@ export default function TopBar({
   return (
     <div className="bg-paper border-b border-border px-8 py-5 flex items-center justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="font-ui font-extrabold text-xl text-pine truncate">{title}</h1>
+        <h1 data-screen-title className="font-ui font-extrabold text-xl text-pine truncate">{title}</h1>
         {subtitle && <p className="text-muted text-base mt-0.5 truncate">{subtitle}</p>}
       </div>
 
