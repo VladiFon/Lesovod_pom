@@ -171,7 +171,7 @@ def _proverit(b: ListIn):
 
 
 def _vals(b: ListIn):
-    return (b.nomer, b.sotrudnik_id or None, round(b.probeg, 1), round(b.zapravka, 2), b.spid_vyezd_fix,
+    return (b.nomer, b.sotrudnik_id or None, P.okr(b.probeg), P.okr(b.zapravka), b.spid_vyezd_fix,
             b.ost_vyezd_fix, (b.vremya_vyezd or "").strip()[:5] or None, (b.vremya_vozvrat or "").strip()[:5] or None,
             (b.marshrut or "").strip()[:300] or None, (b.kommentariy or "").strip()[:500] or None)
 

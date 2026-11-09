@@ -25,6 +25,7 @@ spid_vyezd_fix / ost_vyezd_fix, дальше цепочка пойдёт от н
 Закрытый месяц (сдан в бухгалтерию) не пересчитывается и не правится.
 """
 import random
+from decimal import ROUND_HALF_UP, Decimal
 from datetime import date, timedelta
 
 from app.routers import smena
@@ -100,8 +101,13 @@ def ensure(conn):
             conn.execute(f"ALTER TABLE tehnika ADD COLUMN {kol} {tip}")
 
 
-def r2(v):
-    return round((v or 0) + 1e-9, 2) if v is not None else None
+def okr(v):
+    """До десятых, пятёрка вверх, как в путевом листе (Влад 09.11.2026):
+    1,55 → 1,6; 27,84 → 27,8. Обычный round() в Python округляет 1,55 вниз
+    (двоичная дробь и «банковское» правило), поэтому через Decimal от строки."""
+    if v is None:
+        return None
+    return float(Decimal(repr(float(v))).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
 
 
 def _d(s):
@@ -252,13 +258,13 @@ def pereschitat(conn, tid, s_daty=None):
             "SELECT id, data, probeg, zapravka, spid_vyezd_fix, ost_vyezd_fix FROM putevoy_list "
             "WHERE tehnika_id=? AND data>=? ORDER BY data", (tid, granica)).fetchall():
         sv = sfix if sfix is not None else spid
-        ov = r2((ofix if ofix is not None else ost) + (zapr or 0))
+        ov = okr((ofix if ofix is not None else ost) + (zapr or 0))
         nr = norma_na(nm, data)
-        ras = r2((probeg or 0) * (nr or 0))
-        spid, ost = r2(sv + (probeg or 0)), r2(ov - ras)
+        ras = okr((probeg or 0) * (nr or 0))
+        spid, ost = okr(sv + (probeg or 0)), okr(ov - ras)
         conn.execute("UPDATE putevoy_list SET spid_vyezd=?, spid_vozvrat=?, ost_vyezd=?, norma=?, rashod=?, "
                      "ost_vozvrat=?, updated_at=datetime('now','localtime') WHERE id=?",
-                     (r2(sv), spid, ov, nr, ras, ost, lid))
+                     (okr(sv), spid, ov, nr, ras, ost, lid))
         n += 1
     return n
 
@@ -283,7 +289,7 @@ def listy(conn, tid, ot, do):
 
 def smena_po_dnyam(conn, tid, ot, do):
     """Что водители написали в «Отчёте за смену» с телефона по этой машине."""
-    return {r[0]: {"zapravka": r2(r[1]), "rashod": r2(r[2]), "kto": r[3]} for r in conn.execute(
+    return {r[0]: {"zapravka": okr(r[1]), "rashod": okr(r[2]), "kto": r[3]} for r in conn.execute(
         "SELECT o.data, SUM(COALESCE(o.zapravka,0)), SUM(COALESCE(o.toplivo_rashod,0)), GROUP_CONCAT(DISTINCT s.fio) "
         "FROM otchet_smeny o JOIN sotrudniki s ON s.id=o.sotrudnik_id "
         "WHERE o.deleted=0 AND o.tehnika_id=? AND o.data>=? AND o.data<=? GROUP BY o.data", (tid, ot, do)).fetchall()}
@@ -313,10 +319,10 @@ def itogi(lst_list, nachalo_ost=None, nachalo_spid=None):
                 "ost_konec": nachalo_ost, "spid_nachalo": nachalo_spid, "spid_konec": nachalo_spid}
     p, l = lst_list[0], lst_list[-1]
     return {"listov": len(lst_list),
-            "probeg": r2(sum(x["probeg"] or 0 for x in lst_list)),
-            "zapravka": r2(sum(x["zapravka"] or 0 for x in lst_list)),
-            "rashod": r2(sum(x["rashod"] or 0 for x in lst_list)),
-            "ost_nachalo": r2((p["ost_vyezd"] or 0) - (p["zapravka"] or 0)),
+            "probeg": okr(sum(x["probeg"] or 0 for x in lst_list)),
+            "zapravka": okr(sum(x["zapravka"] or 0 for x in lst_list)),
+            "rashod": okr(sum(x["rashod"] or 0 for x in lst_list)),
+            "ost_nachalo": okr((p["ost_vyezd"] or 0) - (p["zapravka"] or 0)),
             "ost_konec": l["ost_vozvrat"],
             "spid_nachalo": p["spid_vyezd"], "spid_konec": l["spid_vozvrat"]}
 
@@ -340,8 +346,8 @@ def mesyac_mashiny(conn, tid, mesyac):
         x["preduprezhdeniya"] += [p for p in preduprezhdeniya(x, m, {}, sm) if p["ton"] == "info"]
     spid0, ost0 = nachalo_mesyaca(conn, tid, ot, m)
     it = itogi(ll, ost0, spid0)
-    it["smena_zapravka"] = r2(sum(v["zapravka"] or 0 for v in sm.values()))
-    it["smena_rashod"] = r2(sum(v["rashod"] or 0 for v in sm.values()))
+    it["smena_zapravka"] = okr(sum(v["zapravka"] or 0 for v in sm.values()))
+    it["smena_rashod"] = okr(sum(v["rashod"] or 0 for v in sm.values()))
     zakryt = mesyac in zakrytye_mesyacy(conn, tid)
     return {"mashina": m, "mesyac": mesyac, "zakryt": zakryt,
             "mozhno_pravit": mozhno_pravit(conn, tid, ot.isoformat()),
@@ -416,7 +422,7 @@ def generator_mesyaca(conn, tid, mesyac, *, dni=None, sotrudnik_id=None, probeg_
                            "spid_vyezd_fix": None, "ost_vyezd_fix": None})
     for s in stroki:
         s["norma"] = norma_na(nm, s["data"])
-        s["rashod"] = r2(s["probeg"] * (s["norma"] or 0))
+        s["rashod"] = okr(s["probeg"] * (s["norma"] or 0))
 
     spid0, ost0 = nachalo_mesyaca(conn, tid, ot, m)
     bak = m["bak_l"]
@@ -427,12 +433,12 @@ def generator_mesyaca(conn, tid, mesyac, *, dni=None, sotrudnik_id=None, probeg_
         for d, litr in (po_datam or {}).items():
             for s in stroki:
                 if s["data"] == d and not s["ruchnoy"]:
-                    s["zapravka"] = r2(float(litr))
+                    s["zapravka"] = okr(float(litr))
     elif zapravki == "vsego" and litrov_vsego and svob_idx:
         litrov_vsego = float(litrov_vsego) - sum(s["zapravka"] for s in stroki if s["ruchnoy"])
         k = max(1, min(int(raz or 1), len(svob_idx)))
         porcii = [float(int(litrov_vsego // k))] * k
-        porcii[-1] = r2(litrov_vsego - sum(porcii[:-1]))
+        porcii[-1] = okr(litrov_vsego - sum(porcii[:-1]))
         # Равномерно по месяцу, затем сдвигаем раньше, если бак уходит в минус.
         plan = [svob_idx[min(len(svob_idx) - 1, int(j * len(svob_idx) / k))] for j in range(k)]
         for _ in range(len(stroki) * k + 1):
@@ -477,7 +483,7 @@ def generator_mesyaca(conn, tid, mesyac, *, dni=None, sotrudnik_id=None, probeg_
                                             "уменьшите литры или увеличьте число заправок")
         else:
             for p_i, i in enumerate(plan):
-                stroki[i]["zapravka"] = r2(stroki[i]["zapravka"] + porcii[p_i])
+                stroki[i]["zapravka"] = okr(stroki[i]["zapravka"] + porcii[p_i])
     elif zapravki == "avto":
         if not bak:
             raise GenOshibka("Для «доливать до полного» впишите объём бака в карточке машины")
@@ -491,27 +497,27 @@ def generator_mesyaca(conn, tid, mesyac, *, dni=None, sotrudnik_id=None, probeg_
     spid, ost = spid0, ost0
     for s in stroki:
         sv = s["spid_vyezd_fix"] if s["spid_vyezd_fix"] is not None else spid
-        ov = r2((s["ost_vyezd_fix"] if s["ost_vyezd_fix"] is not None else ost) + s["zapravka"])
-        s.update(spid_vyezd=r2(sv), spid_vozvrat=r2(sv + s["probeg"]), ost_vyezd=ov, ost_vozvrat=r2(ov - s["rashod"]))
+        ov = okr((s["ost_vyezd_fix"] if s["ost_vyezd_fix"] is not None else ost) + s["zapravka"])
+        s.update(spid_vyezd=okr(sv), spid_vozvrat=okr(sv + s["probeg"]), ost_vyezd=ov, ost_vozvrat=okr(ov - s["rashod"]))
         spid, ost = s["spid_vozvrat"], s["ost_vozvrat"]
         s["preduprezhdeniya"] = preduprezhdeniya(dict(s, norma=s["norma"]), m, {}, {})
 
-    vsego_rashod = r2(sum(s["rashod"] for s in stroki))
-    vsego_zapr = r2(sum(s["zapravka"] for s in stroki))
-    nuzhno = r2(vsego_rashod - ost0)
-    if zapravki == "vsego" and litrov_vsego is not None and r2(ost0 + vsego_zapr - vsego_rashod) < 0:
+    vsego_rashod = okr(sum(s["rashod"] for s in stroki))
+    vsego_zapr = okr(sum(s["zapravka"] for s in stroki))
+    nuzhno = okr(vsego_rashod - ost0)
+    if zapravki == "vsego" and litrov_vsego is not None and okr(ost0 + vsego_zapr - vsego_rashod) < 0:
         preduprezhdeniya_gen.append(
-            f"на {r2(sum(s['probeg'] for s in stroki)):g} {m['edinica']} нужно {vsego_rashod:g} л, "
-            f"заправок {vsego_zapr:g} л и в баке было {r2(ost0):g} л — не хватает {r2(vsego_rashod - ost0 - vsego_zapr):g} л")
+            f"на {okr(sum(s['probeg'] for s in stroki)):g} {m['edinica']} нужно {vsego_rashod:g} л, "
+            f"заправок {vsego_zapr:g} л и в баке было {okr(ost0):g} л — не хватает {okr(vsego_rashod - ost0 - vsego_zapr):g} л")
     if any((s["ost_vozvrat"] or 0) < 0 for s in stroki):
         preduprezhdeniya_gen.append("в какие-то дни бак уходит в минус — добавьте заправку или уменьшите пробег")
     return {"mashina": m, "mesyac": mesyac, "sotrudnik_id": sid,
             "vremya_vyezd": vremya_vyezd or m["vremya_vyezd"] or "08:00",
             "vremya_vozvrat": vremya_vozvrat or m["vremya_vozvrat"] or "17:00",
             "marshrut": marshrut if marshrut is not None else (m["marshrut"] or ""),
-            "stroki": stroki, "nachalo": {"spidometr": spid0, "ostatok": r2(ost0)},
-            "itogi": {"dney": len(stroki), "probeg": r2(sum(s["probeg"] for s in stroki)), "zapravka": vsego_zapr,
-                      "rashod": vsego_rashod, "ost_konec": stroki[-1]["ost_vozvrat"] if stroki else r2(ost0),
+            "stroki": stroki, "nachalo": {"spidometr": spid0, "ostatok": okr(ost0)},
+            "itogi": {"dney": len(stroki), "probeg": okr(sum(s["probeg"] for s in stroki)), "zapravka": vsego_zapr,
+                      "rashod": vsego_rashod, "ost_konec": stroki[-1]["ost_vozvrat"] if stroki else okr(ost0),
                       "spid_konec": stroki[-1]["spid_vozvrat"] if stroki else spid0,
                       "nuzhno_zapravit_minimum": nuzhno if nuzhno > 0 else 0},
             "preduprezhdeniya": preduprezhdeniya_gen}
@@ -566,8 +572,8 @@ def svodka_vseh(conn, mesyac):
         it = itogi(ll, ost0, spid0)
         it.update(tehnika_id=tid, nazvanie=m["nazvanie"], nomer=m["nomer"], toplivo=m["toplivo"],
                   edinica=m["edinica"], zakryt=mesyac in zakrytye_mesyacy(conn, tid),
-                  smena_zapravka=r2(sum(v["zapravka"] or 0 for v in sm.values())),
-                  smena_rashod=r2(sum(v["rashod"] or 0 for v in sm.values())))
+                  smena_zapravka=okr(sum(v["zapravka"] or 0 for v in sm.values())),
+                  smena_rashod=okr(sum(v["rashod"] or 0 for v in sm.values())))
         out.append(it)
     out.sort(key=lambda x: x["nazvanie"] or "")
     po_toplivu = {}
@@ -575,5 +581,5 @@ def svodka_vseh(conn, mesyac):
         t = x["toplivo"] or "—"
         p = po_toplivu.setdefault(t, {"probeg": 0.0, "zapravka": 0.0, "rashod": 0.0})
         for k in p:
-            p[k] = r2(p[k] + (x[k] or 0))
+            p[k] = okr(p[k] + (x[k] or 0))
     return {"mesyac": mesyac, "mashiny": out, "po_toplivu": po_toplivu}

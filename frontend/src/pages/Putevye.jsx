@@ -20,7 +20,7 @@ const inp = "border border-border rounded-[8px] px-2 h-9";
 const DN = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const MES = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 
-const num = (v, d = 2) => (v == null || v === "" ? "" : Number(v).toLocaleString("ru-RU", { maximumFractionDigits: d }));
+const num = (v, d = 1) => (v == null || v === "" ? "" : Number(v).toLocaleString("ru-RU", { maximumFractionDigits: d }));
 const toNum = (s) => {
   if (s == null || String(s).trim() === "") return null;
   const n = Number(String(s).replace(/\s/g, "").replace(",", "."));
