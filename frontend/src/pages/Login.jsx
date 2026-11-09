@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
 import { api, ApiError } from "../api/client.js";
+import { podpis } from "../izdanie.js";
 
 /**
  * Login — форма логин/пароль (Блок 1 плана доработки, п.1).
@@ -46,7 +47,7 @@ export default function Login({ onLoggedIn }) {
         <div className="mb-6 text-center">
           <div className="font-ui font-extrabold text-2xl text-pine leading-tight">Лесовод</div>
           <div className="font-mono text-xs tracking-widest text-muted-2 uppercase mt-1">
-            Цифровой помощник
+            {podpis("Цифровой помощник")}
           </div>
         </div>
 

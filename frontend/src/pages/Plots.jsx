@@ -13,6 +13,7 @@ import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
 import ChastiForm, { chastiInfo, vydelyIz } from "../components/ChastiPoVydelam.jsx";
 import KonturBlock from "../components/KonturBlock.jsx";
+import DelyankiIzFayla from "../components/DelyankiIzFayla.jsx";
 import { useLegendy } from "../hooks/useLegendy.js";
 import { useCan } from "../auth.jsx";
 import StoronnyayaBlock from "../components/StoronnyayaBlock.jsx";
@@ -1371,6 +1372,7 @@ export default function Plots() {
   const selectedId = selectedParam ? Number(selectedParam) : null;
   const setSelectedId = (id) => setSelectedParam(id ?? "");
   const [importOpen, setImportOpen] = useState(false);
+  const [izFaylaOpen, setIzFaylaOpen] = useState(false);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -1422,6 +1424,9 @@ export default function Plots() {
         <div className="p-3.5 flex flex-col gap-2.5 border-b border-border">
           <Button variant="primary" onClick={() => setImportOpen(true)}>
             ↑ Импорт МДО (.rtf)
+          </Button>
+          <Button variant="secondary" onClick={() => setIzFaylaOpen(true)}>
+            🗺 Делянка из файла (QGIS, KML, GPX)
           </Button>
           {/* Импорт слоя из QGIS (самостоятельный слой, не создание делянок,
               см. app/routers/map.py: /import-layer) жил на экране "Живая
@@ -1564,6 +1569,14 @@ export default function Plots() {
       </div>
 
       <ImportMdoModal open={importOpen} onClose={() => setImportOpen(false)} onImported={loadList} />
+      <DelyankiIzFayla
+        open={izFaylaOpen}
+        onClose={() => setIzFaylaOpen(false)}
+        onCreated={(id) => {
+          loadList();
+          if (id) setSelectedId(id);
+        }}
+      />
     </div>
   );
 }

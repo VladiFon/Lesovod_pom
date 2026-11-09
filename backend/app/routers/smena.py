@@ -150,6 +150,18 @@ VIDY_PROFESSII = {
     "harvester": ["harvester", "remont"],
     "brigada": ["rubka_gp", "rubka_uhoda", "sanrubka", "ochistka", "uhod", "posadka", "pochva", "drugoe"],
 }
+
+
+def vidy_professii():
+    """Профессии и их кнопки: у издания «лесопункт» свой набор
+    (вальщик / тракторист на вывозке / харвестерщик, app/izdanie.py)."""
+    from app import izdanie
+    prof = izdanie.opisanie()["professii"]
+    if not prof:
+        return VIDY_PROFESSII
+    return {k: list(v["vidy"]) for k, v in prof.items()}
+
+
 # Куда в отчёте кубы «заготовлено» (для остатка по делянке).
 ZAGOTOVKA = ("harvester", "rubka_gp")
 ZAKRYT_DOLYA = 0.98  # 98% площади — участок считаем пройденным (округления га)
@@ -351,7 +363,7 @@ def spravochnik(conn, sid, vse_kultury=False):
     mashiny, moya = spisok_tehniki(conn, sid)
     from app import uhody_vypolnenie
     proby = uhody_vypolnenie.dlya_telefona(conn, sid)
-    return {"vidy": VIDY, "vidy_professii": VIDY_PROFESSII, "delyanki": delyanki, "uchastki": uchastki, "proby": proby,
+    return {"vidy": VIDY, "vidy_professii": vidy_professii(), "delyanki": delyanki, "uchastki": uchastki, "proby": proby,
             "naparniki": naparniki(conn, sid), "poluchateli": poluchateli, "tehnika": tehnika,
             "mashiny": mashiny, "moya_mashina_id": moya, "toplivo_vidy": list(TOPLIVO)}
 

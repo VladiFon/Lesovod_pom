@@ -1,0 +1,32 @@
+# Пример: адрес для копии Лесовода клиента (лесопункт и т.п., 04.11.2026).
+# Допишите этот блок В КОНЕЦ вашего Caddyfile (deploy\Caddyfile) и
+# перезапустите Caddy:  net stop LesovodCaddy && net start LesovodCaddy
+#
+# Сайт (frontend\dist) у всех общий — меняется только порт API: у вашего
+# лесничества 8000, у клиента тот, что вы дали novyy_klient.bat (8001…).
+#
+# Адрес клиента — поддомен вашего домена. В панели DNS регистратора
+# добавьте запись A:  lp  →  тот же IP, что у lesovodapipom.store.
+# Роутер трогать не надо: запросы идут на тот же 80-й порт, Caddy сам
+# разводит их по имени.
+
+http://lp.lesovodapipom.store {
+	encode gzip
+	root * C:/lesovod/frontend/dist
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8001
+	}
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Если поддомен сделать не получается — тот же блок на отдельном порту
+# (тогда в роутере пробросить 8081 на этот ПК, адрес будет
+# http://lesovodapipom.store:8081):
+#
+# http://:8081 {
+# 	... то же содержимое ...
+# }
