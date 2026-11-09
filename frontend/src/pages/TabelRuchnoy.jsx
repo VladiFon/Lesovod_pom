@@ -32,7 +32,34 @@ const STATUSES = [
   { value: "больничный", label: "Больничный" },
   { value: "отпуск", label: "Отпуск" },
   { value: "выходной", label: "Выходной" },
+  { value: "ремонт", label: "Ремонт" },
+  { value: "командировка", label: "Командировка" },
 ];
+
+// На работе (можно указать место и вид работы): работал, ремонт, командировка.
+const NA_RABOTE = ["работал", "ремонт", "командировка"];
+
+// «Места нет» — сброс всех трёх видов места работы разом.
+const BEZ_MESTA = {
+  targetType: null,
+  delyanka_item_id: null,
+  delyankaLabel: null,
+  lesokultury_uchastok_id: null,
+  lesokulturyLabel: null,
+  uhody_proba_id: null,
+  probaLabel: null,
+};
+
+function probaLabel(p) {
+  return `рубки ухода · кв. ${p.kvartal || "—"} / выд. ${p.vydel || "—"}`;
+}
+
+function zapomnit(key, val) {
+  try { localStorage.setItem(key, val ? "1" : "0"); } catch { /* приватный режим */ }
+}
+function vspomnit(key) {
+  try { return localStorage.getItem(key) === "1"; } catch { return false; }
+}
 
 const MOBILE_STATUS_LABEL = { "работаю": "работаю", "не работаю": "не работаю", "больничный": "больничный" };
 
@@ -47,6 +74,8 @@ const BRIGADA_CHOICES = [
   { value: "выходной", label: "Выходной" },
   { value: "больничный", label: "Больничный" },
   { value: "отпуск", label: "Отпуск" },
+  { value: "ремонт", label: "Ремонт" },
+  { value: "командировка", label: "Командировка" },
   { value: "не работал", label: "Не работал" },
 ];
 
@@ -89,7 +118,7 @@ function serverRowToLocal(r) {
 }
 
 function serverRowToLocalRaw(r) {
-  const targetType = r.lesokultury_uchastok_id ? "lesokultury" : r.delyanka_item_id ? "delyanka" : null;
+  const targetType = r.lesokultury_uchastok_id ? "lesokultury" : r.delyanka_item_id ? "delyanka" : r.uhody_proba_id ? "proba" : null;
   return {
     sotrudnik_id: r.sotrudnik_id,
     fio: r.fio,
@@ -109,6 +138,8 @@ function serverRowToLocalRaw(r) {
     lesokulturyLabel: r.lesokultury_uchastok_id
       ? `кв. ${r.lku_kvartal || "—"} / выд. ${r.lku_vydel || "—"}${r.lku_glavnaya_poroda ? ` · ${r.lku_glavnaya_poroda}` : ""}`
       : null,
+    uhody_proba_id: r.uhody_proba_id || null,
+    probaLabel: r.uhody_proba_id ? probaLabel({ kvartal: r.up_kvartal, vydel: r.up_vydel }) : null,
   };
 }
 
@@ -171,6 +202,7 @@ export default function TabelRuchnoy() {
         status: r.status,
         delyanka_item_id: r.targetType === "delyanka" ? r.delyanka_item_id : null,
         lesokultury_uchastok_id: r.targetType === "lesokultury" ? r.lesokultury_uchastok_id : null,
+        uhody_proba_id: r.targetType === "proba" ? r.uhody_proba_id : null,
         vid_raboty_id: r.vid_raboty_id || null,
         kommentariy: r.kommentariy || "",
       }));
@@ -205,21 +237,41 @@ export default function TabelRuchnoy() {
       lesokulturyOptions: [],
       lesokulturyLoading: false,
       lesokulturyUchastok: row.lesokultury_uchastok_id ? { id: row.lesokultury_uchastok_id } : null,
+      lesokulturyVse: vspomnit("tabel.lkVse"),
+      probaSearch: "",
+      probaOptions: [],
+      probaLoading: false,
+      proba: row.uhody_proba_id ? { id: row.uhody_proba_id, label: row.probaLabel } : null,
+      probaVse: vspomnit("tabel.probaVse"),
     });
   };
+
+  // Пробы рубок ухода — где люди работают и делают уходы (GET /tabel/uhody-proby).
+  useEffect(() => {
+    if (!locModal || locModal.targetType !== "proba") return;
+    setLocModal((m) => (m ? { ...m, probaLoading: true } : m));
+    const t = setTimeout(() => {
+      api
+        .get("/tabel/uhody-proby", { search: locModal.probaSearch.trim() || undefined, ...(locModal.probaVse ? { vse: true } : {}) })
+        .then((opts) => setLocModal((m) => (m ? { ...m, probaOptions: opts, probaLoading: false } : m)))
+        .catch(() => setLocModal((m) => (m ? { ...m, probaLoading: false } : m)));
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locModal?.targetType, locModal?.probaSearch, locModal?.probaVse]);
 
   useEffect(() => {
     if (!locModal || locModal.targetType !== "lesokultury") return;
     setLocModal((m) => (m ? { ...m, lesokulturyLoading: true } : m));
     const t = setTimeout(() => {
       api
-        .get("/tabel/lesokultury-uchastki", { search: locModal.lesokulturySearch.trim() || undefined })
+        .get("/tabel/lesokultury-uchastki", { search: locModal.lesokulturySearch.trim() || undefined, ...(locModal.lesokulturyVse ? { vse: true } : {}) })
         .then((opts) => setLocModal((m) => (m ? { ...m, lesokulturyOptions: opts, lesokulturyLoading: false } : m)))
         .catch(() => setLocModal((m) => (m ? { ...m, lesokulturyLoading: false } : m)));
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locModal?.targetType, locModal?.lesokulturySearch]);
+  }, [locModal?.targetType, locModal?.lesokulturySearch, locModal?.lesokulturyVse]);
 
   // Поиск делянки по мере ввода (GET /tabel/delyanki): «12/5», лесосека,
   // название, лесничество. Раньше — точный квартал+выдел и первая найденная.
@@ -244,14 +296,20 @@ export default function TabelRuchnoy() {
         return;
       }
       updateRow(locModal.sotrudnikId, {
+        ...BEZ_MESTA,
         targetType: "delyanka",
         delyanka_item_id: d.item_id,
         delyankaLabel: d.label,
         delyankaKvartal: d.kvartal || "",
         delyankaVydel: d.vydel || "",
-        lesokultury_uchastok_id: null,
-        lesokulturyLabel: null,
       });
+    } else if (locModal.targetType === "proba") {
+      const p = locModal.proba;
+      if (!p?.id) {
+        toast.show({ tone: "warning", title: "Выберите пробу рубок ухода из списка" });
+        return;
+      }
+      updateRow(locModal.sotrudnikId, { ...BEZ_MESTA, targetType: "proba", uhody_proba_id: p.id, probaLabel: p.label });
     } else {
       if (!locModal.lesokulturyUchastok?.id) {
         toast.show({ tone: "warning", title: "Выберите участок лесных культур из списка" });
@@ -259,24 +317,17 @@ export default function TabelRuchnoy() {
       }
       const u = locModal.lesokulturyUchastok;
       updateRow(locModal.sotrudnikId, {
+        ...BEZ_MESTA,
         targetType: "lesokultury",
         lesokultury_uchastok_id: u.id,
         lesokulturyLabel: `кв. ${u.kvartal || "—"} / выд. ${u.vydel || "—"}${u.glavnaya_poroda ? ` · ${u.glavnaya_poroda}` : ""}`,
-        delyanka_item_id: null,
-        delyankaLabel: null,
       });
     }
     setLocModal(null);
   };
 
   const handleLocationClear = () => {
-    updateRow(locModal.sotrudnikId, {
-      targetType: null,
-      delyanka_item_id: null,
-      delyankaLabel: null,
-      lesokultury_uchastok_id: null,
-      lesokulturyLabel: null,
-    });
+    updateRow(locModal.sotrudnikId, { ...BEZ_MESTA });
     setLocModal(null);
   };
 
@@ -318,34 +369,25 @@ export default function TabelRuchnoy() {
       const choice = brigadaModal.choices[s.sotrudnik_id] || "с бригадой";
       if (choice === "с бригадой") {
         updateRow(s.sotrudnik_id, {
+          ...BEZ_MESTA,
           status: "работал",
           targetType: mesto ? "delyanka" : null,
           delyanka_item_id: mesto ? mesto.item_id : null,
           delyankaLabel: mesto ? delyankaItemLabel(mesto) : null,
           delyankaKvartal: mesto?.kvartal || "",
           delyankaVydel: mesto?.vydel || "",
-          lesokultury_uchastok_id: null,
-          lesokulturyLabel: null,
           vid_raboty_id: brigadaModal.vidId ? Number(brigadaModal.vidId) : "",
         });
       } else if (choice === "в другом месте") {
         updateRow(s.sotrudnik_id, {
+          ...BEZ_MESTA,
           status: "работал",
-          targetType: null,
-          delyanka_item_id: null,
-          delyankaLabel: null,
-          lesokultury_uchastok_id: null,
-          lesokulturyLabel: null,
           kommentariy: "работал не с бригадой — укажите место",
         });
       } else {
         updateRow(s.sotrudnik_id, {
+          ...BEZ_MESTA,
           status: choice,
-          targetType: null,
-          delyanka_item_id: null,
-          delyankaLabel: null,
-          lesokultury_uchastok_id: null,
-          lesokulturyLabel: null,
           vid_raboty_id: "",
         });
       }
@@ -415,7 +457,7 @@ export default function TabelRuchnoy() {
               </thead>
               <tbody>
                 {filteredRows.map((row) => {
-                  const canPlace = row.status === "работал";
+                  const canPlace = NA_RABOTE.includes(row.status);
                   return (
                     <tr key={row.sotrudnik_id} className="group">
                       <td className="sticky left-0 z-10 bg-surface px-3 py-2 border-b border-border group-hover:bg-hover align-top">
@@ -459,8 +501,8 @@ export default function TabelRuchnoy() {
                             onClick={() => openLocationModal(row)}
                             className="text-left w-full text-[12.5px] px-2 py-1.5 rounded-[8px] border border-border hover:bg-hover"
                           >
-                            {row.delyankaLabel || row.lesokulturyLabel ? (
-                              <span className="text-ink">{row.delyankaLabel || row.lesokulturyLabel}</span>
+                            {row.delyankaLabel || row.lesokulturyLabel || row.probaLabel ? (
+                              <span className="text-ink">{row.delyankaLabel || row.lesokulturyLabel || row.probaLabel}</span>
                             ) : (
                               <span className="text-faint">Указать место…</span>
                             )}
@@ -532,7 +574,7 @@ export default function TabelRuchnoy() {
       >
         {locModal && (
           <div className="flex flex-col gap-3">
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 type="button"
                 variant={locModal.targetType === "delyanka" ? "primary" : "secondary"}
@@ -540,6 +582,14 @@ export default function TabelRuchnoy() {
                 onClick={() => setLocModal((m) => ({ ...m, targetType: "delyanka" }))}
               >
                 Делянка
+              </Button>
+              <Button
+                type="button"
+                variant={locModal.targetType === "proba" ? "primary" : "secondary"}
+                size="sm"
+                onClick={() => setLocModal((m) => ({ ...m, targetType: "proba" }))}
+              >
+                Рубки ухода
               </Button>
               <Button
                 type="button"
@@ -555,7 +605,7 @@ export default function TabelRuchnoy() {
               <>
                 {locModal.delyanka?.label && <p className="text-pine text-sm">Выбрана: {locModal.delyanka.label}</p>}
                 <TextField
-                  placeholder="Поиск: 12/5, номер лесосеки, название делянки, лесничество"
+                  placeholder="Поиск: 71/2, кв 71, лесосека, название делянки"
                   value={locModal.delyankaSearch}
                   onChange={(e) => setLocModal((m) => ({ ...m, delyankaSearch: e.target.value }))}
                 />
@@ -584,6 +634,51 @@ export default function TabelRuchnoy() {
                   )}
                 </div>
               </>
+            ) : locModal.targetType === "proba" ? (
+              <>
+                {locModal.proba?.label && <p className="text-pine text-sm">Выбрана: {locModal.proba.label}</p>}
+                <TextField
+                  placeholder="Поиск пробы: 71/2, кв 71, лесничество"
+                  value={locModal.probaSearch}
+                  onChange={(e) => setLocModal((m) => ({ ...m, probaSearch: e.target.value }))}
+                />
+                <label className="flex items-center gap-2 text-[12.5px] text-muted cursor-pointer select-none">
+                  <input type="checkbox" className="w-4 h-4 accent-pine" checked={locModal.probaVse}
+                    onChange={(e) => { zapomnit("tabel.probaVse", e.target.checked); setLocModal((m) => ({ ...m, probaVse: e.target.checked })); }} />
+                  Показывать и выполненные пробы
+                </label>
+                <div className="max-h-56 overflow-y-auto border border-border rounded-md">
+                  {locModal.probaLoading ? (
+                    <div className="p-3 flex justify-center">
+                      <div className="h-4 w-4 rounded-full border-2 border-pine border-t-transparent animate-spin" />
+                    </div>
+                  ) : locModal.probaOptions.length === 0 ? (
+                    <div className="p-3 text-sm text-muted text-center">Проб не найдено — заложите пробу на экране «Рубки ухода»</div>
+                  ) : (
+                    locModal.probaOptions.map((p) => (
+                      <button
+                        type="button"
+                        key={p.id}
+                        onClick={() => setLocModal((m) => ({ ...m, proba: { ...p, label: probaLabel(p) } }))}
+                        className={[
+                          "w-full text-left px-3 py-2 border-b border-hover last:border-b-0 hover:bg-hover",
+                          locModal.proba?.id === p.id ? "bg-mint" : "",
+                        ].join(" ")}
+                      >
+                        <div className="text-sm text-ink">
+                          Кв. {p.kvartal || "—"} / Выд. {p.vydel || "—"}
+                          <span className={`ml-2 text-[11px] ${p.zakryta ? "text-muted" : "text-pine"}`}>
+                            {p.zakryta ? "✓ выполнена" : p.sdelano_ga ? `в работе: ${p.sdelano_ga}${p.ploshad ? ` из ${p.ploshad}` : ""} га` : "заложена"}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted">
+                          {[p.lesnichestvo, p.data_zamera ? `замер ${p.data_zamera}` : null, p.ploshad_proby ? `проба ${p.ploshad_proby} га` : null].filter(Boolean).join(" · ") || "—"}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
             ) : (
               <>
                 {locModal.lesokulturyUchastok?.kvartal && (
@@ -592,10 +687,15 @@ export default function TabelRuchnoy() {
                   </p>
                 )}
                 <TextField
-                  placeholder="Поиск участка: квартал, выдел, лесничество, порода"
+                  placeholder="Поиск участка: 71/2, кв 71, лесничество, порода"
                   value={locModal.lesokulturySearch}
                   onChange={(e) => setLocModal((m) => ({ ...m, lesokulturySearch: e.target.value }))}
                 />
+                <label className="flex items-center gap-2 text-[12.5px] text-muted cursor-pointer select-none">
+                  <input type="checkbox" className="w-4 h-4 accent-pine" checked={locModal.lesokulturyVse}
+                    onChange={(e) => { zapomnit("tabel.lkVse", e.target.checked); setLocModal((m) => ({ ...m, lesokulturyVse: e.target.checked })); }} />
+                  Показывать списанные и переведённые
+                </label>
                 <div className="max-h-48 overflow-y-auto border border-border rounded-md">
                   {locModal.lesokulturyLoading ? (
                     <div className="p-3 flex justify-center">
@@ -615,7 +715,7 @@ export default function TabelRuchnoy() {
                         ].join(" ")}
                       >
                         <div className="text-sm text-ink">Кв. {u.kvartal || "—"} / Выд. {u.vydel || "—"}</div>
-                        <div className="text-xs text-muted">{u.lesnichestvo || "—"}{u.glavnaya_poroda ? ` · ${u.glavnaya_poroda}` : ""}</div>
+                        <div className="text-xs text-muted">{u.lesnichestvo || "—"}{u.glavnaya_poroda ? ` · ${u.glavnaya_poroda}` : ""}{u.status && u.status !== "активен" ? ` · ${u.status}` : ""}</div>
                       </button>
                     ))
                   )}

@@ -246,14 +246,21 @@ CREATE TABLE IF NOT EXISTS vidy_rabot (
 );
 """
 
+# Статусы дня в табеле. «ремонт» и «командировка» — просьба Влада
+# 09.11.2026: человек на работе, но не на делянке (чинит технику / уехал).
+TABEL_STATUSY = ("работал", "не работал", "больничный", "отпуск", "выходной", "ремонт", "командировка")
+# Статусы, при которых человек «на работе» — можно указать место и вид работы.
+TABEL_NA_RABOTE = ("работал", "ремонт", "командировка")
+
 TABEL_ZAPIS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tabel_zapis (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sotrudnik_id INTEGER NOT NULL REFERENCES sotrudniki(id),
     data TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('работал', 'не работал', 'больничный', 'отпуск', 'выходной')),
+    status TEXT NOT NULL CHECK (status IN ('работал', 'не работал', 'больничный', 'отпуск', 'выходной', 'ремонт', 'командировка')),
     delyanka_item_id INTEGER REFERENCES delyanka_item(id),
     lesokultury_uchastok_id INTEGER REFERENCES lesokultury_uchastok(id),
+    uhody_proba_id INTEGER REFERENCES uhody_proby(id),
     vid_raboty_id INTEGER REFERENCES vidy_rabot(id),
     kommentariy TEXT NOT NULL DEFAULT '',
     entered_by TEXT,
@@ -367,6 +374,42 @@ CREATE INDEX IF NOT EXISTS idx_brigada_naznachenie_brigada ON brigada_naznacheni
 """
 
 
+def _migrate_tabel_zapis(conn: sqlite3.Connection) -> None:
+    """Старые базы: в CHECK табеля нет «ремонт»/«командировка», нет колонки
+    uhody_proba_id (проба рубок ухода как место работы). CHECK в SQLite не
+    меняется ALTER'ом — пересобираем таблицу, перенося все записи как есть."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='tabel_zapis'"
+    ).fetchone()
+    if not row or "командировка" in (row[0] or ""):
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tabel_zapis)").fetchall()}
+        if cols and "uhody_proba_id" not in cols:
+            conn.execute("ALTER TABLE tabel_zapis ADD COLUMN uhody_proba_id INTEGER REFERENCES uhody_proby(id)")
+            conn.commit()
+        return
+    old_cols = [r[1] for r in conn.execute("PRAGMA table_info(tabel_zapis)").fetchall()]
+    fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute("ALTER TABLE tabel_zapis RENAME TO tabel_zapis_old")
+        conn.execute("DROP INDEX IF EXISTS idx_tabel_zapis_data")
+        for stmt in TABEL_ZAPIS_SCHEMA.split(";"):
+            if stmt.strip():
+                conn.execute(stmt)
+        new_cols = {r[1] for r in conn.execute("PRAGMA table_info(tabel_zapis)").fetchall()}
+        common = ", ".join(c for c in old_cols if c in new_cols)
+        conn.execute(f"INSERT INTO tabel_zapis ({common}) SELECT {common} FROM tabel_zapis_old")
+        conn.execute("DROP TABLE tabel_zapis_old")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute(f"PRAGMA foreign_keys = {'ON' if fk else 'OFF'}")
+
+
 def ensure_webext_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(DOCUMENTS_SCHEMA)
     conn.executescript(TASKS_SCHEMA)
@@ -382,6 +425,7 @@ def ensure_webext_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(NOTIFICATION_READS_SCHEMA)
     conn.executescript(VIDY_RABOT_SCHEMA)
     conn.executescript(TABEL_ZAPIS_SCHEMA)
+    _migrate_tabel_zapis(conn)
     conn.executescript(BRIGADA_SCHEMA)
     conn.executescript(BRIGADA_SOSTAV_SCHEMA)
     conn.executescript(BRIGADA_NAZNACHENIE_SCHEMA)
@@ -1642,11 +1686,13 @@ def get_tabel_day(conn, data):
                tz.delyanka_item_id, delyanka_item.kvartal AS d_kvartal, delyanka_item.vydel AS d_vydel,
                tz.lesokultury_uchastok_id, lku.kvartal AS lku_kvartal, lku.vydel AS lku_vydel,
                lku.glavnaya_poroda AS lku_glavnaya_poroda,
+               tz.uhody_proba_id, up.kvartal AS up_kvartal, up.vydel AS up_vydel,
                tz.vid_raboty_id, vidy_rabot.nazvanie AS vid_raboty_nazvanie
         FROM sotrudniki
         LEFT JOIN tabel_zapis tz ON tz.sotrudnik_id = sotrudniki.id AND tz.data = ?
         LEFT JOIN delyanka_item ON delyanka_item.id = tz.delyanka_item_id
         LEFT JOIN lesokultury_uchastok lku ON lku.id = tz.lesokultury_uchastok_id
+        LEFT JOIN uhody_proby up ON up.id = tz.uhody_proba_id
         LEFT JOIN vidy_rabot ON vidy_rabot.id = tz.vid_raboty_id
         -- уволенные видны за дни до увольнения и там, где уже есть запись
         WHERE sotrudniki.is_active = 1
@@ -1745,23 +1791,9 @@ def search_tabel_delyanki(conn, search=None, include_archived=False, limit=50):
         for r in rows
         if include_archived or r[7] != "архив"
     ]
-    q = (search or "").strip().casefold()
-    if not q:
-        return items[:limit]
-    parts = [p for p in q.replace("/", " ").replace(",", " ").split() if p]
-    if len(parts) == 2 and all(p.isalnum() for p in parts):
-        kv, vd = parts
-        exact = [i for i in items
-                 if (i["kvartal"] or "").strip().casefold() == kv and (i["vydel"] or "").strip().casefold() == vd]
-        if exact:
-            return exact[:limit]
-
-    def haystack(i):
-        return " ".join(str(i[k] or "") for k in ("nazvanie", "lesnichestvo", "kvartal", "vydel", "lesoseka_nomer")).casefold()
-
-    kv_first = [i for i in items if (i["kvartal"] or "").strip().casefold() == q]
-    rest = [i for i in items if i not in kv_first and all(p in haystack(i) for p in parts)]
-    return (kv_first + rest)[:limit]
+    import db as legacy_db  # общий «удобный поиск» кв/выд (71/2, кв 71 выд 2, 71)
+    fields = ("nazvanie", "lesnichestvo", "kvartal", "vydel", "lesoseka_nomer")
+    return legacy_db.poisk_kv_vyd(items, search, fields)[:limit]
 
 
 def save_tabel_day(conn, data, entries, entered_by):
@@ -1773,10 +1805,17 @@ def save_tabel_day(conn, data, entries, entered_by):
     заполненный день и что-то поправить)."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for e in entries:
-        if e.get("delyanka_item_id") and e.get("lesokultury_uchastok_id"):
+        if e.get("status") not in TABEL_STATUSY:
+            raise ValueError(f"Неизвестный статус табеля: {e.get('status')}")
+        mest = [k for k in ("delyanka_item_id", "lesokultury_uchastok_id", "uhody_proba_id") if e.get(k)]
+        if len(mest) > 1:
             raise ValueError(
-                "Запись табеля нельзя привязать одновременно к делянке и к участку лесных культур"
+                "Место работы одно: делянка, участок лесных культур или проба рубок ухода"
             )
+        if e.get("uhody_proba_id") and not conn.execute(
+            "SELECT 1 FROM uhody_proby WHERE id=?", (e["uhody_proba_id"],)
+        ).fetchone():
+            raise ValueError(f"Проба рубок ухода id={e['uhody_proba_id']} не найдена")
         if not conn.execute(
             "SELECT 1 FROM sotrudniki WHERE id=? AND is_active=1", (e["sotrudnik_id"],)
         ).fetchone():
@@ -1793,13 +1832,14 @@ def save_tabel_day(conn, data, entries, entered_by):
             """
             INSERT INTO tabel_zapis
                 (sotrudnik_id, data, status, delyanka_item_id, lesokultury_uchastok_id,
-                 vid_raboty_id, kommentariy, entered_by, created_at, updated_at)
+                 uhody_proba_id, vid_raboty_id, kommentariy, entered_by, created_at, updated_at)
             VALUES (:sotrudnik_id, :data, :status, :delyanka_item_id, :lesokultury_uchastok_id,
-                    :vid_raboty_id, :kommentariy, :entered_by, :now, :now)
+                    :uhody_proba_id, :vid_raboty_id, :kommentariy, :entered_by, :now, :now)
             ON CONFLICT(sotrudnik_id, data) DO UPDATE SET
                 status=excluded.status,
                 delyanka_item_id=excluded.delyanka_item_id,
                 lesokultury_uchastok_id=excluded.lesokultury_uchastok_id,
+                uhody_proba_id=excluded.uhody_proba_id,
                 vid_raboty_id=excluded.vid_raboty_id,
                 kommentariy=excluded.kommentariy,
                 entered_by=excluded.entered_by,
@@ -1809,6 +1849,7 @@ def save_tabel_day(conn, data, entries, entered_by):
                 "sotrudnik_id": e["sotrudnik_id"], "data": data, "status": e["status"],
                 "delyanka_item_id": e.get("delyanka_item_id"),
                 "lesokultury_uchastok_id": e.get("lesokultury_uchastok_id"),
+                "uhody_proba_id": e.get("uhody_proba_id"),
                 "vid_raboty_id": e.get("vid_raboty_id"),
                 "kommentariy": e.get("kommentariy") or "",
                 "entered_by": entered_by, "now": now,
@@ -1827,11 +1868,13 @@ def list_tabel_zapisi(conn, date_from=None, date_to=None):
                tz.delyanka_item_id, delyanka_item.kvartal AS d_kvartal, delyanka_item.vydel AS d_vydel,
                tz.lesokultury_uchastok_id, lku.kvartal AS lku_kvartal, lku.vydel AS lku_vydel,
                lku.glavnaya_poroda AS lku_glavnaya_poroda,
+               tz.uhody_proba_id, up.kvartal AS up_kvartal, up.vydel AS up_vydel,
                tz.vid_raboty_id, vidy_rabot.nazvanie AS vid_raboty_nazvanie
         FROM tabel_zapis tz
         JOIN sotrudniki ON sotrudniki.id = tz.sotrudnik_id
         LEFT JOIN delyanka_item ON delyanka_item.id = tz.delyanka_item_id
         LEFT JOIN lesokultury_uchastok lku ON lku.id = tz.lesokultury_uchastok_id
+        LEFT JOIN uhody_proby up ON up.id = tz.uhody_proba_id
         LEFT JOIN vidy_rabot ON vidy_rabot.id = tz.vid_raboty_id
         WHERE 1=1
     """

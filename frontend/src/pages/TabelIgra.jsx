@@ -25,8 +25,12 @@ const STATUSY = [
   { v: "выходной", label: "Выходной", emoji: "🛌", bg: "#f1eee7", fg: C.muted },
   { v: "больничный", label: "Больничный", emoji: "🤒", bg: C.dangerSoft, fg: C.danger },
   { v: "отпуск", label: "Отпуск", emoji: "🏖", bg: "#e6eef7", fg: C.sky },
+  { v: "ремонт", label: "Ремонт", emoji: "🔧", bg: C.goldSoft, fg: C.gold },
+  { v: "командировка", label: "Командировка", emoji: "🧳", bg: "#e6eef7", fg: C.sky },
   { v: "не работал", label: "Не работал", emoji: "✖", bg: "#f1eee7", fg: C.muted },
 ];
+// На работе — можно указать место и вид работы.
+const NA_RABOTE = ["работал", "ремонт", "командировка"];
 const ST = Object.fromEntries(STATUSY.map((s) => [s.v, s]));
 const MOBILE_TO_TABEL = { "работаю": "работал", "не работаю": "не работал", "больничный": "больничный" };
 const XP_ZA_STROKU = 2;
@@ -114,11 +118,11 @@ function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros, onSteret }
   // подставляем сразу; разное — пусто, выберешь сам.
   useEffect(() => {
     const pr = vybrany.map((id) => lyudi.find((l) => l.sotrudnik_id === id)?.proshloe);
-    const rab = pr.every((x) => x && x.status === "работал");
+    const rab = pr.every((x) => x && NA_RABOTE.includes(x.status));
     const p = pr[0];
     const odnoMesto = rab && p.mesto && pr.every((x) => x.mesto === p.mesto);
     const odinVid = rab && p.vid_raboty_id && pr.every((x) => x.vid_raboty_id === p.vid_raboty_id);
-    setMesto(odnoMesto ? { delyanka_item_id: p.delyanka_item_id, lesokultury_uchastok_id: p.lesokultury_uchastok_id, mesto: p.mesto } : null);
+    setMesto(odnoMesto ? { delyanka_item_id: p.delyanka_item_id, lesokultury_uchastok_id: p.lesokultury_uchastok_id, uhody_proba_id: p.uhody_proba_id, mesto: p.mesto } : null);
     setVid(odinVid ? { id: p.vid_raboty_id, nazvanie: p.vid_raboty } : null);
   }, [vybrany.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -130,15 +134,21 @@ function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros, onSteret }
     }
     const t = setTimeout(async () => {
       try {
-        const [d, l] = await Promise.all([
+        const [d, l, pr] = await Promise.all([
           api.get("/tabel/delyanki", { search: s, limit: 8 }),
           api.get("/tabel/lesokultury-uchastki", { search: s }),
+          api.get("/tabel/uhody-proby", { search: s }).catch(() => []),
         ]);
         setNayd([
           ...d.map((i) => ({
             delyanka_item_id: i.item_id, lesokultury_uchastok_id: null,
             mesto: `кв.${i.kvartal || "—"} выд.${i.vydel || "—"}`,
             pod: [i.lesoseka_nomer ? `лесосека ${i.lesoseka_nomer}` : null, i.nazvanie, i.zagotovitel ? `рубит ${i.zagotovitel}` : null].filter(Boolean).join(" · "),
+          })),
+          ...pr.slice(0, 6).map((p) => ({
+            delyanka_item_id: null, lesokultury_uchastok_id: null, uhody_proba_id: p.id,
+            mesto: `✂️ рубки ухода кв.${p.kvartal || "—"} выд.${p.vydel || "—"}`,
+            pod: [p.zakryta ? "выполнена" : p.sdelano_ga ? `в работе ${p.sdelano_ga} га` : "заложена", p.lesnichestvo].filter(Boolean).join(" · "),
           })),
           ...l.slice(0, 6).map((u) => ({
             delyanka_item_id: null, lesokultury_uchastok_id: u.id,
@@ -192,7 +202,7 @@ function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros, onSteret }
         ))}
       </div>
 
-      {status === "работал" && (
+      {NA_RABOTE.includes(status) && (
         <>
           <div style={{ fontSize: 12, color: C.muted, fontFamily: MONO, textTransform: "uppercase", letterSpacing: ".06em" }}>Где</div>
           {den.chastye.length > 0 && (
@@ -205,7 +215,7 @@ function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros, onSteret }
                     type="button"
                     title={`За 30 дней ставили ${c.raz} раз`}
                     onClick={() => {
-                      setMesto({ delyanka_item_id: c.delyanka_item_id, lesokultury_uchastok_id: c.lesokultury_uchastok_id, mesto: c.mesto });
+                      setMesto({ delyanka_item_id: c.delyanka_item_id, lesokultury_uchastok_id: c.lesokultury_uchastok_id, uhody_proba_id: c.uhody_proba_id, mesto: c.mesto });
                       if (c.vid_raboty_id) setVid({ id: c.vid_raboty_id, nazvanie: c.vid_raboty });
                     }}
                     style={chip(on)}
@@ -270,7 +280,7 @@ function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros, onSteret }
         {vybrany.some((id) => lyudi.find((l) => l.sotrudnik_id === id)?.zapis_id) && (
           <Btn onClick={onSteret} title="Убрать отметку у выделенных — как будто их ещё не отмечали">🧽 Стереть отметку</Btn>
         )}
-        <Btn tone="gold" onClick={() => onPrimenit({ status, mesto: status === "работал" ? mesto : null, vid: status === "работал" ? vid : null })}>
+        <Btn tone="gold" onClick={() => onPrimenit({ status, mesto: NA_RABOTE.includes(status) ? mesto : null, vid: NA_RABOTE.includes(status) ? vid : null })}>
           ✅ Отметить {vybrany.length > 1 ? `всех ${vybrany.length}` : ""}
         </Btn>
         {status === "работал" && !mesto && <span style={{ fontSize: 12, color: C.muted }}>Место можно не указывать, но с ним табель полезнее.</span>}
@@ -341,7 +351,8 @@ export default function TabelIgra() {
       text,
       vernut: bylo.filter((l) => l.zapis_id).map((l) => ({
         sotrudnik_id: l.sotrudnik_id, status: l.status, delyanka_item_id: l.delyanka_item_id || null,
-        lesokultury_uchastok_id: l.lesokultury_uchastok_id || null, vid_raboty_id: l.vid_raboty_id || null,
+        lesokultury_uchastok_id: l.lesokultury_uchastok_id || null, uhody_proba_id: l.uhody_proba_id || null,
+        vid_raboty_id: l.vid_raboty_id || null,
         kommentariy: l.kommentariy || "",
       })),
       ubrat: bylo.filter((l) => !l.zapis_id).map((l) => l.sotrudnik_id),
@@ -416,6 +427,7 @@ export default function TabelIgra() {
     status,
     delyanka_item_id: mesto?.delyanka_item_id || null,
     lesokultury_uchastok_id: mesto?.lesokultury_uchastok_id || null,
+    uhody_proba_id: mesto?.uhody_proba_id || null,
     vid_raboty_id: vid?.id || null,
     kommentariy: l.kommentariy || "",
   });
@@ -429,17 +441,18 @@ export default function TabelIgra() {
   const pustye = lyudi.filter((l) => !l.zapis_id);
   // «Выходной» и «не работал» — разовые, их не переносим; работа,
   // больничный и отпуск обычно тянутся несколько дней.
-  const PERENOSIM = ["работал", "больничный", "отпуск"];
+  const PERENOSIM = ["работал", "больничный", "отпуск", "ремонт", "командировка"];
   const kakRanshe = pustye.filter((l) => l.proshloe && PERENOSIM.includes(l.proshloe.status));
   const sTelefona = pustye.filter((l) => MOBILE_TO_TABEL[l.mobile_status]);
 
   const kakVProshlyy = () =>
     sohranit(kakRanshe.map((l) => {
       const p = l.proshloe;
-      const rab = p.status === "работал";
+      const rab = NA_RABOTE.includes(p.status);
       return {
         sotrudnik_id: l.sotrudnik_id, status: p.status,
         delyanka_item_id: rab ? p.delyanka_item_id : null, lesokultury_uchastok_id: rab ? p.lesokultury_uchastok_id : null,
+        uhody_proba_id: rab ? p.uhody_proba_id : null,
         vid_raboty_id: rab ? p.vid_raboty_id : null, kommentariy: "",
       };
     }));
@@ -664,7 +677,7 @@ export default function TabelIgra() {
                   <span style={{ alignSelf: "flex-start", fontSize: 12, fontWeight: 700, borderRadius: 999, padding: "2px 9px", background: s.bg, color: s.fg }}>
                     {s.emoji} {s.label}
                   </span>
-                  {l.status === "работал" && (l.mesto || l.vid_raboty_nazvanie) && (
+                  {NA_RABOTE.includes(l.status) && (l.mesto || l.vid_raboty_nazvanie) && (
                     <span style={{ fontSize: 12.5, color: C.ink }}>
                       {l.mesto && <>📍 {l.mesto}</>}
                       {l.vid_raboty_nazvanie && <span style={{ color: C.muted }}> · {l.vid_raboty_nazvanie}</span>}
@@ -677,7 +690,7 @@ export default function TabelIgra() {
                   {l.mobile_status && <span style={{ fontSize: 11.5, color: C.sky }}>📱 с телефона: {l.mobile_status}</span>}
                   {l.proshloe && (
                     <span style={{ fontSize: 11.5, color: C.muted }}>
-                      в прошлый раз: {ST[l.proshloe.status]?.emoji} {l.proshloe.status === "работал" ? (l.proshloe.mesto || "работал") : l.proshloe.status}
+                      в прошлый раз: {ST[l.proshloe.status]?.emoji} {NA_RABOTE.includes(l.proshloe.status) ? (l.proshloe.mesto || l.proshloe.status) : l.proshloe.status}
                       {l.proshloe.vid_raboty ? ` · ${l.proshloe.vid_raboty}` : ""}
                     </span>
                   )}

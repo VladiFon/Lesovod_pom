@@ -28,7 +28,7 @@ function initsialy(fio) {
   return ((p[0]?.[0] || "") + (p[1]?.[0] || "")).toUpperCase();
 }
 
-const TABEL_TON = { "работал": "success", "больничный": "danger", "отпуск": "info", "выходной": "neutral", "не работал": "warning" };
+const TABEL_TON = { "работал": "success", "больничный": "danger", "отпуск": "info", "выходной": "neutral", "не работал": "warning", "ремонт": "warning", "командировка": "info" };
 const ISTOCHNIK = { smena: "отчёт с телефона", zhurnal: "журнал выполненных работ", uhody: "рубки ухода (офис)" };
 
 /** Строчка «где»: если сервер дал ссылку — кликабельная. */
@@ -73,7 +73,7 @@ function Polosa({ dni, ot, doo }) {
   const start = new Date(`${ot}T12:00:00`);
   const end = new Date(`${doo}T12:00:00`);
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(d.toISOString().slice(0, 10));
-  const cvet = { "работал": "#3f7d4e", "больничный": "#b3261e", "отпуск": "#2f6f8f", "выходной": "#c9c5bb", "не работал": "#b07d0c" };
+  const cvet = { "работал": "#3f7d4e", "больничный": "#b3261e", "отпуск": "#2f6f8f", "выходной": "#c9c5bb", "не работал": "#b07d0c", "ремонт": "#9a6200", "командировка": "#2c5d8a" };
   return (
     <div className="flex flex-wrap gap-[3px]">
       {days.map((d) => {

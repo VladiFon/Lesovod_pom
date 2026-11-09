@@ -151,31 +151,36 @@ def sobrat(conn, ot: str, do: str, istochniki=None):
         # табель — по человеку на день; в журнал кладём «кто где был» одной
         # строкой на (день, место, вид работы), только «работал»
         gruppy = {}
-        for sid, fio, d, kv, vd, les, nazv, did, lkv, lvd, lles, luid, vidr in conn.execute(
+        for sid, fio, d, kv, vd, les, nazv, did, lkv, lvd, lles, luid, vidr, pkv, pvd, pid in conn.execute(
                 """SELECT t.sotrudnik_id, s.fio, t.data, di.kvartal, di.vydel, di.lesnichestvo, dl.nazvanie, dl.id,
-                          lu.kvartal, lu.vydel, lu.lesnichestvo, lu.id, v.nazvanie
+                          lu.kvartal, lu.vydel, lu.lesnichestvo, lu.id, v.nazvanie,
+                          up.kvartal, up.vydel, up.id
                    FROM tabel_zapis t JOIN sotrudniki s ON s.id = t.sotrudnik_id
                    LEFT JOIN delyanka_item di ON di.id = t.delyanka_item_id
                    LEFT JOIN delyanka dl ON dl.id = di.delyanka_id
                    LEFT JOIN lesokultury_uchastok lu ON lu.id = t.lesokultury_uchastok_id
+                   LEFT JOIN uhody_proby up ON up.id = t.uhody_proba_id
                    LEFT JOIN vidy_rabot v ON v.id = t.vid_raboty_id
                    WHERE t.data BETWEEN ? AND ? AND t.status = 'работал'""", (ot, do)).fetchall():
-            kl = (d, did, kv, vd, luid, vidr)
+            kl = (d, did, kv, vd, luid, pid, vidr)
             g = gruppy.get(kl)
             if g is None:
                 if did or kv:
                     gde = f"{nazv or 'делянка'} · кв.{kv} выд.{vd}"
                 elif luid:
                     gde = f"л/к кв.{lkv} выд.{lvd}"
+                elif pid:
+                    gde = f"рубки ухода кв.{pkv} выд.{pvd}"
                 else:
                     gde = None
                 g = gruppy[kl] = {
-                    "kluch": f"t-{d}-{did}-{kv}-{vd}-{luid}-{vidr}", "istochnik": "tabel", "data": d, "emoji": "📋",
-                    "chto": vidr or "Работал (табель)", "gde": gde,
-                    "kvartal": kv or lkv, "vydel": vd or lvd, "lesnichestvo": les or lles, "skolko": None,
+                    "kluch": f"t-{d}-{did}-{kv}-{vd}-{luid}-{pid}-{vidr}", "istochnik": "tabel", "data": d, "emoji": "📋",
+                    "chto": vidr or ("Рубки ухода (табель)" if pid else "Работал (табель)"), "gde": gde,
+                    "kvartal": kv or lkv or pkv, "vydel": vd or lvd or pvd, "lesnichestvo": les or lles, "skolko": None,
                     "opisanie": None, "lyudi": [],
                     "ssylka": ({"screen": "plots", "params": {"d": did}} if did else
                                {"screen": "forestry", "params": {"u": luid}} if luid else
+                               {"screen": "uhody", "params": {"p": pid}} if pid else
                                {"screen": "tabel", "params": {}}),
                 }
                 out.append(g)

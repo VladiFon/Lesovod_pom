@@ -66,15 +66,19 @@ def _mesto_label(r):
     if r.get("lesokultury_uchastok_id"):
         por = r.get("lku_poroda")
         return f"🌱 кв.{r.get('lku_kvartal') or '—'} выд.{r.get('lku_vydel') or '—'}" + (f" · {por}" if por else "")
+    if r.get("uhody_proba_id"):
+        return f"✂️ рубки ухода кв.{r.get('up_kvartal') or '—'} выд.{r.get('up_vydel') or '—'}"
     return ""
 
 
 _ZAPIS_SQL = """
     SELECT tz.sotrudnik_id, tz.data, tz.status, tz.delyanka_item_id, tz.lesokultury_uchastok_id,
-           tz.vid_raboty_id, v.nazvanie, di.kvartal, di.vydel, lku.kvartal, lku.vydel, lku.glavnaya_poroda
+           tz.vid_raboty_id, v.nazvanie, di.kvartal, di.vydel, lku.kvartal, lku.vydel, lku.glavnaya_poroda,
+           tz.uhody_proba_id, up.kvartal, up.vydel
     FROM tabel_zapis tz
     LEFT JOIN delyanka_item di ON di.id = tz.delyanka_item_id
     LEFT JOIN lesokultury_uchastok lku ON lku.id = tz.lesokultury_uchastok_id
+    LEFT JOIN uhody_proby up ON up.id = tz.uhody_proba_id
     LEFT JOIN vidy_rabot v ON v.id = tz.vid_raboty_id
 """
 
@@ -84,6 +88,7 @@ def _zapis(row):
         "sotrudnik_id": row[0], "data": row[1], "status": row[2], "delyanka_item_id": row[3],
         "lesokultury_uchastok_id": row[4], "vid_raboty_id": row[5], "vid_raboty": row[6],
         "d_kvartal": row[7], "d_vydel": row[8], "lku_kvartal": row[9], "lku_vydel": row[10], "lku_poroda": row[11],
+        "uhody_proba_id": row[12], "up_kvartal": row[13], "up_vydel": row[14],
     }
     r["mesto"] = _mesto_label(r)
     return r
@@ -105,13 +110,14 @@ def chastye_mesta(conn, data, limit=10):
     rows = conn.execute(
         _ZAPIS_SQL + """
         WHERE tz.status = 'работал' AND tz.data >= ? AND tz.data <= ?
-          AND (tz.delyanka_item_id IS NOT NULL OR tz.lesokultury_uchastok_id IS NOT NULL)""",
+          AND (tz.delyanka_item_id IS NOT NULL OR tz.lesokultury_uchastok_id IS NOT NULL
+               OR tz.uhody_proba_id IS NOT NULL)""",
         (ot, data),
     ).fetchall()
     cnt, primer = {}, {}
     for row in rows:
         z = _zapis(row)
-        k = (z["delyanka_item_id"], z["lesokultury_uchastok_id"], z["vid_raboty_id"])
+        k = (z["delyanka_item_id"], z["lesokultury_uchastok_id"], z["uhody_proba_id"], z["vid_raboty_id"])
         cnt[k] = cnt.get(k, 0) + 1
         primer.setdefault(k, z)
     out = []
@@ -119,6 +125,7 @@ def chastye_mesta(conn, data, limit=10):
         z = primer[k]
         out.append({
             "delyanka_item_id": z["delyanka_item_id"], "lesokultury_uchastok_id": z["lesokultury_uchastok_id"],
+            "uhody_proba_id": z["uhody_proba_id"],
             "vid_raboty_id": z["vid_raboty_id"], "vid_raboty": z["vid_raboty"], "mesto": z["mesto"], "raz": n,
         })
     return out
@@ -200,6 +207,7 @@ def den(data: str, user=Depends(require_office_or_master), conn=Depends(get_conn
             "delyanka_item_id": r.get("delyanka_item_id"), "d_kvartal": r.get("d_kvartal"), "d_vydel": r.get("d_vydel"),
             "lesokultury_uchastok_id": r.get("lesokultury_uchastok_id"), "lku_kvartal": r.get("lku_kvartal"),
             "lku_vydel": r.get("lku_vydel"), "lku_poroda": r.get("lku_glavnaya_poroda"),
+            "uhody_proba_id": r.get("uhody_proba_id"), "up_kvartal": r.get("up_kvartal"), "up_vydel": r.get("up_vydel"),
         })
         r["proshloe"] = pr.get(r["sotrudnik_id"])
         r["dney_v_mesyace"] = mesyac.get(r["sotrudnik_id"], 0)

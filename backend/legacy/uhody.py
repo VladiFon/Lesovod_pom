@@ -63,9 +63,9 @@ def calculate_row(shirina: Any, vysota: Any, dlina: Any) -> dict | None:
     ведомости:
 
       T (Объём складочный)   = Ширина * Высота * Длина
-      U (Коэфф. перевода)    = 0.1,  если Длина < 2 м
-                                0.12, если 2 <= Длина <= 4 м
-                                0.2,  если Длина > 4 м
+      U (Коэфф. перевода)    = 0.1,  если Длина <= 2 м
+                                0.12, если 2 < Длина <= 4 м (2,1–4)
+                                0.2,  если Длина > 4 м (от 4,1)
       V (Запас на укладке)   = T*U * 0.9,  если Длина > 2 м  (-10% на пустоты)
                                 T*U * 0.8,  если Длина <= 2 м (-20% на пустоты)
 
@@ -81,7 +81,9 @@ def calculate_row(shirina: Any, vysota: Any, dlina: Any) -> dict | None:
 
     obyom_sklad = shirina_v * vysota_v * dlina_v
 
-    if dlina_v < 2:
+    # Правило (Влад, 2026-11-09): до 2 м включительно — 0,1;
+    # 2,1–4 м включительно — 0,12; от 4,1 м — 0,2.
+    if dlina_v <= 2:
         koeff = 0.1
     elif dlina_v <= 4:
         koeff = 0.12
@@ -441,7 +443,7 @@ def build_osvetlenie_workbook(record: dict):
         value(f"R{r}", row_data.get("vysota"))
         value(f"S{r}", row_data.get("dlina"))
         value(f"T{r}", f"=Q{r}*R{r}*S{r}")
-        value(f"U{r}", f'=IF(S{r}<2,0.1,IF(AND(S{r}>=2,S{r}<=4),0.12,IF(S{r}>4,0.2,0)))')
+        value(f"U{r}", f'=IF(S{r}<=2,0.1,IF(S{r}<=4,0.12,0.2))')
         value(f"V{r}", f"=IF(S{r}>2,T{r}*U{r}-(T{r}*U{r}*0.1),T{r}*U{r}-(T{r}*U{r}*0.2))")
         value(f"W{r}", f"=V{r}/$H$10")
         value(f"X{r}", f"=W{r}*$G$5")

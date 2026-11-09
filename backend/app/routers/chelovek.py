@@ -122,7 +122,7 @@ def _summy(conn, sid, ot, do):
         for st, n in conn.execute(
                 "SELECT status, COUNT(*) FROM tabel_zapis WHERE sotrudnik_id = ? AND data BETWEEN ? AND ? GROUP BY status",
                 (sid, ot, do)).fetchall():
-            if st == "работал":
+            if st in ("работал", "ремонт", "командировка"):  # на работе, хоть и не на делянке
                 out["dney_rabotal"] += n
             else:
                 out["dney_ne_rabotal"] += n
