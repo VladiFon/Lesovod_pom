@@ -146,11 +146,33 @@ def na_bumage(zid: int, body: BumagaIn, conn=Depends(get_conn), _u=Depends(requi
 
 
 @router.delete("/{zid}")
-def udalit(zid: int, conn=Depends(get_conn), _u=Depends(require_permission(PRAVO))):
+def udalit(zid: int, chuzhaya: bool = False, conn=Depends(get_conn), _u=Depends(require_permission(PRAVO))):
+    """Убрать строку: удалить (если ещё не на бумаге) или «замазать»."""
     try:
-        sdvinuto = kn.udalit(conn, zid)
+        res = kn.udalit(conn, zid, chuzhaya=chuzhaya)
     except KeyError:
         raise HTTPException(404, "Строка книги не найдена")
+    return {"ok": True, **res}
+
+
+class MestoIn(BaseModel):
+    flag: str = ""  # '' — по лесничеству, 'chuzhaya', 'svoya'
+
+
+@router.get("/delyanka/{did}")
+def delyanka_mesto(did: int, conn=Depends(get_conn), _u=Depends(get_current_user)):
+    """Карточка делянки: в книге ли, своя / чужая."""
+    try:
+        return kn.mesto_delyanki(conn, did)
+    except KeyError:
+        raise HTTPException(404, "Делянка не найдена")
+
+
+@router.put("/delyanka/{did}")
+def delyanka_mesto_put(did: int, body: MestoIn, conn=Depends(get_conn), _u=Depends(require_permission(PRAVO))):
+    try:
+        return kn.otmetit_mesto(conn, did, body.flag)
+    except KeyError:
+        raise HTTPException(404, "Делянка не найдена")
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"ok": True, "sdvinuto": sdvinuto}

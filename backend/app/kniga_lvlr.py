@@ -90,6 +90,8 @@ SPLOSHNYE_KODY = {"СПЛ", "ССР", "РСП", "РР"}
 # Вид не распознан — тоже предлагаем (с пометкой), пусть решит человек.
 V_KNIGU_KODY = SPLOSHNYE_KODY | {"ПСТ"}
 VID_SPISANIE = "spisanie"
+VID_ZAMAZANA = "zamazana"
+MESTO_FLAGI = ("", "chuzhaya", "svoya")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kniga_lvlr (
@@ -124,8 +126,12 @@ PORODY = [
 def ensure(conn) -> None:
     conn.executescript(SCHEMA)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(kniga_lvlr)").fetchall()}
-    if "vid" not in cols:  # строка из списания культур — 'spisanie'
+    if "vid" not in cols:  # 'spisanie' — из списания культур, 'zamazana' — замазана в книге
         conn.execute("ALTER TABLE kniga_lvlr ADD COLUMN vid TEXT")
+    dcols = {r[1] for r in conn.execute("PRAGMA table_info(delyanka)").fetchall()}
+    if dcols and "kniga_lvlr_mesto" not in dcols:
+        # '' — по лесничеству/лесхозу; 'chuzhaya' — не вносить; 'svoya' — вносить всегда
+        conn.execute("ALTER TABLE delyanka ADD COLUMN kniga_lvlr_mesto TEXT")
 
 
 # --------------------------------------------------------------------------- #
@@ -634,24 +640,60 @@ def otmetit_na_bumage(conn, zid, grafy: Optional[List[int]] = None) -> dict:
     return zapis(conn, zid)
 
 
-def udalit(conn, zid) -> int:
-    """Удалить строку. Номера ниже сдвигаются на один вверх — поэтому можно,
-    только пока ни эта строка, ни следующие не перенесены на бумагу.
-    Возвращает, сколько строк перенумеровано."""
+def udalit(conn, zid, chuzhaya: bool = False) -> dict:
+    """Убрать строку из книги.
+
+    Пока ни эта строка, ни следующие не перенесены на бумагу — строка
+    удаляется, номера ниже сдвигаются вверх. Если на бумаге уже что-то
+    есть — строка «замазывается»: место и № остаются (как замазанная
+    корректором строка в книге), графы очищаются, делянка/участок
+    отвязываются; в «Перенести на бумагу» появится «замазать гр. …».
+    chuzhaya=True — заодно пометить делянку «чужая», чтобы её больше не
+    предлагало."""
     z = zapis(conn, zid)
     if z is None:
         raise KeyError(zid)
+    if chuzhaya and z.get("delyanka_id"):
+        conn.execute("UPDATE delyanka SET kniga_lvlr_mesto = 'chuzhaya' WHERE id = ?", (z["delyanka_id"],))
     dalshe = [q for q in zapisi(conn) if q["nomer"] >= z["nomer"]]
-    na_bum = [q["nomer"] for q in dalshe if q["na_bumage"]]
-    if na_bum:
-        raise ValueError(f"Строка №{na_bum[0]} уже на бумаге — удалять нельзя, поедут номера. "
-                         "Исправьте строку (или зачеркните на бумаге и поправьте графы).")
-    conn.execute("DELETE FROM kniga_lvlr WHERE id = ?", (zid,))
-    sdvig = [q for q in dalshe if q["id"] != zid]
-    for q in sorted(sdvig, key=lambda x: x["nomer"]):
-        conn.execute("UPDATE kniga_lvlr SET nomer = nomer - 1 WHERE id = ?", (q["id"],))
+    if not any(q["na_bumage"] for q in dalshe):
+        conn.execute("DELETE FROM kniga_lvlr WHERE id = ?", (zid,))
+        sdvig = [q for q in dalshe if q["id"] != zid]
+        for q in sorted(sdvig, key=lambda x: x["nomer"]):
+            conn.execute("UPDATE kniga_lvlr SET nomer = nomer - 1 WHERE id = ?", (q["id"],))
+        conn.commit()
+        return {"kak": "udalena", "sdvinuto": len(sdvig)}
+    conn.execute("UPDATE kniga_lvlr SET grafy_json = '{}', delyanka_id = NULL, uchastok_id = NULL, vid = ?, "
+                 "primechanie = TRIM(COALESCE(primechanie, '') || ' замазана: ' || ?), "
+                 "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                 (VID_ZAMAZANA, z["grafy"].get(2) or "", zid))
     conn.commit()
-    return len(sdvig)
+    return {"kak": "zamazana", "sdvinuto": 0}
+
+
+def mesto_delyanki(conn, did) -> dict:
+    """Для карточки делянки: в книге ли она, своя/чужая и почему."""
+    ensure(conn)
+    r = conn.execute("SELECT kniga_lvlr_mesto, nomer_lesorubochnogo_bileta FROM delyanka WHERE id = ?", (did,)).fetchone()
+    if r is None:
+        raise KeyError(did)
+    d = _delyanka(conn, did)
+    sv = svoe(conn)
+    avto_chuzh = chuzhoe(sv, [(it.get("lesxoz"), it.get("lesnichestvo")) for it in d["items"]])
+    z = next((q for q in zapisi(conn) if q["delyanka_id"] == did), None)
+    flag = r[0] or ""
+    return {"flag": flag, "avto_chuzhaya": avto_chuzh, "chuzhaya": flag == "chuzhaya" or (flag != "svoya" and avto_chuzh),
+            "svoe": sv, "est_bilet": bool(str(r[1] or "").strip()),
+            "v_knige": {"id": z["id"], "nomer": z["nomer"], "razvorot": z["razvorot"], "stroka": z["stroka"]} if z else None}
+
+
+def otmetit_mesto(conn, did, flag: str) -> dict:
+    if flag not in MESTO_FLAGI:
+        raise ValueError("flag: '', 'chuzhaya' или 'svoya'")
+    ensure(conn)
+    conn.execute("UPDATE delyanka SET kniga_lvlr_mesto = ? WHERE id = ?", (flag or None, did))
+    conn.commit()
+    return mesto_delyanki(conn, did)
 
 
 # --------------------------------------------------------------------------- #
@@ -749,9 +791,11 @@ def chto_vpisat(conn, vse_rubki: bool = False) -> dict:
         d = _delyanka(conn, did)
         if d is None:
             continue
-        if chuzhoe(sv, [(it.get("lesxoz"), it.get("lesnichestvo")) for it in d["items"]]):
+        flag = d.get("kniga_lvlr_mesto") or ""
+        if flag == "chuzhaya" or (flag != "svoya" and chuzhoe(sv, [(it.get("lesxoz"), it.get("lesnichestvo"))
+                                                                    for it in d["items"]])):
             it0 = d["items"][0] if d["items"] else {}
-            chuzhie.append({"tip": "delyanka", "id": did, "mesto": _mesto_delyanki(d),
+            chuzhie.append({"tip": "delyanka", "id": did, "mesto": _mesto_delyanki(d), "vruchnuyu": flag == "chuzhaya",
                             "gde": ", ".join(x for x in (it0.get("lesnichestvo"), it0.get("lesxoz")) if x)})
             continue
         kody = vid_rubki_kody(d)

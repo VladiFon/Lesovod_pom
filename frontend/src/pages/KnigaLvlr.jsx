@@ -107,6 +107,7 @@ function ChtoVpisat({ d, kniga, vseRubki, setVseRubki, reload, oshibka, otkryt }
     spisok.forEach((x) => { (po[x.id] = po[x.id] || {})[x.grafa] = x.znachenie || x.seychas; });
     for (const [id, grafy] of Object.entries(po)) await api.put(`/kniga-lvlr/${id}`, { grafy });
   }, "Не дописалось");
+  const mesto = (did, flag) => raz(() => api.put(`/kniga-lvlr/delyanka/${did}`, { flag }), "Не отметилось");
   const vpisal = (z, grafy) => raz(() => api.post(`/kniga-lvlr/${z.id}/na-bumage`, { grafy: grafy || null }), "Не отметилось");
   const vkladysh = (x) => {
     const z = kniga.zapisi.find((q) => q.id === x.id);
@@ -127,7 +128,12 @@ function ChtoVpisat({ d, kniga, vseRubki, setVseRubki, reload, oshibka, otkryt }
       {d.chuzhie?.length > 0 && (
         <details style={{ ...karta, fontSize: 13 }}>
           <summary style={{ cursor: "pointer" }}>🚫 Чужие делянки и участки — не в книгу ({d.chuzhie.length}). Своё: <b>{d.svoe.lesnichestvo || "лесничество не задано"}</b>{d.svoe.leshoz ? `, ${d.svoe.leshoz}` : ""} (меняется в «Печать и настройки»)</summary>
-          {d.chuzhie.map((x) => <div key={`${x.tip}${x.id}`} style={{ color: C.muted, paddingTop: 4 }}>{x.tip === "delyanka" ? "🪓" : "🥀"} {x.mesto} — {x.gde || "?"}</div>)}
+          {d.chuzhie.map((x) => (
+            <div key={`${x.tip}${x.id}`} className="flex items-center" style={{ color: C.muted, paddingTop: 4, gap: 8 }}>
+              <span>{x.tip === "delyanka" ? "🪓" : "🥀"} {x.mesto} — {x.vruchnuyu ? "помечена чужой вручную" : x.gde || "?"}</span>
+              {x.tip === "delyanka" && <button type="button" disabled={zanyat} onClick={() => mesto(x.id, x.vruchnuyu ? "" : "svoya")} style={{ ...btn2, fontSize: 12, padding: "2px 8px" }}>{x.vruchnuyu ? "↩ не чужая" : "это наша"}</button>}
+            </div>
+          ))}
         </details>
       )}
 
@@ -148,7 +154,10 @@ function ChtoVpisat({ d, kniga, vseRubki, setVseRubki, reload, oshibka, otkryt }
                   {x.vid_neizvesten && <span style={{ color: "#a06800", fontSize: 12 }}> · ⚠ вид рубки не определён — проверьте, что она не выборочная</span>}</div>
                 <Grafy grafy={x.grafy} nazvaniya={kniga.nazvaniya} />
               </div>
-              <button type="button" disabled={zanyat} onClick={() => vnesti(x)} style={btn}>Внести №{d.sleduyushchiy_nomer}</button>
+              <div className="flex flex-col" style={{ gap: 4 }}>
+                <button type="button" disabled={zanyat} onClick={() => vnesti(x)} style={btn}>Внести №{d.sleduyushchiy_nomer}</button>
+                {x.tip === "delyanka" && <button type="button" disabled={zanyat} onClick={() => mesto(x.delyanka_id, "chuzhaya")} style={{ ...btn2, fontSize: 12 }} title="Делянка в другом лесничестве / лесхозе — в книгу не вносить">🚫 Чужая</button>}
+              </div>
             </div>
           ))}
         </div>
@@ -273,7 +282,7 @@ function Kniga({ kniga, otkryt }) {
                   <tr key={i} style={{ height: 26 * span, cursor: z ? "pointer" : "default" }} onClick={() => z && otkryt(z)}>
                     <td style={{ border: `1px solid ${C.line}`, color: C.muted, textAlign: "center" }}>{i + 1}</td>
                     {grafy.map((g) => {
-                      const v = z ? (g === 1 ? String(z.nomer) : z.grafy[g] || "") : "";
+                      const v = z ? (g === 1 ? String(z.nomer) : (z.vid === "zamazana" && g === 2 ? "— замазана —" : z.grafy[g] || "")) : "";
                       const nado = z && g !== 1 && z.ne_na_bumage.includes(g);
                       return (
                         <td key={g} title={v ? `${kniga.nazvaniya[g]}: ${v}${nado ? " — ещё не на бумаге" : ""}` : kniga.nazvaniya[g]}
@@ -294,6 +303,7 @@ function Kniga({ kniga, otkryt }) {
 
 /* ------------------------------------------------------------------ */
 function Redaktor({ z, kniga, zakryt, reload, oshibka }) {
+  const toast = useToast();
   const [g, setG] = useState(() => ({ ...z.grafy }));
   const [strok, setStrok] = useState(z.strok || 1);
   const [prim, setPrim] = useState(z.primechanie || "");
@@ -312,10 +322,17 @@ function Redaktor({ z, kniga, zakryt, reload, oshibka }) {
       zakryt();
     } catch (e) { oshibka("Не сохранилось")(e); } finally { setZanyat(false); }
   };
-  const udalit = async () => {
+  const udalit = async (chuzhaya) => {
     const dalshe = kniga.zapisi.filter((q) => q.nomer > z.nomer).length;
-    if (!window.confirm(`Удалить строку №${z.nomer}?${dalshe ? ` Номера ${dalshe} строк ниже сдвинутся на один вверх.` : ""}`)) return;
-    try { await api.delete(`/kniga-lvlr/${z.id}`); await reload(); zakryt(); } catch (e) { oshibka("Не удалилось")(e); }
+    const tekst = mozhnoUdalit
+      ? `Убрать строку №${z.nomer}? Её ещё нет на бумаге — удалится${dalshe ? `, номера ${dalshe} строк ниже сдвинутся на один вверх` : ""}.`
+      : `Строка №${z.nomer} (или строки после неё) уже в бумажной книге. Строка будет «замазана»: № и место остаются, графы очищаются — замажьте её в книге корректором.`;
+    if (!window.confirm(tekst + (chuzhaya ? "\nДелянка будет помечена чужой и больше не предложится." : ""))) return;
+    try {
+      const r = await api.delete(`/kniga-lvlr/${z.id}${chuzhaya ? "?chuzhaya=true" : ""}`);
+      toast.show({ tone: "success", title: r.kak === "zamazana" ? `Строка №${z.nomer} замазана` : `Строка №${z.nomer} убрана` });
+      await reload(); zakryt();
+    } catch (e) { oshibka("Не убралось")(e); }
   };
   const pole = (k) => {
     const avto = kniga.avto_grafy.includes(k);
@@ -359,7 +376,8 @@ function Redaktor({ z, kniga, zakryt, reload, oshibka }) {
             <input className={inp + " w-full"} value={prim} onChange={(e) => setPrim(e.target.value)} /></label>
           <button type="button" disabled={zanyat} onClick={() => sohranit(false)} style={btn}>Сохранить</button>
           <button type="button" disabled={zanyat} onClick={() => sohranit(true)} style={btn2}>Сохранить и ✍ вписал</button>
-          {mozhnoUdalit && <button type="button" onClick={udalit} style={{ ...btn2, color: C.danger }}>🗑 Удалить</button>}
+          {z.vid !== "zamazana" && <button type="button" onClick={() => udalit(false)} style={{ ...btn2, color: C.danger }}>{mozhnoUdalit ? "🗑 Убрать из книги" : "🩹 Замазать строку"}</button>}
+          {z.vid !== "zamazana" && z.delyanka_id && <button type="button" onClick={() => udalit(true)} style={{ ...btn2, color: C.danger }}>🚫 Чужая делянка — убрать</button>}
         </div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>⚙ — графа подставляется сама из делянки, акта и лесных культур. Если поправить её вручную, программа покажет расхождение, но молча не перезапишет.</div>
       </div>
