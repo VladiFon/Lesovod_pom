@@ -24,6 +24,7 @@ import WorkerNotes from "./pages/WorkerNotes.jsx";
 import OtchetySmeny from "./pages/OtchetySmeny.jsx";
 import Toplivo from "./pages/Toplivo.jsx";
 import Tehnika from "./pages/Tehnika.jsx";
+import Putevye from "./pages/Putevye.jsx";
 import Archive from "./pages/Archive.jsx";
 import CalendarScreen from "./pages/Calendar.jsx";
 import { RawReportsTab, CompletedTab } from "./pages/AiLog.jsx";
@@ -79,6 +80,7 @@ const Raboty = makeMergedScreen("raboty", [
 const TehnikaToplivo = makeMergedScreen("tehnika", [
   { key: "tehnika", label: "🚜 Техника", Page: Tehnika },
   { key: "toplivo", label: "⛽ Топливо", Page: Toplivo },
+  { key: "putevye", label: "📝 Путевые листы", Page: Putevye },
 ]);
 const Tabel = makeMergedScreen("tabel", [
   // Игровой вид (переключатель в шапке/Настройках) — «Перекличка» вместо
@@ -179,7 +181,7 @@ const READY_SCREENS = {
   // Шаг 3 разбора «сайт разбросан» (04.11.2026): единый журнал работ и
   // живая схема «как работает сайт» (что от чего зависит, что висит).
   raboty: { title: "Журнал работ", subtitle: "Всё, что сделано: смены с телефона, культуры, рубки ухода, табель — одной лентой", Page: Raboty },
-  tehnika: { title: "Техника и топливо", subtitle: "Машины, закрепление за людьми, заправки и расход топлива", Page: TehnikaToplivo },
+  tehnika: { title: "Техника и топливо", subtitle: "Машины, закрепление за людьми, заправки, расход топлива и путевые листы", Page: TehnikaToplivo },
   skhema: { title: "Как работает сайт", subtitle: "Схема: откуда что берётся, кто что делает и что висит прямо сейчас", Page: Skhema },
   archive: { title: "Архив", subtitle: "Ручной архив документов: сканы приказов, списки делянок", Page: Archive },
   // Удалённые делянки/участки лежат здесь 30 дней (app/korzina.py).

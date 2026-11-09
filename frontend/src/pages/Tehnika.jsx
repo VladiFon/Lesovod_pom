@@ -11,7 +11,7 @@ import { useToast } from "../components/Toast.jsx";
  */
 
 const C = { pine: "#1a4331", line: "#e5e2db", muted: "#565f59", moss: "#eaf7ec", danger: "#ba1a1a" };
-const PUSTO = { nazvanie: "", tip: "Трактор", nomer: "", toplivo: "ДТ", zakreplen_sotrudnik_id: "", kommentariy: "" };
+const PUSTO = { nazvanie: "", tip: "Трактор", nomer: "", toplivo: "ДТ", zakreplen_sotrudnik_id: "", kommentariy: "", bak_l: "" };
 const EMOJI = { Трактор: "🚜", Харвестер: "🌲", Форвардер: "🚛", Автомобиль: "🚙", Бензопила: "🪚" };
 const inp = "border border-border rounded-[8px] px-2 h-9";
 
@@ -31,7 +31,9 @@ export default function Tehnika() {
   useEffect(() => { load(); }, [load]);
 
   const sohranit = async () => {
-    const body = { ...f, zakreplen_sotrudnik_id: f.zakreplen_sotrudnik_id ? Number(f.zakreplen_sotrudnik_id) : null };
+    const bak = f.bak_l === "" || f.bak_l == null ? null : Number(String(f.bak_l).replace(",", "."));
+    if (Number.isNaN(bak)) return toast.show({ tone: "danger", title: "Объём бака — число литров" });
+    const body = { ...f, bak_l: bak, zakreplen_sotrudnik_id: f.zakreplen_sotrudnik_id ? Number(f.zakreplen_sotrudnik_id) : null };
     delete body.id;
     try {
       if (f.id) await api.put(`/tehnika/${f.id}`, body);
@@ -78,6 +80,7 @@ export default function Tehnika() {
           <label style={{ fontSize: 12, color: C.muted }}>Топливо<br />
             <select className={inp} value={f.toplivo || ""} onChange={(e) => setF({ ...f, toplivo: e.target.value })}>
               <option value="">—</option>{d.toplivo.map((t) => <option key={t}>{t}</option>)}</select></label>
+          <label style={{ fontSize: 12, color: C.muted }}>⛽ Бак, л<br /><input className={inp} style={{ width: 80 }} value={f.bak_l ?? ""} onChange={(e) => setF({ ...f, bak_l: e.target.value })} placeholder="78" inputMode="decimal" /></label>
           <label style={{ fontSize: 12, color: C.muted }}>Закреплена за<br />
             <select className={inp} value={f.zakreplen_sotrudnik_id || ""} onChange={(e) => setF({ ...f, zakreplen_sotrudnik_id: e.target.value })}>
               <option value="">— никем —</option>
@@ -96,14 +99,14 @@ export default function Tehnika() {
           <div key={t.id} className="flex items-center" style={{ gap: 12, padding: "10px 12px", borderTop: `1px solid ${C.line}`, opacity: t.aktivna ? 1 : 0.55 }}>
             <span style={{ fontSize: 22 }}>{EMOJI[t.tip] || "🔧"}</span>
             <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
-              <div><b>{t.nazvanie}</b>{t.nomer && <span style={{ color: C.muted }}> · {t.nomer}</span>}{t.toplivo && <span style={{ color: C.muted }}> · {t.toplivo}</span>}{!t.aktivna && <span style={{ color: C.danger }}> · списана</span>}</div>
+              <div><b>{t.nazvanie}</b>{t.nomer && <span style={{ color: C.muted }}> · {t.nomer}</span>}{t.toplivo && <span style={{ color: C.muted }}> · {t.toplivo}</span>}{t.bak_l && <span style={{ color: C.muted }}> · бак {t.bak_l} л</span>}{!t.aktivna && <span style={{ color: C.danger }}> · списана</span>}</div>
               <div style={{ color: C.muted }}>
                 {t.zakreplen ? <>🔑 <ChelovekLink id={t.zakreplen_sotrudnik_id} fio={t.zakreplen} className="font-normal" /></> : "не закреплена"}
                 {t.otchetov > 0 && <> · отчётов: {t.otchetov}, последний {t.posledniy_otchet}</>}
                 {t.kommentariy && <> · {t.kommentariy}</>}
               </div>
             </div>
-            <button type="button" onClick={() => setF({ ...PUSTO, ...t, zakreplen_sotrudnik_id: t.zakreplen_sotrudnik_id || "" })} title="Изменить">✏️</button>
+            <button type="button" onClick={() => setF({ ...PUSTO, ...t, bak_l: t.bak_l ?? "", zakreplen_sotrudnik_id: t.zakreplen_sotrudnik_id || "" })} title="Изменить">✏️</button>
             <button type="button" onClick={() => aktivna(t, !t.aktivna)} title={t.aktivna ? "Списать" : "Вернуть"} style={{ color: C.muted }}>{t.aktivna ? "🗑" : "↩"}</button>
           </div>
         ))}

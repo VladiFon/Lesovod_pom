@@ -100,13 +100,14 @@ export default function Toplivo() {
         <>
           <Tablica title="По людям" imya="Кто" rows={d.lyudi} extra={{ head: ["Смен"], cells: (r) => <td style={{ padding: "6px 12px" }}>{r.smen}</td> }} />
           <Tablica title="По машинам" imya="Машина" rows={d.mashiny} extra={{
-            head: ["За кем", "В баке примерно"],
+            head: ["За кем", "В баке примерно", "📝 По путевым: сжёг / заправил"],
             cells: (r) => (
               <>
                 <td style={{ padding: "6px 12px" }}>{r.zakreplen || ""}</td>
                 <td style={{ padding: "6px 12px", fontWeight: 700, color: r.v_bake_primerno < 0 ? C.danger : C.pine }}>
                   {r.v_bake_primerno == null ? "" : r.v_bake_primerno < 0 ? `${l(r.v_bake_primerno)} ⚠` : l(r.v_bake_primerno) || "0 л"}
                 </td>
+                <td style={{ padding: "6px 12px", color: C.muted }}>{r.putevye ? `${l(r.putevye.rashod) || "0 л"} / ${l(r.putevye.zapravka) || "0 л"}` : "—"}</td>
               </>
             ),
           }} />
