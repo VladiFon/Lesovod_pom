@@ -19,3 +19,13 @@ def get_svodka(ym: Optional[str] = None, user=Depends(require_office_or_master),
         return svodka_nachalstvu.svodka(conn, ym or datetime.date.today().strftime("%Y-%m"))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/itogi")
+def get_itogi(god: Optional[int] = None, user=Depends(require_office_or_master), conn=Depends(get_conn)) -> dict:
+    """Итоги сезона: год целиком и сравнение с прошлым."""
+    import datetime
+    try:
+        return svodka_nachalstvu.itogi(conn, god or datetime.date.today().year)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc

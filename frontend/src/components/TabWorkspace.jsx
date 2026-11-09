@@ -1,5 +1,6 @@
 import { napechatat } from "./pechat.js";
 import { useTema } from "../tema.js";
+import { razobratKomandu, opisaniePoziciy } from "../komandy.js";
 import React, { useEffect, useMemo, useState } from "react";
 import { NAV_GROUPS } from "./Sidebar.jsx";
 import NotificationBell from "./NotificationBell.jsx";
@@ -34,7 +35,7 @@ NAV_GROUPS.forEach((g) => g.items.forEach(([k, label]) => (GROUP_OF[k] = { label
  * мог открывать вкладки; здесь только отрисовка и горячие клавиши.
  */
 const TEMA_SLED = { light: "dark", dark: "auto", auto: "light" };
-const TEMA_IKON = { light: "☀", dark: "🌙", auto: "◐" };
+const TEMA_IKON = { light: "☀️", dark: "🌙", auto: "🌓" };
 const TEMA_TEKST = { light: "Светлая тема", dark: "Тёмная тема", auto: "Тема как в системе" };
 
 export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatch, currentUser }) {
@@ -58,6 +59,16 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
         }
       } else if (e.key === "Escape") {
         setPalette(false);
+      } else if (e.altKey && !meta && /^Digit[1-9]$/.test(e.code)) {
+        // Alt+1…9 — пункты главного меню по порядку (Сегодня, Входящие, Отчёты, Делянки…)
+        const glavnye = NAV_GROUPS.filter((g) => !g.footer && !g.igra).flatMap((g) => g.items.map(([k]) => k));
+        const id = glavnye[Number(e.code.slice(5)) - 1];
+        if (id) { e.preventDefault(); dispatch({ type: "open", id }); }
+      } else if (!meta && !e.altKey && !e.shiftKey && !e.target.closest?.("input, textarea, select, [contenteditable=true]")) {
+        // одиночные клавиши — по месту клавиши, раскладка не важна
+        if (e.code === "KeyN") { e.preventDefault(); setPalette(true); setQuery("наряд "); }
+        else if (e.code === "KeyT") { e.preventDefault(); openScreen("tabel", { tab: "mesyac" }); }
+        else if (e.code === "KeyG") { e.preventDefault(); dispatch({ type: "open", id: "dashboard" }); }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -69,7 +80,8 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
   const [naydeno, setNaydeno] = useState([]);
   const [vybor, setVybor] = useState(0);
   useEffect(() => {
-    const q = query.trim();
+    const k = razobratKomandu(query);
+    const q = (k ? k.poisk || "" : query).trim();
     if (!palette || q.length < 2) { setNaydeno([]); return undefined; }
     let zhiv = true;
     const t = setTimeout(() => {
@@ -88,13 +100,50 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
       key: `n${i}-${n.screen}-${JSON.stringify(n.params)}`, label: n.title, hint: n.hint,
       emoji: TIP[n.tip]?.emoji || "•", meta: TIP[n.tip]?.label || "", ssylka: n,
     }));
+    const k = razobratKomandu(query);
+    if (k) return komandyItems(k, naydeno);
     return q ? [...nashli, ...ekrany] : ekrany;
   }, [query, naydeno]);
+
+  // Команды Ctrl+K (шаг 6 разбора 09.11.2026) — см. komandy.js
+  function komandyItems(k, nd) {
+    if (k.tip === "naryad") {
+      const del = nd.filter((n) => n.tip === "delyanka");
+      const poz = k.pozicii.length ? opisaniePoziciy(k.pozicii) : "позиции впишете в форме";
+      if (!del.length) return [{ key: "nr-none", emoji: "📝", label: `Наряд: делянка «${k.kvvd}» не найдена`, hint: "Пишите квартал/выдел: наряд 71/2 С 12,4 Б 3,1", meta: "команда" }];
+      const [kv, vd] = String(k.kvvd).split(/[/\-]/);
+      return del.map((n, i) => ({
+        key: `nr${i}`, emoji: "📝", label: `Новый наряд · ${n.title}`, hint: poz, meta: "команда",
+        run: () => openScreen("raskhod", { d: n.params.d, kv: kv || "", vd: vd || "", naryad: JSON.stringify(k.pozicii) }),
+      }));
+    }
+    if (k.tip === "qgis") {
+      return nd.filter((n) => ["delyanka", "vydel", "kultury"].includes(n.tip)).map((n, i) => ({
+        key: `qg${i}`, emoji: "🗺", label: `Показать в QGIS · ${n.title}`, hint: n.hint, meta: "команда",
+        run: () => api.post("/map/qgis/pokazat", n.tip === "vydel"
+          ? { tip: "vydel", kvartal: n.params.kv, vydel: n.params.vyd, nazvanie: n.title }
+          : { tip: n.tip === "kultury" ? "lesokultury" : "delyanka", id: Number(n.params.d || n.params.u || n.params.id) || null, nazvanie: n.title }),
+      }));
+    }
+    if (k.tip === "tema") {
+      return [["dark", "🌙 Тёмная тема"], ["light", "☀ Светлая тема"], ["auto", "◐ Как в системе"]]
+        .sort((a, b) => (a[0] === k.tema ? -1 : b[0] === k.tema ? 1 : 0))
+        .map(([t, label]) => ({ key: `t-${t}`, emoji: "", label, meta: "тема", run: () => setTema(t) }));
+    }
+    if (k.tip === "tabel") return [{ key: "tb", emoji: "📅", label: "Табель за месяц (Т-13)", hint: "сетка люди × числа, Excel, печать", meta: "команда", run: () => openScreen("tabel", { tab: "mesyac" }) }];
+    if (k.tip === "itogi") return [{ key: "it", emoji: "🏁", label: "Итоги сезона", hint: "год целиком и сравнение с прошлым", meta: "команда", run: () => openScreen("otchety", { vid: "sezon" }) }];
+    if (k.tip === "pechat") {
+      return [{ key: "pr", emoji: "🖨", label: `Напечатать «${screens[activeId]?.title ?? activeId}»`, meta: "команда",
+        run: () => { const b = document.querySelector(`[data-panel-id="${activeId}"] [data-panel-body]`); if (b) napechatat(b, { title: screens[activeId]?.title }); } }];
+    }
+    return [];
+  }
   useEffect(() => setVybor(0), [items.length, query]);
 
   const openFromPalette = (it) => {
     if (!it) return;
-    if (it.ssylka) openScreen(it.ssylka.screen, it.ssylka.params || {});
+    if (it.run) it.run();
+    else if (it.ssylka) openScreen(it.ssylka.screen, it.ssylka.params || {});
     else dispatch({ type: "open", id: it.key });
     setPalette(false);
     setQuery("");
@@ -253,6 +302,7 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
             <div
               key={id}
               data-panel
+              data-panel-id={id}
               className="flex-col overflow-hidden"
               style={{
                 display: role ? "flex" : "none",
@@ -340,7 +390,7 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
                 else if (e.key === "ArrowDown") { e.preventDefault(); setVybor((v) => Math.min(v + 1, items.length - 1)); }
                 else if (e.key === "ArrowUp") { e.preventDefault(); setVybor((v) => Math.max(v - 1, 0)); }
               }}
-              placeholder="Найти: фамилия, делянка, 71/2, проба 12 или экран…"
+              placeholder="Найти или команда: наряд 71/2 С 12,4 · qgis 71/2 · табель…"
               style={{ width: "100%", height: 48, border: 0, borderBottom: "1px solid var(--color-border)", padding: "0 16px", fontSize: 15, color: "var(--color-ink)", outline: "none" }}
             />
             <div className="overflow-y-auto" style={{ maxHeight: 380, padding: 6 }}>
@@ -368,7 +418,7 @@ export default function TabWorkspace({ screens, tabs, activeId, rightId, dispatc
               )}
             </div>
             <div style={{ borderTop: "1px solid var(--color-border)", padding: "7px 14px", fontFamily: MONO, fontSize: 10, color: "#8a8f86" }}>
-              ↑↓ выбрать · Enter открыть · Esc закрыть
+              ↑↓ Enter Esc · N — наряд · T — табель · G — сегодня · Alt+1…9 — меню · Ctrl+1…9 — вкладки
             </div>
           </div>
         </div>

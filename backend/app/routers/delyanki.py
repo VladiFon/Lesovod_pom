@@ -194,6 +194,13 @@ def get_delyanki_by_location(kvartal: str, vydel: str, lesnichestvo: Optional[st
     return [dict(zip(cols, r)) for r in rows]
 
 
+@router.get("/{delyanka_id}/foto")
+def get_delyanka_foto(delyanka_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Фотолента делянки: отчёты, работы и метки с фото (app/fotolenta.py)."""
+    from app import fotolenta
+    return fotolenta.foto_delyanki(conn, delyanka_id)
+
+
 @router.get("/{delyanka_id}")
 def get_delyanka(delyanka_id: int, conn=Depends(get_conn)):
     d, items = delyanka.get_delyanka_full(conn, delyanka_id)

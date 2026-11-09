@@ -13,6 +13,7 @@ import { useToast } from "../components/Toast.jsx";
 import SvodkiModal from "./RaskhodSvodki.jsx";
 import { useCan } from "../auth.jsx";
 import { useScreenParam } from "../nav.js";
+import { nayitPorodu } from "../komandy.js";
 import DelyankaNav, { EtapBadge } from "../components/DelyankaNav.jsx";
 import { osvoenieTone } from "../components/OsvoenieBadge.jsx";
 
@@ -495,7 +496,7 @@ function fmtM3(v) {
   return (Math.round(v * 10) / 10).toLocaleString("ru-RU");
 }
 
-function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadDelyanki, limitKubaturaTotal, naryady }) {
+function NaryadModal({ open, onClose, itemId, porody, editing, prefill, onSaved, ploshadDelyanki, limitKubaturaTotal, naryady }) {
   const toast = useToast();
   const [data, setData] = useState("");
   const [nomer, setNomer] = useState("");
@@ -566,7 +567,10 @@ function NaryadModal({ open, onClose, itemId, porody, editing, onSaved, ploshadD
       setPloshadRuchnaya(false);
       setPloshad("");
       setPrimechanie("");
-      setPozitsii([emptyPozitsiya()]);
+      // Команда Ctrl+K «наряд 71/2 С 12,4 Б 3,1» (шаг 6 разбора 09.11.2026)
+      setPozitsii(prefill?.length
+        ? prefill.map((x) => ({ poroda: nayitPorodu(x.p, porody), sortiment: x.s || "KR", obyom: String(x.v) }))
+        : [emptyPozitsiya()]);
     }
   }, [open, editing]);
 
@@ -1568,7 +1572,7 @@ function DelyankaEgaisSummary({ check, onOpenReview }) {
   );
 }
 
-function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
+function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview, zagotovka, onZagotovka }) {
   const toast = useToast();
   const can = useCan();
   const [balance, setBalance] = useState(null);
@@ -1577,6 +1581,12 @@ function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
   const [ploshadInfo, setPloshadInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [naryadModal, setNaryadModal] = useState({ open: false, editing: null });
+  // заготовка наряда из Ctrl+K — открыть форму, когда баланс выдела загрузился
+  useEffect(() => {
+    if (!zagotovka || !balance || loading) return;
+    setNaryadModal({ open: true, editing: null, prefill: zagotovka });
+    onZagotovka?.();
+  }, [zagotovka, balance, loading]); // eslint-disable-line react-hooks/exhaustive-deps
   const [exporting, setExporting] = useState(false);
   const [view, setView] = useState("naryady"); // "naryady" | "egais" | "journal"
   const [selectedPoroda, setSelectedPoroda] = useState(null);
@@ -1777,6 +1787,7 @@ function ItemWorkspace({ item, delyankaId, egaisVersion, onOpenEgaisReview }) {
         itemId={item.id}
         porody={porody}
         editing={naryadModal.editing}
+        prefill={naryadModal.prefill}
         onSaved={load}
         ploshadDelyanki={ploshadInfo?.ploshad_delyanki}
         limitKubaturaTotal={ploshadInfo?.limit_kubatura_total}
@@ -1979,6 +1990,11 @@ export default function Raskhod() {
       setRazborParam("");
     }
   }, [razborParam]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ctrl+K «наряд 71/2 С 12,4…» → #/raskhod?d=1&kv=71&vd=2&naryad=[…]
+  const [naryadParam, setNaryadParam] = useScreenParam("raskhod", "naryad");
+  const [kvParam, setKvParam] = useScreenParam("raskhod", "kv");
+  const [vdParam, setVdParam] = useScreenParam("raskhod", "vd");
+  const [zagotovka, setZagotovka] = useState(null);
   const [egaisReviewCount, setEgaisReviewCount] = useState(0);
   const [delyankaEgaisCheck, setDelyankaEgaisCheck] = useState(null);
   // Растёт при каждом закрытии "Импорт ЕГАИС"/"Разбор ЕГАИС" — единственная
@@ -2016,6 +2032,19 @@ export default function Raskhod() {
     loadEgaisReviewSummary();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const vybrannaya = delyanki.find((d) => String(d.id) === String(delyankaId));
+
+  useEffect(() => {
+    if (!naryadParam || !items.length) return;
+    const norm = (x) => String(x ?? "").trim().replace(/^0+/, "");
+    const it = items.find((i) => norm(i.kvartal) === norm(kvParam) && (!vdParam || norm(i.vydel) === norm(vdParam))) || items[0];
+    let poz = [];
+    try { poz = JSON.parse(naryadParam); } catch { poz = []; }
+    setSelectedItem(it);
+    setZagotovka(poz);
+    setNaryadParam("");
+    setKvParam("");
+    setVdParam("");
+  }, [naryadParam, items]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (String(delyankaParam || "") !== String(delyankaId || "")) handleDelyankaChange(delyankaParam);
@@ -2185,6 +2214,8 @@ export default function Raskhod() {
           delyankaId={delyankaId}
           egaisVersion={egaisVersion}
           onOpenEgaisReview={() => setEgaisReviewOpen(true)}
+          zagotovka={zagotovka}
+          onZagotovka={() => setZagotovka(null)}
         />
       ) : !delyankaId ? (
         <RaskhodObzor zakrytye={pokazZakrytye} search={delyankaSearch} onSelect={handleDelyankaChange} />

@@ -3,8 +3,10 @@ import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import StatCard from "../components/StatCard.jsx";
 import Button from "../components/Button.jsx";
-import { openScreen } from "../nav.js";
+import { openScreen, useScreenParam } from "../nav.js";
+import BarChart from "../components/BarChart.jsx";
 import { napechatat } from "../components/pechat.js";
+import { openChelovek } from "../components/ChelovekLink.jsx";
 
 /**
  * «Отчёты» (разбор сайта 09.11.2026, шаг 2).
@@ -58,7 +60,7 @@ const VYGRUZKI = [
   { ikon: "📋", t: "Журнал работ", o: "Всё, что сделано, одной лентой — с фильтрами", go: () => openScreen("raboty") },
 ];
 
-export default function Otchety() {
+function SvodkaMesyaca() {
   const [ym, setYm] = useState(tekushchiy);
   const [s, setS] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -100,7 +102,8 @@ export default function Otchety() {
           <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
             <StatCard icon="🪓" title="Заготовлено за месяц" value={z ? `${n1(z.m3)} м³` : "—"}
               trend={z?.izmenenie_pct != null ? { value: `${Math.abs(z.izmenenie_pct)}% к прошлому`, direction: z.izmenenie_pct < 0 ? "down" : "up" } : undefined}
-              caption={z ? `нарядов: ${z.naryadov}${z.m3_proshlyy ? ` · в прошлом месяце ${n1(z.m3_proshlyy)} м³` : ""}` : ""}
+              caption={z ? [`нарядов: ${z.naryadov}`, z.m3_proshlyy ? `прошлый месяц ${n1(z.m3_proshlyy)} м³` : null,
+                z.m3_god_nazad ? `год назад ${n1(z.m3_god_nazad)} м³ (${z.k_godu_pct > 0 ? "+" : ""}${z.k_godu_pct}%)` : null].filter(Boolean).join(" · ") : ""}
               onClick={() => openScreen("raskhod")} />
             <StatCard icon="🌲" title="Делянки в работе" value={dl?.aktivnyh ?? "—"}
               tone={dl?.prosrocheno ? "error" : dl?.do_30_dney ? "oak" : "pine"}
@@ -203,6 +206,104 @@ export default function Otchety() {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+// «🏁 Итоги сезона» (шаг 6 разбора 09.11.2026): год целиком, по месяцам —
+// пунктирная рамка = прошлый год, столбец = этот; герои сезона, техника, лес.
+function ItogiSezona() {
+  const [god, setGod] = useState(new Date().getFullYear());
+  const [s, setS] = useState(null);
+  const ref = useRef(null);
+  useEffect(() => {
+    let zhiv = true;
+    setS(null);
+    api.get("/otchety/itogi", { god }).then((x) => zhiv && setS(x)).catch(() => zhiv && setS(false));
+    return () => { zhiv = false; };
+  }, [god]);
+  const z = s?.zagotovka;
+  const ly = s?.lyudi;
+  const th = s?.tehnika;
+  const les = s?.les;
+  const maxDel = Math.max(1, ...(z?.po_delyankam || []).map((x) => x.m3));
+  const maxYav = Math.max(1, ...(ly?.geroi || []).map((x) => x.yavki));
+  const MEDALI = ["🥇", "🥈", "🥉"];
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1 bg-surface border border-border rounded-lg shadow-card p-1">
+          <button type="button" onClick={() => setGod(god - 1)} className="h-8 w-8 rounded-md hover:bg-hover text-muted" title="Прошлый год">‹</button>
+          <div className="px-3 min-w-[120px] text-center font-ui font-extrabold text-pine">Сезон {god}</div>
+          <button type="button" onClick={() => setGod(god + 1)} className="h-8 w-8 rounded-md hover:bg-hover text-muted" title="Следующий год">›</button>
+        </div>
+        <div className="text-[12.5px] text-muted">Год целиком и сравнение с {god - 1}-м</div>
+        <div className="flex-1" />
+        <Button variant="primary" disabled={!s} onClick={() => napechatat(ref.current, { title: `Итоги сезона ${god}` })}>🖨 Напечатать итоги</Button>
+      </div>
+      {s === null ? <div className="text-muted">Считаю сезон…</div> : s === false ? <div className="text-muted">Итоги не загрузились.</div> : (
+        <div ref={ref} className="flex flex-col gap-4">
+          <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
+            <StatCard icon="🪓" title={`Заготовлено за ${god}`} value={z ? `${n1(z.m3)} м³` : "—"}
+              trend={z?.izmenenie_pct != null ? { value: `${Math.abs(z.izmenenie_pct)}% к ${god - 1}`, direction: z.izmenenie_pct < 0 ? "down" : "up" } : undefined}
+              caption={z ? [`нарядов ${z.naryadov} · делянок ${z.delyanok}`, z.m3_proshlyy ? `в ${god - 1}: ${n1(z.m3_proshlyy)} м³` : null, z.luchshiy_mesyac ? `лучший месяц — ${z.luchshiy_mesyac}` : null].filter(Boolean).join(" · ") : ""} />
+            <StatCard icon="👷" tone="info" title="Явки за сезон" value={ly ? ly.yavki : "—"}
+              caption={ly ? `${ly.chasov} ч · ${ly.lyudey} чел. · больничных ${ly.bolnichnyy} дн.` : ""} />
+            <StatCard icon="⛽" tone="oak" title="Топливо по путевым" value={th ? `${n1(th.zapravka)} л` : "—"}
+              caption={th ? `пробег ${n1(th.probeg)} · по норме ${n1(th.rashod)} л · листов ${th.listov}` : ""} />
+            <StatCard icon="🌱" title="Рубки ухода" value={les ? `${n1(les.uhody_ga)} га` : "—"}
+              caption={les ? `мероприятий в культурах: ${les.meropriyatiya.reduce((a, x) => a + x.kol, 0)}` : ""} />
+          </div>
+          {z && (
+            <Card title="Заготовка по месяцам" icon="📊" subtitle={`столбец — ${god}, пунктирная рамка — ${god - 1}; зелёный — обогнали прошлый год`} className="break-inside-avoid">
+              <BarChart categories={z.mesyacy} series={[
+                { label: `${god - 1}, м³`, values: z.po_mesyacam_proshlyy, color: "var(--color-border)" },
+                { label: `${god}, м³`, values: z.po_mesyacam, color: "var(--color-pine)" },
+              ]} />
+            </Card>
+          )}
+          <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(320px,1fr))]">
+            <Card title="Делянки сезона" icon="🌲" subtitle="больше всего нарубили" className="break-inside-avoid">
+              {z?.po_delyankam?.length ? z.po_delyankam.map((x) => (
+                <Polosa key={x.id} label={x.nazvanie} value={x.m3} max={maxDel} sub={`${n1(x.m3)} м³`} onClick={() => openScreen("plots", { d: x.id })} />
+              )) : <div className="text-[12.5px] text-faint py-2">Нарядов за год нет.</div>}
+            </Card>
+            <Card title="Герои сезона" icon="🏅" subtitle="больше всего явок по табелю" className="break-inside-avoid">
+              {ly?.geroi?.length ? ly.geroi.map((x, i) => (
+                <Polosa key={x.id} label={`${MEDALI[i] || "  "} ${x.fio}`} value={x.yavki} max={maxYav} sub={`${x.yavki} дн.`} cls="bg-info"
+                  onClick={() => openChelovek(x.id)} />
+              )) : <div className="text-[12.5px] text-faint py-2">Табель за год пуст.</div>}
+            </Card>
+            <Card title="Лес за сезон" icon="🌱" subtitle="мероприятия в культурах и рубки ухода" className="break-inside-avoid">
+              {les ? (
+                <>
+                  {les.meropriyatiya.map((x) => <Stroka key={x.tip} k={x.tip} v={`${x.kol} раз`} />)}
+                  <Stroka k="Рубки ухода выполнено" v={`${n1(les.uhody_ga)} га`} ton="text-pine" />
+                </>
+              ) : <div className="text-[12.5px] text-faint py-2">—</div>}
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Otchety() {
+  const [vid, setVid] = useScreenParam("otchety", "vid");
+  const sezon = vid === "sezon";
+  return (
+    <div>
+      <div className="px-6 pt-5 -mb-2 flex gap-1.5">
+        {[["", "📅 Месяц — для начальства"], ["sezon", "🏁 Итоги сезона"]].map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setVid(k)}
+            className={["h-8 px-3 rounded-full text-[12.5px] font-semibold border transition-colors",
+              (k === "sezon") === sezon ? "bg-pine text-white border-pine" : "bg-surface text-muted border-border hover:border-pine"].join(" ")}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {sezon ? <div className="p-6"><ItogiSezona /></div> : <SvodkaMesyaca />}
     </div>
   );
 }

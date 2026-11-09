@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import QgisButton from "../components/QgisButton.jsx";
+import Fotolenta from "../components/Fotolenta.jsx";
 import { api, API_BASE_URL } from "../api/client.js";
 import { pollTask } from "../hooks/useTaskPolling.js";
 import Card from "../components/Card.jsx";
@@ -994,6 +995,7 @@ function PlotDetail({ delyankaId, onListChanged }) {
         </div>
 
         <GotovnostChecklist delyanka={delyanka} items={items} documents={documents} />
+        <Fotolenta delyankaId={delyanka.id} />
 
         {/* Сторонняя заготовка — та же галочка, что в Инспекции. */}
         {delyanka.status !== "черновик" && (can("inspection.edit") || delyanka.storonnyaya) && (
