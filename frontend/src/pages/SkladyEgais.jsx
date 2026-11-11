@@ -108,6 +108,31 @@ export default function SkladyEgais() {
     }
   };
 
+  // склады, заведённые руками (старые точки на карте телефона) — теперь дубли складов ЕГАИС
+  const ubratRuchnye = async () => {
+    try {
+      const r = await api.delete("/map/sklady/ruchnye");
+      zagruzit();
+      toast.show({
+        tone: "success",
+        title: `Ручные склады убраны: ${r.udaleno.length}`,
+        description: "На карте остаются склады из ЕГАИС, на которых лежит лес.",
+        duration: 10000,
+        action: {
+          label: "↩ Вернуть",
+          onClick: async () => {
+            for (const s of r.udaleno) {
+              await api.post("/map/sklady", { nazvanie: s.nazvanie, lat: s.lat, lon: s.lon, comment: s.comment || null });
+            }
+            zagruzit();
+          },
+        },
+      });
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось убрать", description: e.message });
+    }
+  };
+
   const spisok = useMemo(() => {
     if (!data) return [];
     const q = poisk.trim().toLowerCase().replace(",", ".");
@@ -162,6 +187,17 @@ export default function SkladyEgais() {
           </div>
         </div>
       </div>
+
+      {data.ruchnyh > 0 ? (
+        <div className="rounded-[12px] border border-border bg-surface px-4 py-2.5 flex flex-wrap items-center gap-3" data-no-print>
+          <div className="text-[13.5px]">
+            Складов, заведённых рукой, на карте ещё: <b>{data.ruchnyh}</b>. Теперь склады приходят из ЕГАИС сами, с координатами и остатком — ручные точки будут двоиться.
+          </div>
+          <button type="button" onClick={ubratRuchnye} className="ml-auto h-8 px-3 rounded-[8px] border border-border bg-surface text-error font-semibold hover:bg-mint-soft">
+            🗑 Убрать ручные ({data.ruchnyh})
+          </button>
+        </div>
+      ) : null}
 
       {it.po_porodam.length ? (
         <div className="flex flex-wrap gap-1.5">

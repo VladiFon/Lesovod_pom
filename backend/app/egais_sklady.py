@@ -396,8 +396,17 @@ def obzor(conn, segodnya=None):
                            for k, v in sorted(po_porodam.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))],
         },
         "sklady_zalito": _meta(conn, "sklady_zalito"), "nalichie_zalito": _meta(conn, "nalichie_zalito"),
+        "ruchnyh": _ruchnyh(conn),
         "porogi": {"zalezhalsya_dney": ZALEZHALSYA_DNEY, "vyvozka_skoro_dney": VYVOZKA_SKORO_DNEY},
     }
+
+
+def _ruchnyh(conn):
+    """Сколько точек-складов заведено руками (старая таблица sklad, карта телефона)."""
+    try:
+        return conn.execute("SELECT COUNT(*) FROM sklad").fetchone()[0]
+    except sqlite3.OperationalError:
+        return 0
 
 
 def sostav(conn, id_sklada):

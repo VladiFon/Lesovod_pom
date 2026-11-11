@@ -536,12 +536,14 @@
   <aside class="rightpanel">
 
     <div class="rp-pinned" id="secLayers">
-      <div class="rp-title">Слои <span class="layer-count">6</span></div>
+      <div class="rp-title">Слои <span class="layer-count">7</span></div>
       <div class="layer-row" data-layer="contour"><div class="swatch" style="background:#7fa37a;"></div>Контур делянки<div class="toggle"></div></div>
       <div class="layer-row" data-layer="safety"><div class="swatch" style="background:#c56a4d;"></div>Зона безопасности<div class="toggle"></div></div>
       <div class="layer-row" data-layer="strips"><div class="swatch" style="background:#c9a24b;"></div>Пасеки<div class="toggle"></div></div>
       <div class="layer-row" data-layer="infra"><div class="swatch" style="background:#8fb88a;"></div>Инфраструктура / знаки<div class="toggle"></div></div>
       <div class="layer-row" data-layer="labels"><div class="swatch" style="background:#eaeee4;"></div>Подписи<div class="toggle"></div></div>
+      <div class="layer-row" data-layer="sosedi" title="Границы соседних выделов и кварталов — те же, что на карте сайта (присылаются из QGIS)"><div class="swatch" style="background:#6f8fa6;"></div>Соседние выдела<div class="toggle"></div></div>
+      <div class="hint" id="sosediStatus" style="margin:2px 0 6px;"></div>
       <div class="layer-row" data-layer="raster"><div class="swatch" style="background:#5f7362;"></div>Растровая подложка<div class="toggle"></div></div>
       <div class="checkbar" id="checkBar"><span class="dot"></span>&nbsp;</div>
     </div>
@@ -724,6 +726,7 @@
           <label class="checkrow"><input type="checkbox" id="optArrows"> стрелки направления разработки</label>
           <label class="checkrow"><input type="checkbox" id="optTrails"> волоки</label>
           <label class="checkrow"><input type="checkbox" id="optTrees"> деревья / пни (условно)</label>
+          <label class="checkrow"><input type="checkbox" id="optSosedi"> соседние выдела и кварталы (тонко, с номерами)</label>
           <div class="hint">Лист 5.10 собирается строго по шаблону: заголовок, чертёж, 11 условных обозначений, всё чёрным для ч/б принтера. «Сохранить в приложение» сохраняет чертёж и весь абрис (пасеки, знаки, зону) — его можно открыть и поправить; в Техкарту и Word он встаёт в пустое поле шаблона.</div>
           <div class="status" id="exportStatus"></div>
 
@@ -778,7 +781,11 @@ let STATE = {
   infrastructure: [],   // placed infrastructure items
   dragging: null,        // drag handle object while a vertex/icon/whole line is being dragged
   printScale: 5000,      // denominator S for print scale 1:S (пресеты 2500/5000/10000 или произвольное значение из поля "свой масштаб")
-  layerVisibility: {contour:true, safety:true, strips:true, infra:true, labels:true, raster:true},
+  layerVisibility: {contour:true, safety:true, strips:true, infra:true, labels:true, raster:true, sosedi:true},
+  sosediLayer: null,     // svg <g> с соседними выделами/кварталами (подложка, сразу над растром)
+  sosedi: null,          // {vydela:[{kv,vd,rings,cx,cy}], kvartaly:[{kv,rings,cx,cy}]} в метрах UTM 35N, с сервера
+  sosediOkno: null,      // окно, для которого соседи уже загружены (чтобы не дёргать сервер зря)
+  hover: null,           // мировая точка под курсором (уже с прилипанием), пока идёт рисование
   rasterLayer: null,     // svg <g> holding the tracing underlay <image>, painted first (bottom-most)
   guideLayer: null,      // svg <g> holding live smart-guide lines/highlights while dragging
   rasterUnderlay: null,  // {dataUrl, naturalW, naturalH, widthM, offsetX, offsetY, opacity, includeInPrint} or null
@@ -791,7 +798,7 @@ let STATE = {
   safetyParams: null,    // {dist, spacing}
   safetyData: null,      // {offset, signs}
   printScaleMode: "auto",// "auto" — подобрать масштаб под поле листа; иначе STATE.printScale
-  printOpts: {vertexNums:false, arrows:true, trails:false, trees:false}
+  printOpts: {vertexNums:false, arrows:true, trails:false, trees:false, sosedi:true}
 };
 
 // Показывает/скрывает слои по STATE.layerVisibility — вызывается после
@@ -807,6 +814,80 @@ function applyLayerVisibility(){
   set(STATE.infraLayer, v.infra);
   set(STATE.labelsLayer, v.labels);
   set(STATE.rasterLayer, v.raster);
+  set(STATE.sosediLayer, v.sosedi);
+}
+
+// ---- Соседние выдела и кварталы (11.11.2026) -----------------------------
+// Подложка «как в QGIS»: вокруг лесосеки видны границы выделов с номерами и
+// кварталы. Данные — те же границы, что на карте сайта, сервер отдаёт их
+// окном вокруг лесосеки в метрах UTM 35N (GET …/items/{id}/sosedi).
+function ringPath(ring){
+  return ring.map((c,i) => { const p = worldToScreen({x:c[0], y:c[1]}); return `${i===0?'M':'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`; }).join(" ") + " Z";
+}
+function renderSosedi(){
+  const layer = STATE.sosediLayer;
+  if(!layer) return;
+  layer.innerHTML = "";
+  const d = STATE.sosedi;
+  if(!d || !STATE.transform) return;
+  const vnutri = (x, y) => x > 6 && x < VB_W - 6 && y > 10 && y < VB_H - 6;
+  (d.vydela || []).forEach(v => {
+    el("path", {d: v.rings.map(ringPath).join(" "), fill:"none", stroke:"#6f8fa6", "stroke-width":0.9, "stroke-linejoin":"round", opacity:0.9}, layer);
+    const c = worldToScreen({x:v.cx, y:v.cy});
+    if(vnutri(c.x, c.y)){
+      el("text", {x:c.x, y:c.y+4, "font-size":11, fill:"#8fb0c7", "text-anchor":"middle", "pointer-events":"none"}, layer).textContent = v.vd;
+    }
+  });
+  (d.kvartaly || []).forEach(k => {
+    el("path", {d: k.rings.map(ringPath).join(" "), fill:"none", stroke:"#c5d4de", "stroke-width":2, "stroke-dasharray":"12 4 2 4 2 4", "stroke-linejoin":"round", opacity:0.9}, layer);
+    // номер квартала — там, где он виден: точка квартала, прижатая к окну
+    const c = worldToScreen({x:k.cx, y:k.cy});
+    const x = Math.max(34, Math.min(VB_W - 34, c.x)), y = Math.max(22, Math.min(VB_H - 14, c.y));
+    const w = screenToWorld(x, y);
+    if(k.rings.length && pointInPolygon(w, k.rings[0].map(c2 => ({x:c2[0], y:c2[1]})))){
+      el("text", {x, y, "font-size":15, "font-weight":700, fill:"#c5d4de", "text-anchor":"middle", opacity:0.75, "pointer-events":"none"}, layer).textContent = "кв. " + k.kv;
+    }
+  });
+}
+// Узлы соседних выделов — к ним прилипает рисуемая линия (дорога идёт по границе выдела и т.п.)
+function sosediUzly(){
+  if(!STATE.sosedi || !STATE.layerVisibility.sosedi) return [];
+  if(STATE.sosedi._uzly) return STATE.sosedi._uzly;
+  const out = [];
+  (STATE.sosedi.vydela || []).forEach(v => v.rings.forEach(r => r.forEach(c => out.push({x:c[0], y:c[1]}))));
+  STATE.sosedi._uzly = out;
+  return out;
+}
+async function zagruzitSosedi(){
+  const st = document.getElementById("sosediStatus");
+  const skazat = t => { if(st) st.textContent = t; };
+  if(typeof ABRIS_ITEM_ID === "undefined" || !ABRIS_ITEM_ID || !STATE.transform || STATE.points.length < 3){ skazat(""); return; }
+  // окно = всё, что помещается на холсте (с запасом), в метрах
+  const a = screenToWorld(0, VB_H), b = screenToWorld(VB_W, 0);
+  const zapas = 40;
+  const okno = [a.x - zapas, a.y - zapas, b.x + zapas, b.y + zapas].map(v => Math.round(v));
+  const klyuch = okno.join(",");
+  if(STATE.sosediOkno === klyuch) return;
+  STATE.sosediOkno = klyuch;
+  skazat("Загружаю соседние выдела…");
+  try{
+    const token = getAbrisToken();
+    const resp = await fetch(`${ABRIS_API_BASE}/delyanki/items/${ABRIS_ITEM_ID}/sosedi?bbox=${klyuch}`,
+      {headers: token ? {Authorization: `Bearer ${token}`} : {}});
+    const data = resp.ok ? await resp.json() : null;
+    if(STATE.sosediOkno !== klyuch) return; // пока ждали, открыли другой контур
+    if(data && data.found){
+      STATE.sosedi = {vydela: data.vydela || [], kvartaly: data.kvartaly || []};
+      skazat(STATE.sosedi.vydela.length ? `Выделов вокруг: ${STATE.sosedi.vydela.length}. Линии прилипают к их углам.` : "Вокруг этой лесосеки границ выделов нет.");
+    } else {
+      STATE.sosedi = null;
+      skazat(data && data.prichina ? "Соседних выделов нет: " + data.prichina + "." : "Соседние выдела не загрузились (сервер старой версии?).");
+    }
+  }catch(e){
+    STATE.sosedi = null;
+    skazat("Соседние выдела не загрузились — нет связи с сервером.");
+  }
+  renderSosedi();
 }
 
 // Рисует растровую подложку-трассировку (скан старого абриса / снимок
@@ -1127,6 +1208,10 @@ function renderBBoxAndSvg(points){
   STATE.rasterLayer = rasterLayer;
   renderRasterUnderlay();
 
+  // соседние выдела и кварталы — подложка сразу над растром, под всем чертежом
+  STATE.sosediLayer = el("g", {id:"sosediLayer"}, svg);
+  renderSosedi();
+
   // scale bar + north arrow (always visible, not a toggleable layer — same
   // as a real topographic sheet's furniture)
   drawScaleBar(svg, scale);
@@ -1192,6 +1277,7 @@ function renderBBoxAndSvg(points){
   applyLayerVisibility();
   runContourCheck();
   renderMinimap();
+  zagruzitSosedi(); // окно холста сменилось (другой контур / сдвинули узел) — догрузить соседей
 }
 
 // ---- coordinate helpers ----
@@ -1411,11 +1497,117 @@ document.getElementById("btnReverseNums").addEventListener("click", () => {
   buildStrips(STATE.points, STATE.stripParams.theta, STATE.stripParams.width);
 });
 
+// ---- «Резиновая» линия (11.11.2026) ---------------------------------------
+// Раньше линия появлялась только ПОСЛЕ клика — рисовать приходилось вслепую.
+// Теперь, пока выбран инструмент-линия (дорога, тропинка, просека, ручная
+// линия, измеритель, вектор пасек), от последней точки к курсору тянется
+// линия с длиной и азимутом, а курсор прилипает к узлам контура, знакам и
+// углам соседних выделов (Alt — без прилипания).
+function risuemLiniyu(){
+  const m = STATE.mode;
+  if(m === "vector") return {clicks: STATE.vectorClicks, kind:"vector"};
+  if(m && typeof m === "object" && (m.kind === "line" || m.kind === "polyline" || m.kind === "measure")) return m;
+  return null;
+}
+function tochkaPodKursorom(evt, clicks){
+  const sp = svgPointFromEvent(evt);
+  const w = screenToWorld(sp.x, sp.y);
+  if(evt.altKey) return {point:w, guides:[]};
+  return computeSmartSnap(w, {anchor: clicks && clicks.length ? clicks[clicks.length-1] : null});
+}
+function renderRezinka(){
+  const layer = STATE.previewLayer;
+  const r = risuemLiniyu();
+  if(!layer) return;
+  layer.innerHTML = "";
+  if(!r) return;
+  const pts = r.clicks.slice();
+  const cur = STATE.hover;
+  const cvet = r.kind === "measure" ? "#c9a24b" : r.kind === "vector" ? "#7fa37a" : "#e0703c";
+  const sPts = pts.map(worldToScreen);
+  if(sPts.length >= 2){
+    el("path", {d: sPts.map((p,i) => `${i===0?'M':'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" "),
+                fill:"none", stroke:cvet, "stroke-width":2}, layer);
+  }
+  sPts.forEach(p => el("circle", {cx:p.x, cy:p.y, r:3.2, fill:cvet}, layer));
+  if(!cur) return;
+  const c = worldToScreen(cur);
+  if(pts.length){
+    const a = pts[pts.length-1], sa = sPts[sPts.length-1];
+    el("line", {x1:sa.x, y1:sa.y, x2:c.x, y2:c.y, stroke:cvet, "stroke-width":1.6, "stroke-dasharray":"6 4"}, layer);
+    const dist = Math.hypot(cur.x-a.x, cur.y-a.y);
+    let az = Math.atan2(cur.x-a.x, cur.y-a.y) * 180/Math.PI; if(az < 0) az += 360;
+    let vsego = dist;
+    for(let i=1;i<pts.length;i++) vsego += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
+    const txt = `${dist.toFixed(1)} м · аз. ${az.toFixed(0)}°` + (pts.length > 1 ? ` · всего ${vsego.toFixed(0)} м` : "");
+    const w = 16 + txt.length * 6.9;
+    const tx = Math.min(VB_W - w - 4, c.x + 14), ty = Math.max(16, c.y - 14);
+    el("rect", {x:tx, y:ty-12, width:w, height:18, rx:4, fill:"#1d2a22", stroke:cvet, "stroke-width":1, opacity:0.95}, layer);
+    el("text", {x:tx + w/2, y:ty+1.5, "font-size":11, "font-weight":700, fill:"#f3ecd9", "text-anchor":"middle", "pointer-events":"none"}, layer).textContent = txt;
+  }
+  el("circle", {cx:c.x, cy:c.y, r:4, fill:"none", stroke:cvet, "stroke-width":1.6}, layer);
+}
+function zakonchitLomanuyu(){
+  const mode = STATE.mode;
+  if(mode && mode.kind === "polyline" && mode.clicks.length >= 2){
+    pushHistory();
+    STATE.infrastructure.push({type:mode.type, kind:"polyline", points: mode.clicks.slice()});
+  }
+  STATE.hover = null;
+  clearInfraMode();
+  clearSmartGuides();
+  if(STATE.previewLayer) STATE.previewLayer.innerHTML = "";
+  renderInfra();
+}
+function otmenitRisovanie(){
+  STATE.hover = null;
+  if(STATE.mode === "vector" || STATE.mode === "edge"){ setMode(null); document.getElementById("dirStatus").textContent = "Отменено."; }
+  else clearInfraMode();
+  clearSmartGuides();
+  if(STATE.previewLayer) STATE.previewLayer.innerHTML = "";
+}
+document.addEventListener("keydown", (evt) => {
+  if(!STATE.mode) return;
+  const tag = (evt.target && evt.target.tagName) || "";
+  if(tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if(evt.key === "Escape"){ evt.preventDefault(); otmenitRisovanie(); }
+  else if(evt.key === "Enter" && STATE.mode.kind === "polyline"){ evt.preventDefault(); zakonchitLomanuyu(); }
+  else if(evt.key === "Backspace" && STATE.mode.kind === "polyline" && STATE.mode.clicks.length){
+    evt.preventDefault();
+    STATE.mode.clicks.pop();
+    document.getElementById("infraStatus").textContent = `Точек: ${STATE.mode.clicks.length}. Backspace — убрать точку, Enter — закончить, Esc — отмена.`;
+    renderRezinka();
+  }
+});
+
 function wireCanvasInteraction(){
   const svg = document.getElementById("stage");
+  svg.onmousemove = (evt) => {
+    const r = risuemLiniyu();
+    const tochechnyy = STATE.mode && typeof STATE.mode === "object" && STATE.mode.kind === "point";
+    if(!r && !tochechnyy){ if(STATE.hover){ STATE.hover = null; } return; }
+    const snap = tochkaPodKursorom(evt, r ? r.clicks : null);
+    STATE.hover = snap.point;
+    renderSmartGuides(snap.guides);
+    if(r) renderRezinka();
+  };
+  svg.onmouseleave = () => { if(STATE.hover){ STATE.hover = null; clearSmartGuides(); renderRezinka(); } };
+  svg.oncontextmenu = (evt) => {   // правая кнопка: закончить ломаную / отменить инструмент
+    if(!STATE.mode) return;
+    evt.preventDefault();
+    if(STATE.mode.kind === "polyline" && STATE.mode.clicks.length >= 2) zakonchitLomanuyu();
+    else otmenitRisovanie();
+  };
   svg.onclick = (evt) => {
     if(!STATE.mode) return;
     const screenPt = svgPointFromEvent(evt);
+    // линия ставится туда, куда показывала «резинка» (с прилипанием), а не в сырой пиксель
+    const rz = risuemLiniyu();
+    if(rz && rz.kind !== "vector"){
+      const sn = tochkaPodKursorom(evt, rz.clicks).point;
+      const ss = worldToScreen(sn);
+      screenPt.x = ss.x; screenPt.y = ss.y;
+    }
 
     if(STATE.mode === "vector"){
       const worldPt = screenToWorld(screenPt.x, screenPt.y);
@@ -1447,6 +1639,13 @@ function wireCanvasInteraction(){
   };
 
   svg.ondblclick = (evt) => {
+    // двойной клик заканчивает ломаную (второй клик пары уже добавил точку-дубль — убираем её)
+    if(STATE.mode && STATE.mode.kind === "polyline"){
+      const c = STATE.mode.clicks;
+      if(c.length >= 2 && Math.hypot(c[c.length-1].x - c[c.length-2].x, c[c.length-1].y - c[c.length-2].y) * STATE.transform.scale < 4) c.pop();
+      zakonchitLomanuyu();
+      return;
+    }
     if(STATE.mode) return;
     const screenPt = svgPointFromEvent(evt);
 
@@ -1660,6 +1859,15 @@ function computeSmartSnap(worldPt, opts){
 
   let best = null, bestDist = SNAP_NODE_PX;
   candidates.forEach(c => {
+    const s = worldToScreen(c);
+    const d = Math.hypot(s.x-screenPt.x, s.y-screenPt.y);
+    if(d < bestDist){ bestDist = d; best = c; }
+  });
+  if(best) return {point:{x:best.x, y:best.y}, guides:[{type:"node", world:best}]};
+
+  // углы соседних выделов — только точное прилипание к узлу (в выравнивание
+  // по осям они не идут: их сотни, направляющие мельтешили бы)
+  sosediUzly().forEach(c => {
     const s = worldToScreen(c);
     const d = Math.hypot(s.x-screenPt.x, s.y-screenPt.y);
     if(d < bestDist){ bestDist = d; best = c; }
@@ -2297,7 +2505,7 @@ function armInfra(type){
     b.classList.toggle("active", b.getAttribute("data-infra") === type)
   );
   const msg = kind === "line" ? "Кликните начальную точку просеки..."
-            : kind === "polyline" ? "Кликайте точки линии, затем нажмите «Завершить линию»..."
+            : kind === "polyline" ? "Кликайте точки линии. Двойной клик, Enter или правая кнопка — закончить; Esc — отмена."
             : kind === "measure" ? "Кликните первую точку измерения..."
             : type === "text" ? "Кликните место для подписи на холсте..."
             : "Кликните точку установки на холсте...";
@@ -2309,16 +2517,7 @@ document.querySelectorAll("[data-infra]").forEach(btn => {
   btn.addEventListener("click", () => armInfra(btn.getAttribute("data-infra")));
 });
 
-document.getElementById("btnFinishLine").addEventListener("click", () => {
-  const mode = STATE.mode;
-  if(mode && mode.kind === "polyline" && mode.clicks.length >= 2){
-    pushHistory();
-    STATE.infrastructure.push({type:mode.type, kind:"polyline", points: mode.clicks.slice()});
-  }
-  clearInfraMode();
-  if(STATE.previewLayer) STATE.previewLayer.innerHTML = "";
-  renderInfra();
-});
+document.getElementById("btnFinishLine").addEventListener("click", zakonchitLomanuyu);
 
 document.getElementById("btnMeasureClear").addEventListener("click", () => {
   if(STATE.measureLayer) STATE.measureLayer.innerHTML = "";
@@ -2467,21 +2666,27 @@ function handleInfraClick(screenPt){
       pushHistory();
       STATE.infrastructure.push({type:mode.type, kind:"line", a:mode.clicks[0], b:mode.clicks[1]});
       clearInfraMode();
+      STATE.hover = null; clearSmartGuides();
+      if(STATE.previewLayer) STATE.previewLayer.innerHTML = "";
       renderInfra();
     } else {
-      document.getElementById("infraStatus").textContent = "Кликните конечную точку просеки...";
+      document.getElementById("infraStatus").textContent = "Кликните конечную точку просеки... (Esc — отмена)";
+      renderRezinka();
     }
   } else if(mode.kind === "polyline"){
     mode.clicks.push(worldPt);
     document.getElementById("infraStatus").textContent =
-      `Точек: ${mode.clicks.length}. Кликайте дальше или «Завершить линию».`;
-    renderPolylinePreview(mode.clicks);
+      `Точек: ${mode.clicks.length}. Двойной клик, Enter или правая кнопка — закончить; Backspace — убрать точку; Esc — отмена.`;
+    renderRezinka();
   } else if(mode.kind === "measure"){
     mode.clicks.push(worldPt);
     if(mode.clicks.length === 2){
       drawMeasurement(mode.clicks[0], mode.clicks[1]);
       clearInfraMode();
+      STATE.hover = null; clearSmartGuides();
+      if(STATE.previewLayer) STATE.previewLayer.innerHTML = "";
     } else {
+      renderRezinka();
       document.getElementById("infraStatus").textContent = "Кликните вторую точку измерения...";
     }
   }
@@ -2853,7 +3058,7 @@ function buildPrintDrawing(wMm, hMm, overrides){
   const o = Object.assign({
     contour:true, safety:true, strips:true, infra:true, labels:true,
     vertexNums: STATE.printOpts.vertexNums, arrows: STATE.printOpts.arrows,
-    trails: STATE.printOpts.trails, trees: STATE.printOpts.trees
+    trails: STATE.printOpts.trails, trees: STATE.printOpts.trees, sosedi: STATE.printOpts.sosedi
   }, overrides || {});
   const W = wMm*MM, H = hMm*MM;
   const b = printWorldBounds(o);
@@ -2879,6 +3084,34 @@ function buildPrintDrawing(wMm, hMm, overrides){
   const parts = [];
   const obstacles = []; // {x,y,r} — куда номера пасек ставить нельзя
   const types = new Set();
+
+  // соседние выдела и кварталы — самым низом, тонко: контекст, как на выкопировке из QGIS
+  if(o.sosedi && STATE.sosedi && STATE.layerVisibility.sosedi){
+    const ringD = r => r.map((c,i) => { const q = T({x:c[0], y:c[1]}); return `${i===0?'M':'L'} ${q.x.toFixed(1)} ${q.y.toFixed(1)}`; }).join(" ") + " Z";
+    const naListe = (x, y, pole) => x > pole && x < W - pole && y > pole && y < H - pole;
+    const kontur = STATE.points.map(p => ({x:p.x, y:p.y}));
+    parts.push(`<clipPath id="clipSosedi"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath><g clip-path="url(#clipSosedi)">`);
+    (STATE.sosedi.vydela || []).forEach(v => {
+      parts.push(`<path d="${v.rings.map(ringD).join(" ")}" fill="none" stroke="#000" stroke-width="${0.13*MM}" stroke-linejoin="round"/>`);
+      const q = T({x:v.cx, y:v.cy});
+      // номер выдела не ставим внутри самой лесосеки — там номера пасек
+      if(naListe(q.x, q.y, 4*MM) && !(kontur.length >= 3 && pointInPolygon({x:v.cx, y:v.cy}, kontur))){
+        parts.push(pText(q.x, q.y + 0.9*MM, v.vd, 2.5, `font-style="italic"`));
+      }
+    });
+    (STATE.sosedi.kvartaly || []).forEach(k => {
+      parts.push(`<path d="${k.rings.map(ringD).join(" ")}" ${pKvartalStyle()}/>`);
+    });
+    parts.push(`</g>`);
+    (STATE.sosedi.kvartaly || []).forEach(k => {
+      // «кв. N» — в свободном углу листа, который лежит внутри этого квартала
+      const ring = (k.rings[0] || []).map(c => ({x:c[0], y:c[1]}));
+      const ugly = [[14*MM, 6*MM], [14*MM, H - 12*MM], [W - 22*MM, H - 12*MM], [W/2, 6*MM]];
+      const Tinv = (x, y) => ({x: b.minX + (x - ox)/ppm, y: b.maxY - (y - oy)/ppm});
+      const mesto = ugly.find(([x, y]) => ring.length >= 3 && pointInPolygon(Tinv(x, y), ring) && !(kontur.length >= 3 && pointInPolygon(Tinv(x, y), kontur)));
+      if(mesto) parts.push(pText(mesto[0], mesto[1], "кв. " + k.kv, 3.2, `font-weight="700"`));
+    });
+  }
 
   // пасеки
   const sd = STATE.stripData;
@@ -3118,7 +3351,7 @@ customScaleInput.addEventListener("keydown", (e) => {
 });
 
 // ---- что печатать (панель «Экспорт») ----
-[["optVertexNums","vertexNums"],["optArrows","arrows"],["optTrails","trails"],["optTrees","trees"]].forEach(([id, key]) => {
+[["optVertexNums","vertexNums"],["optArrows","arrows"],["optTrails","trails"],["optTrees","trees"],["optSosedi","sosedi"]].forEach(([id, key]) => {
   const cb = document.getElementById(id);
   if(!cb) return;
   cb.checked = !!STATE.printOpts[key];
@@ -3262,7 +3495,7 @@ function restoreProekt(proekt){
     document.getElementById("safetyRadius").value = STATE.safetyParams.dist;
     document.getElementById("signSpacing").value = STATE.safetyParams.spacing;
   }
-  [["optVertexNums","vertexNums"],["optArrows","arrows"],["optTrails","trails"],["optTrees","trees"]].forEach(([id, key]) => {
+  [["optVertexNums","vertexNums"],["optArrows","arrows"],["optTrails","trails"],["optTrees","trees"],["optSosedi","sosedi"]].forEach(([id, key]) => {
     const cb = document.getElementById(id);
     if(cb) cb.checked = !!STATE.printOpts[key];
   });

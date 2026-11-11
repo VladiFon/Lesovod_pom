@@ -373,6 +373,26 @@ def _item_for_kontur(conn, item_id: int):
     return row
 
 
+@router.get("/items/{item_id}/sosedi")
+def get_item_sosedi(item_id: int, bbox: str, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Соседние выдела и кварталы для абриса — окно bbox="minx,miny,maxx,maxy"
+    в метрах UTM 35N (как рисует редактор), см. app/abris_sosedi.py.
+    Нет границ / лесничества — не ошибка, а {"found": false, "prichina"}."""
+    from app import abris_sosedi
+
+    lesnichestvo = _item_for_kontur(conn, item_id)[2]
+    try:
+        minx, miny, maxx, maxy = (float(x) for x in bbox.split(","))
+    except ValueError:
+        raise HTTPException(400, "bbox: четыре числа через запятую")
+    try:
+        return {"found": True, **abris_sosedi.okno(legacy_config.LCH_MAP.get(lesnichestvo or ""), minx, miny, maxx, maxy)}
+    except abris_sosedi.SosediError as e:
+        return {"found": False, "prichina": str(e)}
+    except Exception as e:  # noqa: BLE001 — битый файл границ не должен ронять абрис
+        return {"found": False, "prichina": f"границы не прочитались: {e}"}
+
+
 @router.get("/items/{item_id}/kontur")
 def get_item_kontur(item_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
     """{"geometry", "ploshad_kontura", "abris"} — abris: точки для абриса (UTM 35N)."""

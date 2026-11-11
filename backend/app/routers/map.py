@@ -847,6 +847,17 @@ def create_sklad(payload: SkladCreate, conn=Depends(get_conn), _user=Depends(req
     return sklad_store.create_sklad(conn, payload.nazvanie, payload.lat, payload.lon, payload.comment)
 
 
+@router.delete("/sklady/ruchnye")
+def delete_ruchnye_sklady(conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
+    """Убрать ВСЕ склады, заведённые руками (11.11.2026: склады теперь приходят
+    из ЕГАИС с координатами и остатками, ручные точки — дубли). Возвращает
+    удалённые строки — сайт 10 секунд держит «↩ Вернуть» и по ней заводит их заново."""
+    rows = sklad_store.list_sklady(conn)
+    conn.execute("DELETE FROM sklad")
+    conn.commit()
+    return {"udaleno": rows}
+
+
 @router.delete("/sklady/{sklad_id}")
 def delete_sklad(sklad_id: int, conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
     deleted = sklad_store.delete_sklad(conn, sklad_id)
