@@ -54,7 +54,7 @@ import time
 import traceback
 from pathlib import Path
 
-VERSIYA = "3.0.1"
+VERSIYA = "3.1.0"
 PAPKA = Path(__file__).resolve().parent
 NASTROYKI = PAPKA / "nastroyki.ini"
 SOSTOYANIE = PAPKA / "sostoyanie.json"
@@ -84,6 +84,12 @@ ZAMETKI = []
 
 class Oshibka(Exception):
     """Понятная человеку ошибка — пишется в лог без трейсбэка."""
+
+
+class OshibkaBezPovtora(Oshibka):
+    """Ошибка, после которой начинать заново бессмысленно или вредно:
+    экран заблокирован, ЕГАИС не принял пароль (ещё пара попыток — и учётку
+    заблокируют), Лесовод недоступен (файл уже выгружен и лежит на диске)."""
 
 
 # --------------------------------------------------------------------------- #
@@ -147,7 +153,7 @@ class Hod:
                     zap[1] = "ok"
                 else:
                     zap[1] = "oshibka"
-                    zap[2] = str(e) if et is Oshibka else f"непредвиденная ошибка: {e!r}"
+                    zap[2] = str(e) if issubclass(et, Oshibka) else f"непредвиденная ошибка: {e!r}"
                 return False
         return _Shag()
 
@@ -438,6 +444,8 @@ def vsplyvshie_okna(pid):
                 if t:
                     teksty.append(t)
             if knopka is None:
+                knopka = _knopka_po_pravilu(w, teksty)
+            if knopka is None:
                 continue  # выпадающие списки, подсказки и т.п.
             tekst = " ".join(teksty) or _tekst_iz_bufera(w)
             out.append({"okno": w, "zagolovok": w.window_text().strip(),
@@ -445,6 +453,142 @@ def vsplyvshie_okna(pid):
         except Exception:  # noqa: BLE001
             pass
     return out
+
+
+# Правила «незнакомых» окон: раздел [okna] в nastroyki.ini, строки вида
+#   кусок текста или заголовка окна = текст кнопки
+# Робот сам жмёт только OK/Ознакомлен/Закрыть. Если ЕГАИС вылез с окном, где
+# надо выбрать (Да/Нет/Отмена), робот его НЕ трогает, а описывает в отчёте —
+# и одной строкой в [okna] его можно научить, что жать в следующий раз.
+PRAVILA_OKON = []
+
+
+def zagruzit_pravila_okon(cfg):
+    PRAVILA_OKON.clear()
+    if cfg is not None and cfg.has_section("okna"):
+        for kusok, knopka in cfg.items("okna"):
+            if kusok.strip() and knopka.strip():
+                PRAVILA_OKON.append((kusok.strip().lower(), knopka.replace("&", "").strip().lower()))
+
+
+def _knopka_po_pravilu(w, teksty):
+    if not PRAVILA_OKON:
+        return None
+    vse = (w.window_text() + " " + " ".join(teksty)).lower()
+    for kusok, nado in PRAVILA_OKON:
+        if kusok in vse:
+            for c in w.descendants():
+                if _eto_knopka(c) and _tekst_knopki(c) == nado:
+                    log.info("Окно «%s»: по правилу [okna] жму «%s».", w.window_text(), nado)
+                    return c
+    return None
+
+
+def opisat_okna(pid=None):
+    """Что сейчас на экране у ЕГАИС: каждое видимое окно — заголовок, текст
+    и кнопки. Нужен, когда робот споткнулся: по этому описанию видно, какое
+    незнакомое окно вылезло, и можно дописать правило в [okna]."""
+    from pywinauto import Desktop
+    pidy = {pid} if pid else pidy_egais()
+    out = []
+    for w in Desktop(backend="win32").windows(visible_only=True):
+        try:
+            if w.process_id() not in pidy:
+                continue
+            knopki, teksty = [], []
+            for c in w.descendants():
+                t = c.window_text().strip()
+                if not t:
+                    continue
+                if _eto_knopka(c):
+                    knopki.append(c.window_text().replace("&", "").strip())
+                elif len(teksty) < 6 and not w.window_text().startswith("ЕГАИС"):
+                    teksty.append(t[:200])
+            if w.window_text().startswith("ЕГАИС"):
+                continue  # главное окно/вход — не «всплывшее»
+            out.append(f"окно «{w.window_text().strip() or '(без заголовка)'}»"
+                       + (f": {' '.join(teksty)[:300]}" if teksty else "")
+                       + (f" [кнопки: {', '.join(knopki[:6])}]" if knopki else ""))
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#   Живучесть (3.1): ЕГАИС всегда закрывается, а прогон начинается заново
+# --------------------------------------------------------------------------- #
+ZHIZN = {"sami": False, "pidy": set(), "byl_otkryt": False}
+
+
+def pidy_egais():
+    """Процессы ЕГАИС: по окнам «ЕГАИС…» + те, что робот уже видел в этом
+    запуске (у зависшего процесса окна могут и не найтись)."""
+    try:
+        for w in okna_egais():
+            ZHIZN["pidy"].add(w.process_id())
+    except Exception:  # noqa: BLE001
+        pass
+    return set(ZHIZN["pidy"])
+
+
+def _process_zhiv(pid):
+    try:
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))  # QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        kod = ctypes.c_ulong()
+        ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(kod))
+        ctypes.windll.kernel32.CloseHandle(h)
+        return kod.value == 259  # STILL_ACTIVE
+    except Exception:  # noqa: BLE001
+        return False
+
+
+KNOPKI_DA = ("да", "yes", "ok", "ок", "выход", "выйти", "закрыть")
+
+
+def zakryt_egais(prichina=""):
+    """Закрывает ЕГАИС ПОЛНОСТЬЮ: сначала по-хорошему (крестик + «Да» на
+    вопрос «Выйти?»), через 10 секунд — снимает процесс. Возвращает True,
+    если после этого ни одного процесса ЕГАИС не осталось."""
+    pidy = pidy_egais()
+    if not pidy:
+        return True
+    log.info("Закрываю ЕГАИС%s…", f" ({prichina})" if prichina else "")
+    WM_CLOSE = 0x0010
+    try:
+        for w in okna_egais():
+            ctypes.windll.user32.PostMessageW(w.handle, WM_CLOSE, 0, 0)
+    except Exception:  # noqa: BLE001
+        pass
+    konec = time.time() + 10
+    while time.time() < konec and any(_process_zhiv(p) for p in pidy):
+        time.sleep(1)
+        try:  # «Вы действительно хотите выйти?» → Да
+            from pywinauto import Desktop
+            for w in Desktop(backend="win32").windows(visible_only=True):
+                if w.process_id() in pidy and not w.window_text().startswith("ЕГАИС"):
+                    for c in w.descendants():
+                        if _eto_knopka(c) and _tekst_knopki(c) in KNOPKI_DA:
+                            c.click()
+                            break
+        except Exception:  # noqa: BLE001
+            pass
+    for p in pidy:
+        if _process_zhiv(p):
+            log.warning("ЕГАИС (процесс %s) сам не закрылся — снимаю.", p)
+            try:
+                subprocess.run(["taskkill", "/PID", str(p), "/T", "/F"], capture_output=True, timeout=30)
+            except Exception as e:  # noqa: BLE001
+                log.warning("taskkill не сработал: %s", e)
+    time.sleep(2)
+    zhivye = [p for p in pidy if _process_zhiv(p)]
+    if zhivye:
+        log.error("ЕГАИС так и не закрылся (процессы %s).", zhivye)
+        return False
+    ZHIZN["pidy"].clear()
+    log.info("ЕГАИС закрыт.")
+    return True
 
 
 def soobshcheniya_oshibok(pid):
@@ -536,6 +680,7 @@ def zapustit_i_voyti(cfg):
 
     gl = glavnoe_okno()
     if gl:
+        ZHIZN["byl_otkryt"] = True
         log.info("ЕГАИС уже открыт и вход выполнен — беру готовое окно.")
         zakryt_vsplyvashki(gl.process_id())
         return gl, False
@@ -545,8 +690,9 @@ def zapustit_i_voyti(cfg):
         put = os.path.expandvars(cfg.get("egais", "yarlyk",
                                          fallback=r"%USERPROFILE%\Desktop\EGAIS.lnk"))
         if not Path(put).exists():
-            raise Oshibka(f"Не нашёл ярлык/программу ЕГАИС: {put} (поправь yarlyk в nastroyki.ini)")
+            raise OshibkaBezPovtora(f"Не нашёл ярлык/программу ЕГАИС: {put} (поправь yarlyk в nastroyki.ini)")
         log.info("Запускаю ЕГАИС: %s", put)
+        ZHIZN["sami"] = True
         os.startfile(put)  # noqa: S606 — .lnk тоже открывается
         vh = zhdat(ustoychivoe_okno, 180, chto="окно входа ЕГАИС")
         if "Пользователь" in vh.window_text():
@@ -592,7 +738,9 @@ def zapustit_i_voyti(cfg):
     except Oshibka:
         oshibki = soobshcheniya_oshibok(pid)
         skrin("vhod")
-        raise Oshibka("Вход в ЕГАИС не удался. " + ("; ".join(oshibki) or "Окно не появилось."))
+        if oshibki:  # ЕГАИС сам сказал «нет» (пароль?) — второй раз не ломимся
+            raise OshibkaBezPovtora("Вход в ЕГАИС не удался. " + "; ".join(oshibki))
+        raise Oshibka("Вход в ЕГАИС не удался. Окно не появилось.")
     # предупреждения вылезают через пару секунд после входа — ловим их
     zakryt_vsplyvashki(pid, zhdat_sek=15)
     return gl, True
@@ -1267,6 +1415,23 @@ def zalit_v_lesovod(cfg, put):
     raise Oshibka("Лесовод разбирает файл дольше 30 минут — проверь на сайте.")
 
 
+def zalit_s_povtorami(cfg, put, popytok=3):
+    """Лесовод мог моргнуть (перезапуск, сеть) — пробуем залить несколько раз
+    с паузой. Не вышло — это уже не повод гонять ЕГАИС заново: файл лежит."""
+    posl = None
+    for n in range(1, popytok + 1):
+        try:
+            return zalit_v_lesovod(cfg, put)
+        except Oshibka as e:
+            posl = e
+        except Exception as e:  # noqa: BLE001 — сеть, таймаут, кривой ответ
+            posl = Oshibka(f"Лесовод не отвечает: {e}")
+        log.warning("Заливка в Лесовод, попытка %d из %d: %s", n, popytok, posl)
+        if n < popytok:
+            time.sleep(60 * n)
+    raise OshibkaBezPovtora(f"{posl} Файл выгружен и лежит здесь: {put}")
+
+
 # --------------------------------------------------------------------------- #
 #   Разведка
 # --------------------------------------------------------------------------- #
@@ -1310,13 +1475,14 @@ def _strok_v_proshlyy_raz(st, god):
 def progon(cfg, bez_zagruzki=False):
     with HOD.shag("Экран Windows"):
         if ekran_zablokirovan():
-            raise Oshibka("Экран Windows заблокирован — робот не может нажимать кнопки.")
+            raise OshibkaBezPovtora("Экран Windows заблокирован — робот не может нажимать кнопки.")
 
     segodnya = dt.date.today()
     with HOD.shag("Вход в ЕГАИС") as sh:
         gl, zapuskali_sami = zapustit_i_voyti(cfg)
         sh.detal("открыл и вошёл" if zapuskali_sami else "ЕГАИС уже был открыт")
     pid = gl.process_id()
+    ZHIZN["pidy"].add(pid)
     with HOD.shag("Вкладка «Реестр движения по складам»"):
         otkryt_reestr(gl)
 
@@ -1376,7 +1542,7 @@ def progon(cfg, bez_zagruzki=False):
         itog = {}
         if zalivat:
             with HOD.shag("Заливка в Лесовод") as sh:
-                itog = zalit_v_lesovod(cfg, kuda)
+                itog = zalit_s_povtorami(cfg, kuda)
                 sh.detal(f"новых {itog.get('journal_rows_added', 0)}, "
                          f"обновлено {itog.get('journal_rows_replaced', 0)}")
             log.info("Лесовод: строк в журнале %s, новых %s, заменено %s.",
@@ -1401,11 +1567,6 @@ def progon(cfg, bez_zagruzki=False):
         if time.time() - f.stat().st_mtime > hranit * 86400:
             f.unlink(missing_ok=True)
 
-    if zapuskali_sami and cfg.getboolean("egais", "zakryvat_posle", fallback=True):
-        try:
-            gl.close()
-        except Exception:  # noqa: BLE001
-            pass
     return itogi
 
 
@@ -1925,21 +2086,65 @@ def main():
                                             f"вручную (кнопка «Пропустить сегодня»).")
             return 0
 
-    ok, tekst = False, ""
-    try:
-        itogi = progon(cfg, bez_zagruzki=a.bez_zagruzki)
-        ok = True
-        tekst = _tekst_uspeha(itogi)
-        if ZAMETKI:
-            tekst += " " + "; ".join(dict.fromkeys(ZAMETKI)) + "."
-        log.info("=== Выгрузка ЕГАИС: готово ===")
-    except Oshibka as e:
-        log.error("ОШИБКА: %s", e)
-        tekst = str(e)
-    except Exception:  # noqa: BLE001
-        log.error("Непредвиденная ошибка:\n%s", traceback.format_exc())
-        tekst = "непредвиденная ошибка, подробности в логе"
-        skrin("nepredvidennaya")
+    global HOD
+    zagruzit_pravila_okon(cfg)
+    popytok = max(1, cfg.getint("obshchee", "popytok", fallback=3))
+    zakryvat = cfg.getboolean("egais", "zakryvat_posle", fallback=True)
+    ok, tekst, proshlye = False, "", []
+    for popytka in range(1, popytok + 1):
+        if popytka > 1:
+            HOD = Hod()
+            log.info("=== Попытка %d из %d: начинаю с чистого листа ===", popytka, popytok)
+        povtoryat = True
+        try:
+            itogi = progon(cfg, bez_zagruzki=a.bez_zagruzki)
+            ok = True
+            tekst = _tekst_uspeha(itogi)
+            if ZAMETKI:
+                tekst += " " + "; ".join(dict.fromkeys(ZAMETKI)) + "."
+            if popytka > 1:
+                tekst += f" Получилось с попытки {popytka} (до этого: {'; '.join(proshlye)})."
+            log.info("=== Выгрузка ЕГАИС: готово ===")
+        except OshibkaBezPovtora as e:
+            log.error("ОШИБКА: %s", e)
+            tekst, povtoryat = str(e), False
+        except Oshibka as e:
+            log.error("ОШИБКА: %s", e)
+            tekst = str(e)
+        except Exception:  # noqa: BLE001
+            log.error("Непредвиденная ошибка:\n%s", traceback.format_exc())
+            tekst = "непредвиденная ошибка, подробности в логе"
+            skrin("nepredvidennaya")
+        if ok:
+            break
+        # что было на экране в момент падения — в лог и в отчёт
+        try:
+            okna = opisat_okna()
+        except Exception:  # noqa: BLE001
+            okna = []
+        if okna:
+            skrin("okna_pri_oshibke")
+            log.warning("На экране у ЕГАИС: %s", " | ".join(okna))
+            tekst += " На экране было: " + " | ".join(okna)[:600] + "."
+        proshlye.append(f"попытка {popytka} — шаг «{HOD.gde_upal() or '?'}»")
+        if not povtoryat or popytka == popytok:
+            break
+        # заново: ЕГАИС закрываем целиком (и зависший, и «уже открытый») и стартуем с нуля
+        zakryt_egais("перезапуск после ошибки")
+        ZHIZN["sami"] = True
+        time.sleep(15 * popytka)
+
+    # ЕГАИС после робота не должен оставаться висеть: закрываем, если робот
+    # открывал его сам (в том числе после перезапуска) — и при успехе, и при ошибке
+    if ZHIZN["sami"] and zakryvat:
+        try:
+            if not zakryt_egais("конец прогона"):
+                ZAMETKI.append("ЕГАИС не удалось закрыть")
+                tekst += " ЕГАИС не удалось закрыть — закрой руками."
+        except Exception as e:  # noqa: BLE001
+            log.warning("Закрытие ЕГАИС: %s", e)
+    if not ok and len(proshlye) > 1:
+        tekst += f" Пробовал {len(proshlye)} раза: {'; '.join(proshlye)}."
 
     otchet = HOD.otchet(ok, tekst, rezhim)
     REZULTAT.write_text(otchet, encoding="utf-8")
