@@ -778,6 +778,15 @@ def get_proby_geojson_for_qgis(token: str, conn=Depends(get_conn)):
     return proby_karta.geojson(conn)
 
 
+@router.get("/qgis/sklady.geojson")
+def get_sklady_geojson_for_qgis(token: str, conn=Depends(get_conn)):
+    """Склады ЕГАИС точками, с остатком в подписи — см. app/egais_sklady.py."""
+    _check_service_token(token)
+    from app import egais_sklady
+
+    return egais_sklady.geojson(conn)
+
+
 @router.post("/qgis/granicy")
 async def post_granicy_from_qgis(request: Request, token: str, sloy: str, background_tasks: BackgroundTasks):
     """Кварталы / выделы из QGIS (плагин «Лесовод-мост») — заменяют границы
@@ -823,7 +832,10 @@ class SkladCreate(BaseModel):
 
 @router.get("/sklady")
 def get_sklady(conn=Depends(get_conn), _user=Depends(map_reader)):
-    return sklad_store.list_sklady(conn)
+    # ручные точки + склады ЕГАИС, на которых сейчас лежит лес (11.11.2026)
+    from app import egais_sklady
+
+    return sklad_store.list_sklady(conn) + egais_sklady.tochki_dlya_telefona(conn)
 
 
 @router.post("/sklady")
@@ -912,7 +924,7 @@ _pokazat_poslednie: list = []
 
 
 class PokazatVQgisIn(BaseModel):
-    tip: str  # delyanka | lesokultury | vydel | proba
+    tip: str  # delyanka | lesokultury | vydel | proba | sklad (склад ЕГАИС, id = id Склада)
     id: Optional[int] = None
     kvartal: Optional[str] = None
     vydel: Optional[str] = None
@@ -922,7 +934,7 @@ class PokazatVQgisIn(BaseModel):
 
 @router.post("/qgis/pokazat")
 def post_pokazat_v_qgis(body: PokazatVQgisIn, user=Depends(get_current_user)):
-    if body.tip not in ("delyanka", "lesokultury", "vydel", "proba"):
+    if body.tip not in ("delyanka", "lesokultury", "vydel", "proba", "sklad"):
         raise HTTPException(400, "Неизвестно, что показать")
     if not body.id and not body.kvartal:
         raise HTTPException(400, "Нужен id или квартал")

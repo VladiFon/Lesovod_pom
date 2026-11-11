@@ -54,7 +54,7 @@ import time
 import traceback
 from pathlib import Path
 
-VERSIYA = "3.2.2"
+VERSIYA = "3.3.0"
 PAPKA = Path(__file__).resolve().parent
 NASTROYKI = PAPKA / "nastroyki.ini"
 SOSTOYANIE = PAPKA / "sostoyanie.json"
@@ -1688,18 +1688,32 @@ def opisat_fayl(put, strok_primera=3):
     return max(strok - 1, 0), nachalo
 
 
-def progon_sklady(cfg):
-    """Выгрузка «Склады» и «Наличие продукции на складах» в папку выгрузок.
-    Фильтры не трогаем — берём как ЕГАИС подставил сам (твоё подразделение,
-    активные склады, наличие на сегодня)."""
-    with HOD.shag("Экран Windows"):
-        if ekran_zablokirovan():
-            raise OshibkaBezPovtora("Экран Windows заблокирован — робот не может нажимать кнопки.")
-    with HOD.shag("Вход в ЕГАИС") as sh:
-        gl, sami = zapustit_i_voyti(cfg)
-        sh.detal("открыл и вошёл" if sami else "ЕГАИС уже был открыт")
-    pid = gl.process_id()
-    ZHIZN["pidy"].add(pid)
+def zalit_sklady_v_lesovod(cfg, put):
+    """Файл «Склады» / «Наличие» → Лесовод (POST /api/raskhod/egais/sklady/import)."""
+    url = cfg.get("lesovod", "url").rstrip("/")
+    ses = _http(cfg)
+    h = {"Authorization": f"Bearer {lesovod_login(cfg)}"}
+    try:
+        with open(put, "rb") as f:
+            r = ses.post(f"{url}/api/raskhod/egais/sklady/import", headers=h, timeout=300,
+                         files={"file": (put.name, f,
+                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    finally:
+        try:
+            ses.post(f"{url}/api/auth/logout", headers=h, timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+    if r.status_code in (404, 405):
+        raise Oshibka("сервер Лесовода ещё не умеет принимать склады — нужно обновление сервера")
+    if r.status_code != 200:
+        raise Oshibka(f"Лесовод не принял файл {put.name} ({r.status_code}): {r.text[:300]}")
+    return r.json()
+
+
+def vygruzit_sklady(cfg, gl, pid, zalivat):
+    """«Склады» и «Наличие продукции на складах»: выгрузить оба отчёта в папку
+    выгрузок и (если zalivat) залить в Лесовод. На «Складах» стирается «Дата
+    открытия с»; остальные фильтры — как ЕГАИС подставил сам."""
     papka_vyg = Path(os.path.expandvars(cfg.get("obshchee", "papka_vygruzok", fallback=str(PAPKA / "vygruzki"))))
     papki_poiska = [os.path.expandvars(p.strip()) for p in cfg.get(
         "obshchee", "papki_poiska",
@@ -1723,16 +1737,59 @@ def progon_sklady(cfg):
             zabrat_fayl(pid, kuda, start, papki_poiska, sekund=600)
             strok, nachalo = opisat_fayl(kuda)
             sh.detal(f"{strok} строк → {kuda}")
-            if strok == 0:
-                ZAMETKI.append(f"«{punkt}»: файл пустой")
+        if klyuch == "sklady" and strok == 0:
+            raise Oshibka("ЕГАИС отдал пустой список складов.")
         opisanie.append(f"=== {punkt}: {strok} строк, файл {kuda.name}")
         for i, r in enumerate(nachalo):
             opisanie.append(("КОЛОНКИ: " if i == 0 else f"строка {i}: ") + " | ".join(r))
         opisanie.append("")
-        itogi.append({"klyuch": klyuch, "strok": strok, "fayl": str(kuda)})
+        it = {"klyuch": klyuch, "strok": strok, "fayl": str(kuda)}
+        if zalivat:
+            with HOD.shag(f"«{punkt}»: заливка в Лесовод") as sh:
+                it["lesovod"] = zalit_sklady_v_lesovod(cfg, kuda)
+                sh.detal(", ".join(f"{k}: {v}" for k, v in it["lesovod"].items() if k != "vid"))
+        itogi.append(it)
     (PAPKA / "sklady_kolonki.txt").write_text("\n".join(opisanie), encoding="utf-8")
-    log.info("Колонки выгрузок записал в sklady_kolonki.txt")
+    for f in papka_vyg.glob("egais_sklady_*.xlsx"):
+        _ubrat_staryy(cfg, f)
+    for f in papka_vyg.glob("egais_nalichie_*.xlsx"):
+        _ubrat_staryy(cfg, f)
     return itogi
+
+
+def _ubrat_staryy(cfg, f):
+    try:
+        if time.time() - f.stat().st_mtime > cfg.getint("obshchee", "hranit_dney", fallback=30) * 86400:
+            f.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def tekst_skladov(itogi):
+    po = {i["klyuch"]: i for i in itogi}
+    chasti = []
+    if "sklady" in po:
+        l = po["sklady"].get("lesovod") or {}
+        chasti.append(f"складов {l.get('skladov', po['sklady']['strok'])}"
+                      + (f" (новых {l['novyh']})" if l.get("novyh") else ""))
+    if "nalichie" in po:
+        l = po["nalichie"].get("lesovod") or {}
+        chasti.append(f"на складах лежит {l['m3']:g} м³" if "m3" in l else f"наличие {po['nalichie']['strok']} строк")
+    return "Склады: " + ", ".join(chasti) + "."
+
+
+def progon_sklady(cfg, bez_zagruzki=False):
+    """Только склады (vygruzit_sklady.bat): вход в ЕГАИС + оба отчёта."""
+    with HOD.shag("Экран Windows"):
+        if ekran_zablokirovan():
+            raise OshibkaBezPovtora("Экран Windows заблокирован — робот не может нажимать кнопки.")
+    with HOD.shag("Вход в ЕГАИС") as sh:
+        gl, sami = zapustit_i_voyti(cfg)
+        sh.detal("открыл и вошёл" if sami else "ЕГАИС уже был открыт")
+    pid = gl.process_id()
+    ZHIZN["pidy"].add(pid)
+    zalivat = not bez_zagruzki and bool(cfg.get("lesovod", "login", fallback="").strip())
+    return vygruzit_sklady(cfg, gl, pid, zalivat)
 
 
 # --------------------------------------------------------------------------- #
@@ -1856,6 +1913,15 @@ def progon(cfg, bez_zagruzki=False):
             log.info("Заливка в Лесовод выключена — файл лежит в %s", kuda)
         po_godam[str(s.year)] = strok
         itogi.append({"god": s.year, "period": metka, "strok": strok, **itog})
+
+    # склады и остатки — после реестра; их сбой не отменяет уже залитый реестр
+    if cfg.getboolean("egais", "sklady", fallback=True):
+        try:
+            ZAMETKI.append(tekst_skladov(vygruzit_sklady(cfg, gl, pid, bool(zalivat))).rstrip("."))
+        except Exception as e:  # noqa: BLE001
+            log.error("Склады не выгрузились: %s", e if isinstance(e, Oshibka) else traceback.format_exc())
+            skrin("sklady")
+            ZAMETKI.append(f"⚠ склады и остатки НЕ обновились: {e}")
 
     posledniy = itogi[-1]
     SOSTOYANIE.write_text(json.dumps({
@@ -2403,9 +2469,9 @@ def main():
         povtoryat = True
         try:
             if a.sklady:
-                itogi = progon_sklady(cfg)
-                tekst = "Склады ЕГАИС выгружены: " + "; ".join(
-                    f"{Path(i['fayl']).name} — {i['strok']} строк" for i in itogi) + ". Колонки — в sklady_kolonki.txt."
+                itogi = progon_sklady(cfg, bez_zagruzki=a.bez_zagruzki)
+                tekst = tekst_skladov(itogi) + (" В Лесовод залито." if any("lesovod" in i for i in itogi)
+                                                 else " В Лесовод НЕ заливал — файлы в папке выгрузок.")
             else:
                 itogi = progon(cfg, bez_zagruzki=a.bez_zagruzki)
                 tekst = _tekst_uspeha(itogi)

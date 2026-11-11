@@ -10,6 +10,7 @@ import Lesokultury from "./pages/Lesokultury.jsx";
 import TekushchieIzmeneniya from "./pages/TekushchieIzmeneniya.jsx";
 import KnigaLvlr from "./pages/KnigaLvlr.jsx";
 import Raskhod from "./pages/Raskhod.jsx";
+import SkladyEgais from "./pages/SkladyEgais.jsx";
 import Inspection from "./pages/Inspection.jsx";
 import RubkiUhoda from "./pages/RubkiUhoda.jsx";
 import RaspredelenieBrigad from "./pages/RaspredelenieBrigad.jsx";
@@ -109,6 +110,12 @@ const DashboardIgra = makeMergedScreen("dashboard", [
 const RaskhodIgra = makeMergedScreen("raskhod", [
   { key: "vyvozka", label: "🚛 Вывозка", Page: VyvozkaIgra },
   { key: "raskhod", label: "Расход", Page: Raskhod },
+  { key: "sklady", label: "Склады и остатки", Page: SkladyEgais },
+]);
+// Обычный вид: Расход + «Склады и остатки» из ЕГАИС (11.11.2026)
+const RaskhodObych = makeMergedScreen("raskhod", [
+  { key: "raskhod", label: "Расход", Page: Raskhod },
+  { key: "sklady", label: "Склады и остатки", Page: SkladyEgais },
 ]);
 // Игровой вид «Инспекции» (03.11.2026): «Охота на акты» + обычный список
 // (форма акта — там же, «Составить акт» открывает вкладку «Список»).
@@ -166,7 +173,7 @@ const READY_SCREENS = {
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
   // Книга учёта площадей ЛВ и ЛР (прил. 6 Положения, Влад 09.11.2026).
   formy: { title: "Формы и книги", subtitle: "Текущие изменения (прил. 1–15 для Белгослеса) и Книга учёта площадей ЛВ и ЛР", Page: Formy },
-  raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: poVidu(Raskhod, RaskhodIgra) },
+  raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: poVidu(RaskhodObych, RaskhodIgra) },
   inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: poVidu(Inspection, InspectionIgra) },
   // C.3 плана — независимые пробы рубок ухода (не привязаны к делянке,
   // см. docstring backend/legacy/uhody.py): своя ведомость перечёта и

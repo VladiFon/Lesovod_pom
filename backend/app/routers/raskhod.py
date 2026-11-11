@@ -337,6 +337,38 @@ def egais_robot_otchet(body: RobotOtchetIn, user=Depends(require_permission("ras
     return {"id": nid}
 
 
+# --------------------------------------------------------------------------- #
+#   Склады ЕГАИС и остатки на них (11.11.2026) — см. app/egais_sklady.py
+# --------------------------------------------------------------------------- #
+@router.post("/egais/sklady/import")
+def import_egais_sklady(file: UploadFile = File(...), user=Depends(require_permission("raskhod.edit")),
+                        conn=Depends(get_conn)):
+    """Файл «Склады» или «Наличие продукции на складах» из ЕГАИС (какой
+    именно — сервер понимает по шапке). Заливает робот и кнопка на сайте."""
+    from app import egais_sklady
+    dest = UPLOADS_DIR / f"egais_sklady_{uuid4().hex}.xlsx"
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+    try:
+        return egais_sklady.importirovat(conn, str(dest))
+    except egais_sklady.SkladyError as e:
+        raise HTTPException(400, str(e))
+    finally:
+        dest.unlink(missing_ok=True)
+
+
+@router.get("/egais/sklady")
+def get_egais_sklady(conn=Depends(get_conn), _user=Depends(get_current_user)):
+    from app import egais_sklady
+    return egais_sklady.obzor(conn)
+
+
+@router.get("/egais/sklady/{id_sklada}/sostav")
+def get_egais_sklad_sostav(id_sklada: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    from app import egais_sklady
+    return {"stroki": egais_sklady.sostav(conn, id_sklada)}
+
+
 @router.get("/delyanki/{delyanka_id}/osvoenie")
 def get_delyanka_osvoenie(delyanka_id: int, conn=Depends(get_conn)):
     """Освоение лимита по ВСЕЙ делянке (все выделы, все породы,
