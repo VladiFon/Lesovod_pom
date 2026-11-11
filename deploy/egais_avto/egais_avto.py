@@ -54,7 +54,7 @@ import time
 import traceback
 from pathlib import Path
 
-VERSIYA = "3.2.0"
+VERSIYA = "3.2.1"
 PAPKA = Path(__file__).resolve().parent
 NASTROYKI = PAPKA / "nastroyki.ini"
 SOSTOYANIE = PAPKA / "sostoyanie.json"
@@ -1499,6 +1499,46 @@ def otkryt_vkladku(gl, punkt_menyu, klass):
     raise Oshibka(f"Не смог открыть «Склад → {punkt_menyu}».")
 
 
+def ochistit_datu_otkrytiya(forma):
+    """«Склады»: поле «Дата открытия с» должно быть ПУСТЫМ — иначе склады,
+    открытые в прошлые годы (а на них лежит лес), в выборку не попадут.
+    Поле — самый левый TcxDateEdit формы (правее него «по» = сегодня)."""
+    import pyautogui
+    from pywinauto.keyboard import send_keys
+    polya = sorted((c for c in forma.descendants() if c.class_name() == "TcxDateEdit" and _na_ekrane(c)),
+                   key=lambda c: c.rectangle().left)
+    if len(polya) < 2:
+        raise Oshibka("На вкладке «Склады» не нашёл поля «Дата открытия с … по …».")
+    pole = polya[0]
+
+    def pusto():
+        return not any(ch.isdigit() for ch in pole.window_text())
+
+    if pusto():
+        return "и так пусто"
+    bylo = pole.window_text().strip()
+    vnutr = (pole.children() or [pole])[0]
+    r = pole.rectangle()
+    sposoby = [
+        ("Home+Shift+End, Delete", lambda: (vnutr.click_input(), send_keys("{HOME}+{END}{DELETE}{TAB}"))),
+        ("ластик в поле", lambda: pyautogui.click(r.right - 11, (r.top + r.bottom) // 2)),
+        ("Delete по символам", lambda: (vnutr.click_input(), send_keys("{HOME}" + "{DELETE}" * 10 + "{TAB}"))),
+    ]
+    for imya, sdelat in sposoby:
+        try:
+            sdelat()
+        except Exception as e:  # noqa: BLE001
+            log.info("Очистка даты, способ «%s» не применим: %s", imya, e)
+            continue
+        time.sleep(0.7)
+        if pusto():
+            log.info("«Дата открытия с» очищена (было %s, способ: %s).", bylo, imya)
+            return f"стёр {bylo}"
+        log.info("Очистка даты, способ «%s» не сработал: в поле «%s».", imya, pole.window_text())
+    skrin("data_otkrytiya")
+    raise Oshibka(f"Не смог стереть «Дата открытия с» на вкладке «Склады» (в поле «{pole.window_text().strip()}»).")
+
+
 def poluchit_na_vkladke(gl, forma, pid, minimum_sek=8, maksimum_sek=900):
     """«Получить F7» на конкретной вкладке и ожидание загрузки."""
     import pywinauto.mouse as mouse
@@ -1596,6 +1636,9 @@ def progon_sklady(cfg):
         kuda = papka_vyg / f"{imya}_{segodnya:%Y-%m-%d}.xlsx"
         with HOD.shag(f"Вкладка «{punkt}»"):
             forma = otkryt_vkladku(gl, punkt, klass)
+        if klyuch == "sklady":
+            with HOD.shag("«Склады»: дата открытия пустая (все годы)") as sh:
+                sh.detal(ochistit_datu_otkrytiya(forma))
         with HOD.shag(f"«{punkt}»: получить данные") as sh:
             sek = poluchit_na_vkladke(gl, forma, pid)
             sh.detal(f"загрузка {sek} с")
