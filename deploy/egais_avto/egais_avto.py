@@ -54,7 +54,7 @@ import time
 import traceback
 from pathlib import Path
 
-VERSIYA = "3.1.0"
+VERSIYA = "3.2.0"
 PAPKA = Path(__file__).resolve().parent
 NASTROYKI = PAPKA / "nastroyki.ini"
 SOSTOYANIE = PAPKA / "sostoyanie.json"
@@ -816,6 +816,9 @@ def otkryt_reestr(gl):
 
 
 def _vkladka_otkryta(gl):
+    listy = [c for c in gl.descendants() if c.class_name() == "TcxTabSheet"]
+    if listy:  # вкладок может быть несколько (Склады, Наличие…) — нужна именно наша и активная
+        return any(OTCHET in c.window_text() and c.is_visible() for c in listy)
     for c in gl.descendants():
         try:
             if "datee" in c.class_name().lower():  # поля даты есть только на вкладке отчёта
@@ -1433,6 +1436,188 @@ def zalit_s_povtorami(cfg, put, popytok=3):
 
 
 # --------------------------------------------------------------------------- #
+#   Склады и наличие продукции (3.2): «Склад → Склады» и «Склад → Наличие
+#   продукции на складах». По разведке ПК Влада 11.11.2026 (ЕГАИС 1.0.43.12):
+#   формы TfrmStorages и TfrmStorageBalance, на каждой своя «Получить F7»
+#   и панель MainBar с иконкой Excel.
+# --------------------------------------------------------------------------- #
+DOP_OTCHETY = [
+    # ключ, пункт меню «Склад → …», класс формы вкладки, имя файла
+    ("sklady", "Склады", "TfrmStorages", "egais_sklady"),
+    ("nalichie", "Наличие продукции на складах", "TfrmStorageBalance", "egais_nalichie"),
+]
+
+
+def _forma(gl, klass):
+    """Форма вкладки, если вкладка открыта И активна (видна)."""
+    for c in gl.descendants():
+        try:
+            if c.class_name() == klass and c.is_visible():
+                return c
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
+def otkryt_vkladku(gl, punkt_menyu, klass):
+    """Открывает (или делает активной) вкладку из ветки меню «Склад»."""
+    from pywinauto.keyboard import send_keys
+    zakryt_vsplyvashki(gl.process_id())
+    gl.set_focus()
+    if gl.get_show_state() != 3:
+        gl.maximize()
+    time.sleep(1)
+    f = _forma(gl, klass)
+    if f is not None:
+        return f
+    for c in gl.descendants():
+        if "treeview" not in c.class_name().lower():
+            continue
+        try:
+            from pywinauto.controls.common_controls import TreeViewWrapper
+            tv = TreeViewWrapper(c.handle)
+            for koren in tv.roots():
+                if koren.text().strip() != "Склад":
+                    continue
+                koren.expand()
+                for el in koren.children():
+                    if el.text().strip() == punkt_menyu:
+                        el.ensure_visible()
+                        el.select()
+                        el.click_input(double=True)
+                        time.sleep(3)
+                        if _forma(gl, klass) is None:
+                            send_keys("{ENTER}")
+                            time.sleep(3)
+                        break
+        except Exception as e:  # noqa: BLE001
+            log.info("Дерево не дало открыть «%s»: %s", punkt_menyu, e)
+        f = _forma(gl, klass)
+        if f is not None:
+            return f
+    skrin("menyu_" + klass)
+    raise Oshibka(f"Не смог открыть «Склад → {punkt_menyu}».")
+
+
+def poluchit_na_vkladke(gl, forma, pid, minimum_sek=8, maksimum_sek=900):
+    """«Получить F7» на конкретной вкладке и ожидание загрузки."""
+    import pywinauto.mouse as mouse
+    zakryt_vsplyvashki(pid)
+    knopka = next((c for c in forma.descendants() if c.class_name() == "TButton"
+                   and c.window_text().startswith("Получить") and _na_ekrane(c)), None)
+    if knopka is None:
+        raise Oshibka("На вкладке не нашёл кнопку «Получить».")
+    knopka.click_input()
+    start = time.time()
+    tabl = next((c for c in forma.descendants() if c.class_name() == "TcxGridSite" and _na_ekrane(c)), None)
+    if tabl is not None:
+        r = tabl.rectangle()
+        mouse.move(coords=((r.left + r.right) // 2, (r.top + r.bottom) // 2))
+    stabilno = 0
+    while time.time() - start < maksimum_sek:
+        time.sleep(2)
+        okna = vsplyvshie_okna(pid)
+        if okna:
+            for o in okna:
+                zakryt_okno(o, "okno_posle_poluchit")
+            o = okna[0]
+            raise Oshibka(f"После «Получить» ЕГАИС показал окно «{o['zagolovok']}»: "
+                          f"{o['tekst'] or '(текст не прочитался, см. скрин в logi)'}")
+        try:
+            gotov = _otvechaet(gl.handle) and knopka.is_enabled() and not _kursor_zanyat()
+        except Exception:  # noqa: BLE001
+            gotov = False
+        stabilno = stabilno + 1 if gotov else 0
+        if time.time() - start >= minimum_sek and stabilno >= 4:
+            return int(time.time() - start)
+    log.warning("ЕГАИС грузит дольше %d с — выгружаю что есть.", maksimum_sek)
+    return int(time.time() - start)
+
+
+def najat_excel_na_vkladke(forma):
+    """Иконка Excel на панели MainBar ИМЕННО этой вкладки: ищем картинку
+    только в полосе панели (на «Складах» Excel — не последняя кнопка)."""
+    import pyautogui
+    panel = next((c for c in forma.descendants() if c.class_name() == "TdxBarControl"
+                  and c.window_text() == "MainBar" and _na_ekrane(c)), None)
+    if panel is None:
+        raise Oshibka("Не нашёл панель кнопок вкладки (MainBar).")
+    r = panel.rectangle()
+    oblast = (max(r.left - 4, 0), max(r.top - 4, 0), r.width() + 8, r.height() + 8)
+    for kwargs in ({"confidence": 0.8}, {"confidence": 0.7}, {}):
+        try:
+            poz = pyautogui.locateCenterOnScreen(str(PAPKA / "ikonka_excel.png"), region=oblast, **kwargs)
+        except Exception:  # noqa: BLE001
+            poz = None
+        if poz:
+            pyautogui.click(poz)
+            log.info("Нажал Excel по картинке в точке %s.", poz)
+            return
+    skrin("net_knopki_excel")
+    raise Oshibka("Не нашёл иконку Excel на панели вкладки.")
+
+
+def opisat_fayl(put, strok_primera=3):
+    """Сколько строк в файле и что в нём за колонки (шапка + пример)."""
+    import openpyxl
+    wb = openpyxl.load_workbook(put, read_only=True, data_only=True)
+    ws = wb.worksheets[0]
+    nachalo, strok = [], 0
+    for r in ws.iter_rows(values_only=True):
+        if not any(v is not None and str(v).strip() for v in r):
+            continue
+        strok += 1
+        if len(nachalo) < 1 + strok_primera:
+            nachalo.append(["" if v is None else str(v).strip() for v in r])
+    wb.close()
+    return max(strok - 1, 0), nachalo
+
+
+def progon_sklady(cfg):
+    """Выгрузка «Склады» и «Наличие продукции на складах» в папку выгрузок.
+    Фильтры не трогаем — берём как ЕГАИС подставил сам (твоё подразделение,
+    активные склады, наличие на сегодня)."""
+    with HOD.shag("Экран Windows"):
+        if ekran_zablokirovan():
+            raise OshibkaBezPovtora("Экран Windows заблокирован — робот не может нажимать кнопки.")
+    with HOD.shag("Вход в ЕГАИС") as sh:
+        gl, sami = zapustit_i_voyti(cfg)
+        sh.detal("открыл и вошёл" if sami else "ЕГАИС уже был открыт")
+    pid = gl.process_id()
+    ZHIZN["pidy"].add(pid)
+    papka_vyg = Path(os.path.expandvars(cfg.get("obshchee", "papka_vygruzok", fallback=str(PAPKA / "vygruzki"))))
+    papki_poiska = [os.path.expandvars(p.strip()) for p in cfg.get(
+        "obshchee", "papki_poiska",
+        fallback=r"C:\EGAIS\Temp;%USERPROFILE%\Downloads;%USERPROFILE%\Documents;%USERPROFILE%\Desktop;%TEMP%").split(";")]
+    segodnya = dt.date.today()
+    opisanie = [f"Робот ЕГАИС v{VERSIYA} — что лежит в выгрузках складов, {dt.datetime.now():%d.%m.%Y %H:%M}", ""]
+    itogi = []
+    for klyuch, punkt, klass, imya in DOP_OTCHETY:
+        kuda = papka_vyg / f"{imya}_{segodnya:%Y-%m-%d}.xlsx"
+        with HOD.shag(f"Вкладка «{punkt}»"):
+            forma = otkryt_vkladku(gl, punkt, klass)
+        with HOD.shag(f"«{punkt}»: получить данные") as sh:
+            sek = poluchit_na_vkladke(gl, forma, pid)
+            sh.detal(f"загрузка {sek} с")
+        with HOD.shag(f"«{punkt}»: файл Excel") as sh:
+            start = time.time()
+            najat_excel_na_vkladke(forma)
+            zabrat_fayl(pid, kuda, start, papki_poiska, sekund=600)
+            strok, nachalo = opisat_fayl(kuda)
+            sh.detal(f"{strok} строк → {kuda}")
+            if strok == 0:
+                ZAMETKI.append(f"«{punkt}»: файл пустой")
+        opisanie.append(f"=== {punkt}: {strok} строк, файл {kuda.name}")
+        for i, r in enumerate(nachalo):
+            opisanie.append(("КОЛОНКИ: " if i == 0 else f"строка {i}: ") + " | ".join(r))
+        opisanie.append("")
+        itogi.append({"klyuch": klyuch, "strok": strok, "fayl": str(kuda)})
+    (PAPKA / "sklady_kolonki.txt").write_text("\n".join(opisanie), encoding="utf-8")
+    log.info("Колонки выгрузок записал в sklady_kolonki.txt")
+    return itogi
+
+
+# --------------------------------------------------------------------------- #
 #   Разведка
 # --------------------------------------------------------------------------- #
 def razvedka():
@@ -2029,6 +2214,8 @@ def main():
     ap.add_argument("--nastroit", action="store_true")
     ap.add_argument("--razvedka", action="store_true")
     ap.add_argument("--bez-zagruzki", action="store_true")
+    ap.add_argument("--sklady", action="store_true",
+                    help="выгрузить «Склады» и «Наличие продукции на складах» в папку выгрузок")
     ap.add_argument("--proverka", action="store_true", help="проверить расписание, сон, экран, пароли")
     ap.add_argument("--raspisanie", nargs="?", const="20:00", metavar="ЧЧ:ММ",
                     help="(пере)создать задачу Планировщика")
@@ -2097,9 +2284,14 @@ def main():
             log.info("=== Попытка %d из %d: начинаю с чистого листа ===", popytka, popytok)
         povtoryat = True
         try:
-            itogi = progon(cfg, bez_zagruzki=a.bez_zagruzki)
+            if a.sklady:
+                itogi = progon_sklady(cfg)
+                tekst = "Склады ЕГАИС выгружены: " + "; ".join(
+                    f"{Path(i['fayl']).name} — {i['strok']} строк" for i in itogi) + ". Колонки — в sklady_kolonki.txt."
+            else:
+                itogi = progon(cfg, bez_zagruzki=a.bez_zagruzki)
+                tekst = _tekst_uspeha(itogi)
             ok = True
-            tekst = _tekst_uspeha(itogi)
             if ZAMETKI:
                 tekst += " " + "; ".join(dict.fromkeys(ZAMETKI)) + "."
             if popytka > 1:
@@ -2151,7 +2343,7 @@ def main():
     log.info("Итог:\n%s", otchet)
     upal = HOD.gde_upal()
     zapisat_istoriyu(ok, tekst if ok else f"шаг «{upal or '?'}»: {tekst}")
-    if not a.bez_zagruzki:
+    if not a.bez_zagruzki and not a.sklady:
         if ok:
             soobshchit_v_lesovod(cfg, True, tekst)
         else:
