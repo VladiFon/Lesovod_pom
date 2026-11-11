@@ -54,7 +54,7 @@ import time
 import traceback
 from pathlib import Path
 
-VERSIYA = "3.2.1"
+VERSIYA = "3.2.2"
 PAPKA = Path(__file__).resolve().parent
 NASTROYKI = PAPKA / "nastroyki.ini"
 SOSTOYANIE = PAPKA / "sostoyanie.json"
@@ -1209,6 +1209,68 @@ def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
     zakryt_vsplyvashki(app_pid)
 
 
+# --------------------------------------------------------------------------- #
+#   Excel за собой закрываем (3.2.2): ЕГАИС после выгрузки открывает файл в
+#   Excel, и к утру на экране висела пачка окон. Перед нажатием иконки
+#   запоминаем, какие книги уже были открыты (твои не трогаем), после —
+#   закрываем только новые, без сохранения (файл робот уже забрал).
+# --------------------------------------------------------------------------- #
+EXCEL_DO = {"knigi": None, "snyato": False}
+
+
+def _excel():
+    try:
+        import win32com.client
+        return win32com.client.GetActiveObject("Excel.Application")
+    except Exception:  # noqa: BLE001 — Excel не запущен
+        return None
+
+
+def zapomnit_excel():
+    xl = _excel()
+    knigi = None
+    if xl is not None:
+        try:
+            knigi = {str(wb.FullName).lower() for wb in xl.Workbooks}
+        except Exception:  # noqa: BLE001
+            knigi = set()
+    EXCEL_DO["knigi"], EXCEL_DO["snyato"] = knigi, True
+
+
+def zakryt_novye_knigi(zhdat_sek=20):
+    """Закрывает книги Excel, появившиеся после zapomnit_excel(). Excel мог
+    открыть файл с опозданием — ловим zhdat_sek секунд. Если Excel до робота
+    не был запущен и книг не осталось — закрываем и сам Excel."""
+    if not EXCEL_DO["snyato"]:
+        return 0
+    byli = EXCEL_DO["knigi"]
+    zakryto, konec, tiho = 0, time.time() + zhdat_sek, 0
+    while True:
+        xl = _excel()
+        nashel = False
+        if xl is not None:
+            try:
+                for wb in list(xl.Workbooks):
+                    if byli is None or str(wb.FullName).lower() not in byli:
+                        imya = str(wb.Name)
+                        xl.DisplayAlerts = False
+                        wb.Close(False)
+                        zakryto += 1
+                        nashel = True
+                        log.info("Закрыл окно Excel: %s", imya)
+                if xl.Workbooks.Count == 0 and (byli is None or zakryto):
+                    if byli is None or not byli:
+                        xl.Quit()
+                else:
+                    xl.DisplayAlerts = True
+            except Exception as e:  # noqa: BLE001 — Excel занят, попробуем ещё
+                log.info("Excel пока занят: %s", e)
+        tiho = 0 if nashel else tiho + 1
+        if time.time() >= konec or (zakryto and tiho >= 3):
+            return zakryto
+        time.sleep(2)
+
+
 def najat_excel(gl):
     """Кнопка «Сформировать Excel» — последняя иконка на панели вкладки
     (TdxBarControl «MainBar», по разведке L292–R451, T75–B99). Это панель
@@ -1216,6 +1278,7 @@ def najat_excel(gl):
     на экране по картинке ikonka_excel.png, не нашли — жмём в последнюю
     кнопку панели по её координатам."""
     import pyautogui
+    zapomnit_excel()
     poz = None
     for kwargs in ({"confidence": 0.8}, {}):
         try:
@@ -1273,6 +1336,17 @@ def dozhdatsya_excel(xl, wb, maks_sek=1200):
 
 
 def zabrat_fayl(pid, kuda, start, papki_poiska, sekund):
+    """Забрать файл выгрузки и закрыть за собой окно Excel, если ЕГАИС его открыл."""
+    try:
+        return _zabrat_fayl(pid, kuda, start, papki_poiska, sekund)
+    finally:
+        try:
+            zakryt_novye_knigi()
+        except Exception as e:  # noqa: BLE001
+            log.info("Закрытие окон Excel: %s", e)
+
+
+def _zabrat_fayl(pid, kuda, start, papki_poiska, sekund):
     """Ждём, что сделает ЕГАИС после кнопки Excel, и забираем файл:
     а) диалог «Сохранить как» — вписываем наш путь;
     б) открылся Excel с новой книгой — сохраняем её через Excel;
@@ -1578,6 +1652,7 @@ def najat_excel_na_vkladke(forma):
     """Иконка Excel на панели MainBar ИМЕННО этой вкладки: ищем картинку
     только в полосе панели (на «Складах» Excel — не последняя кнопка)."""
     import pyautogui
+    zapomnit_excel()
     panel = next((c for c in forma.descendants() if c.class_name() == "TdxBarControl"
                   and c.window_text() == "MainBar" and _na_ekrane(c)), None)
     if panel is None:
@@ -2368,6 +2443,11 @@ def main():
         zakryt_egais("перезапуск после ошибки")
         ZHIZN["sami"] = True
         time.sleep(15 * popytka)
+
+    try:  # окно Excel могло открыться с опозданием — добираем
+        zakryt_novye_knigi(zhdat_sek=6)
+    except Exception as e:  # noqa: BLE001
+        log.info("Закрытие окон Excel: %s", e)
 
     # ЕГАИС после робота не должен оставаться висеть: закрываем, если робот
     # открывал его сам (в том числе после перезапуска) — и при успехе, и при ошибке
