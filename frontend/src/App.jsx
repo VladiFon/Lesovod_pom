@@ -10,6 +10,7 @@ import Lesokultury from "./pages/Lesokultury.jsx";
 import TekushchieIzmeneniya from "./pages/TekushchieIzmeneniya.jsx";
 import KnigaLvlr from "./pages/KnigaLvlr.jsx";
 import Raskhod from "./pages/Raskhod.jsx";
+import SkladyEgais from "./pages/SkladyEgais.jsx";
 import Inspection from "./pages/Inspection.jsx";
 import RubkiUhoda from "./pages/RubkiUhoda.jsx";
 import RaspredelenieBrigad from "./pages/RaspredelenieBrigad.jsx";
@@ -28,6 +29,8 @@ import Putevye from "./pages/Putevye.jsx";
 import Archive from "./pages/Archive.jsx";
 import CalendarScreen from "./pages/Calendar.jsx";
 import { RawReportsTab, CompletedTab } from "./pages/AiLog.jsx";
+import TabelMesyac from "./pages/TabelMesyac.jsx";
+import Otchety from "./pages/Otchety.jsx";
 import { makeMergedScreen } from "./components/MergedScreen.jsx";
 import Settings from "./pages/Settings.jsx";
 import ComponentGallery from "./pages/ComponentGallery.jsx";
@@ -49,7 +52,10 @@ import Pochta from "./pages/Pochta.jsx";
 import { UserProvider } from "./auth.jsx";
 import { ALIASES, applyHash, openScreen, readHash, resolveScreen, setScreenOpener, syncHash } from "./nav.js";
 import { ToastProvider } from "./components/Toast.jsx";
+import TableExport from "./components/TableExport.jsx";
 import { api } from "./api/client.js";
+
+const TABS_KEY = "lesovod_tabs";
 
 const Padded = (Inner) => function PaddedTab() {
   return <div className="p-[18px] flex flex-col gap-[14px]"><Inner /></div>;
@@ -82,10 +88,17 @@ const TehnikaToplivo = makeMergedScreen("tehnika", [
   { key: "toplivo", label: "⛽ Топливо", Page: Toplivo },
   { key: "putevye", label: "📝 Путевые листы", Page: Putevye },
 ]);
+// Шаг 3 разбора сайта (09.11.2026): «Формы и книги» — всё, что сдаётся
+// бумагой по лесу. Старые адреса tek_izm / kniga_lvlr — алиасы в nav.js.
+const Formy = makeMergedScreen("formy", [
+  { key: "tek_izm", label: "📑 Текущие изменения", Page: TekushchieIzmeneniya },
+  { key: "kniga", label: "📗 Книга ЛВ и ЛР", Page: KnigaLvlr },
+]);
 const Tabel = makeMergedScreen("tabel", [
   // Игровой вид (переключатель в шапке/Настройках) — «Перекличка» вместо
   // обычного ввода; обычный ввод никуда не делся.
   { key: "vvod", label: "Ввод табеля", Page: poVidu(TabelRuchnoy, TabelIgra) },
+  { key: "mesyac", label: "📅 Месяц", Page: TabelMesyac },
   { key: "prisutstvie", label: "Отметки с телефона", Page: Attendance },
 ]);
 // Игровой вид Дашборда (03.11.2026): «Штаб» — карта всех игровых экранов.
@@ -97,6 +110,12 @@ const DashboardIgra = makeMergedScreen("dashboard", [
 const RaskhodIgra = makeMergedScreen("raskhod", [
   { key: "vyvozka", label: "🚛 Вывозка", Page: VyvozkaIgra },
   { key: "raskhod", label: "Расход", Page: Raskhod },
+  { key: "sklady", label: "Склады и остатки", Page: SkladyEgais },
+]);
+// Обычный вид: Расход + «Склады и остатки» из ЕГАИС (11.11.2026)
+const RaskhodObych = makeMergedScreen("raskhod", [
+  { key: "raskhod", label: "Расход", Page: Raskhod },
+  { key: "sklady", label: "Склады и остатки", Page: SkladyEgais },
 ]);
 // Игровой вид «Инспекции» (03.11.2026): «Охота на акты» + обычный список
 // (форма акта — там же, «Составить акт» открывает вкладку «Список»).
@@ -137,10 +156,11 @@ const Zadachi = makeMergedScreen("zadachi", [
 // "dashboard"/"gallery" (моковые, из Этапа 3). Остальные пункты Sidebar
 // пока ведут на заглушку со ссылкой "что уже готово".
 const READY_SCREENS = {
-  dashboard: { title: "Дашборд", subtitle: "Обзор по всем делянкам за текущий период", Page: poVidu(Dashboard, DashboardIgra), search: true, primaryAction: true },
+  dashboard: { title: "Сегодня", subtitle: "Дела на сегодня, как идёт заготовка и когда закончим делянки", Page: poVidu(Dashboard, DashboardIgra), search: true, primaryAction: true },
   // Плоты сами управляют своим тулбаром (поиск, "Показывать архивные",
   // "Импорт МДО" в левой колонке) — по аналогии с Settings/Dashboard,
   // TopBar здесь без search/primaryAction, чтобы не дублировать поиск.
+  otchety: { title: "Отчёты", subtitle: "Сводка месяца для начальства и все выгрузки сайта в одном месте", Page: Otchety },
   plots: { title: "Делянки", subtitle: "Карточки делянок, документы, импорт из МДО", Page: poVidu(Plots, PlotsIgra) },
   // Этап 5 (часть 2): сквозной список документов по всем делянкам, с
   // фильтрами и массовыми действиями — см. pages/Documents.jsx.
@@ -152,9 +172,8 @@ const READY_SCREENS = {
   forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: poVidu(Lesokultury, LesokulturyIgra) },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
   // Книга учёта площадей ЛВ и ЛР (прил. 6 Положения, Влад 09.11.2026).
-  kniga_lvlr: { title: "Книга ЛВ и ЛР", subtitle: "Книга учёта площадей лесовосстановления и лесоразведения: что вписать, развороты, вкладыш для печати", Page: KnigaLvlr },
-  tek_izm: { title: "Текущие изменения", subtitle: "Ведомости для Белгослеса по приказу №130: прил. 1–15", Page: TekushchieIzmeneniya },
-  raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: poVidu(Raskhod, RaskhodIgra) },
+  formy: { title: "Формы и книги", subtitle: "Текущие изменения (прил. 1–15 для Белгослеса) и Книга учёта площадей ЛВ и ЛР", Page: Formy },
+  raskhod: { title: "Расход / ЕГАИС", subtitle: "Баланс лимитов и факта по выделам, наряды-задания", Page: poVidu(RaskhodObych, RaskhodIgra) },
   inspection: { title: "Инспекция", subtitle: "Акты освидетельствования: сроки, чек-лист, справки", Page: poVidu(Inspection, InspectionIgra) },
   // C.3 плана — независимые пробы рубок ухода (не привязаны к делянке,
   // см. docstring backend/legacy/uhody.py): своя ведомость перечёта и
@@ -216,13 +235,37 @@ export default function App() {
   // необязательная правая — rightId.
   // Стартовая вкладка — из адреса (#/raskhod?d=5), чтобы F5 и
   // пересланная ссылка открывали тот же экран.
+  // Разбор 09.11.2026: набор вкладок и вторая панель запоминаются в
+  // браузере — после F5 / перезапуска рабочий стол такой же, как был.
   const [tabState, rawDispatch] = useReducer(tabsReducer, null, () => {
     const screen = readHash().screen ? resolveScreen(readHash().screen, readHash().params).screen : null;
+    let saved = null;
+    try {
+      const raw = JSON.parse(localStorage.getItem(TABS_KEY) || "null");
+      // старые ключи (tek_izm → formy и т.п.) — на новые, без повторов
+      const tabs = Array.isArray(raw?.tabs)
+        ? [...new Set(raw.tabs.map((t) => ALIASES[t]?.screen || t))].filter((t) => READY_SCREENS[t])
+        : [];
+      if (tabs.length) {
+        const rightId = tabs.includes(raw.rightId) ? raw.rightId : null;
+        saved = { tabs, activeId: tabs.includes(raw.activeId) && raw.activeId !== rightId ? raw.activeId : tabs[0], rightId };
+      }
+    } catch { /* хранилище недоступно — начнём с дашборда */ }
+    if (saved) {
+      if (screen && READY_SCREENS[screen] && screen !== saved.rightId) {
+        const tabs = saved.tabs.includes(screen) ? saved.tabs : [...saved.tabs, screen];
+        return { ...saved, tabs, activeId: screen };
+      }
+      return saved;
+    }
     if (screen && READY_SCREENS[screen] && screen !== "dashboard") {
       return { tabs: ["dashboard", screen], activeId: screen, rightId: null };
     }
     return { tabs: ["dashboard"], activeId: "dashboard", rightId: null };
   });
+  useEffect(() => {
+    try { localStorage.setItem(TABS_KEY, JSON.stringify(tabState)); } catch { /* приватный режим */ }
+  }, [tabState]);
 
   // Открытие старого экрана (алиаса) — через openScreen, чтобы выбрать
   // нужную вкладку объединённого экрана.
@@ -321,6 +364,7 @@ export default function App() {
           currentUser={user}
         />
       </div>
+      <TableExport />
     </ToastProvider>
     </UserProvider>
   );

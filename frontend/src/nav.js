@@ -17,6 +17,11 @@ export const ALIASES = {
   attendance: { screen: "tabel", tab: "prisutstvie" },
   work_plan: { screen: "zadachi", tab: "plan" },
   calendar: { screen: "zadachi", tab: "kalendar" },
+  // Шаг 3 разбора сайта (09.11.2026): меню 25 → 16 пунктов. Текущие
+  // изменения и Книга ЛВ/ЛР — вкладки одного экрана «Формы и книги»;
+  // свою внутреннюю вкладку книга держит в параметре kt.
+  tek_izm: { screen: "formy", tab: "tek_izm" },
+  kniga_lvlr: { screen: "formy", tab: "kniga", tabKey: "kt" },
 };
 
 // Шаг 4 разбора «сайт разбросан» (04.11.2026): меню по делам. Вкладки,
@@ -35,6 +40,10 @@ export const TAB_ALIASES = {
 /** Старый адрес экрана → новый экран + параметры вкладки. */
 export function resolveScreen(screen, p = {}) {
   const a = ALIASES[screen];
+  if (a?.tabKey) {
+    const { tab, ...rest } = p;
+    return { screen: a.screen, params: { ...rest, ...(tab ? { [a.tabKey]: tab } : {}), tab: a.tab } };
+  }
   if (a) return { screen: a.screen, params: { tab: a.tab, ...p } };
   const t = TAB_ALIASES[screen]?.[p.tab];
   if (t) return { screen: t.screen, params: { ...p, tab: t.tab } };

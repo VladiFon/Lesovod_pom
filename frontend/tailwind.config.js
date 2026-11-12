@@ -42,6 +42,10 @@ export default {
         DEFAULT: "var(--color-error)",
         soft: "var(--color-error-soft)",
       },
+      info: {
+        DEFAULT: "var(--color-info)",
+        soft: "var(--color-info-soft)",
+      },
     },
     fontFamily: {
       ui: "var(--font-ui)",
@@ -56,6 +60,7 @@ export default {
     },
     boxShadow: {
       card: "var(--shadow-card)",
+      hover: "var(--shadow-hover)",
       modal: "var(--shadow-modal)",
     },
     extend: {

@@ -10,7 +10,7 @@ import { useToast } from "../components/Toast.jsx";
  * Данные — из «Отчёта за смену» с телефона. Сервер: GET /api/smena/toplivo.
  */
 
-const C = { pine: "#1a4331", line: "#e5e2db", muted: "#565f59", gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dt: "#2f5d8a", ai: "#8a4f2f" };
+const C = { pine: "var(--color-pine)", line: "var(--color-border)", muted: "var(--color-muted-2)", gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dt: "var(--c-info-ink)", ai: "#8a4f2f" };
 const VIDY = ["ДТ", "АИ-92", "—"];
 const CVET = { "ДТ": C.dt, "АИ-92": C.ai, "—": C.muted };
 
@@ -24,7 +24,7 @@ function l(v) {
 function Tablica({ title, rows, imya, extra }) {
   const est = VIDY.filter((t) => rows.some((r) => r.po_toplivu[t]));
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, overflowX: "auto" }}>
+    <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, overflowX: "auto" }}>
       <div style={{ padding: "8px 12px", fontWeight: 800, color: C.pine, borderBottom: `1px solid ${C.line}` }}>{title}</div>
       <table className="w-full" style={{ fontSize: 13, minWidth: 560 }}>
         <thead><tr style={{ color: C.muted, textAlign: "left" }}>
@@ -84,7 +84,7 @@ export default function Toplivo() {
 
       <div className="flex flex-wrap" style={{ gap: 10 }}>
         {Object.entries(d.vsego).map(([t, v]) => (
-          <div key={t} style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 14px", minWidth: 180 }}>
+          <div key={t} style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 14px", minWidth: 180 }}>
             <div style={{ fontSize: 12, color: C.muted }}>{t === "—" ? "Тип топлива не указан" : t}</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: CVET[t] }}>{l(v.rashod) || "0 л"}</div>
             <div style={{ fontSize: 12, color: C.muted }}>сожгли · заправили {l(v.zapravka) || "0 л"}</div>
@@ -93,7 +93,7 @@ export default function Toplivo() {
       </div>
 
       {pusto ? (
-        <div style={{ padding: 24, textAlign: "center", color: C.muted, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12 }}>
+        <div style={{ padding: 24, textAlign: "center", color: C.muted, background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12 }}>
           За период расход и заправки не вносили. Трактористы и харвестерщики пишут их в «Отчёте за смену» на телефоне.
         </div>
       ) : (

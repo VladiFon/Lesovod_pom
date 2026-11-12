@@ -17,8 +17,8 @@ import { openScreen, useScreenParam } from "../nav.js";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", sky: "#2c5d8a", skySoft: "#e6eef7",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", sky: "var(--c-info-ink)", skySoft: "var(--c-info-soft-2)",
 };
 const MUSHKA_DNEY = 14;
 const OKNO_DNEY = 30;
@@ -99,7 +99,7 @@ function Patron({ ok, children, title }) {
   return (
     <span title={title} style={{
       fontSize: 12, padding: "2px 7px", borderRadius: 6, whiteSpace: "nowrap",
-      background: ok ? C.moss : "#f3f1ec", color: ok ? C.leaf : C.muted, border: `1px solid ${ok ? "#bcefc5" : C.line}`,
+      background: ok ? C.moss : "var(--c-muted-bg)", color: ok ? C.leaf : C.muted, border: `1px solid ${ok ? "var(--color-mint)" : C.line}`,
     }}>{ok ? "✓" : "·"} {children}</span>
   );
 }
@@ -122,8 +122,8 @@ function Mishen({ r, vid, onAkt }) {
   const clDone = cl.filter((c) => c.is_done).length;
   const ploshadOk = !!(r.ploshad_zakryta || r.po_spravke || (r.pct_ploshadi ?? 0) >= 99);
   const limitPct = r.pct_osvoeniya_limita;
-  const bg = vid === "ushla" ? C.dangerSoft : vid === "mushka" ? C.goldSoft : "#fff";
-  const border = vid === "ushla" ? "#f3c2bd" : vid === "mushka" ? "#efd9a4" : C.line;
+  const bg = vid === "ushla" ? C.dangerSoft : vid === "mushka" ? C.goldSoft : "var(--color-surface)";
+  const border = vid === "ushla" ? "var(--c-error-line)" : vid === "mushka" ? "var(--c-gold-line)" : C.line;
   const zver = ZVERI[r.id % ZVERI.length];
   return (
     <div style={{ background: bg, border: `1.5px solid ${border}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -157,7 +157,7 @@ function Mishen({ r, vid, onAkt }) {
         <span style={{ fontSize: 12, color: C.muted, fontStyle: "italic" }}>{shutka(vid, r.id)}</span>
         <button type="button" onClick={() => onAkt(r)} style={{
           padding: "6px 12px", borderRadius: 8, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap",
-          background: vid === "sled" ? "#fff" : C.pine, color: vid === "sled" ? C.pine : "#fff", border: `1px solid ${C.pine}`,
+          background: vid === "sled" ? "var(--color-surface)" : C.pine, color: vid === "sled" ? C.pine : "#fff", border: `1px solid ${C.pine}`,
         }}>🎯 Составить акт</button>
       </div>
     </div>
@@ -232,7 +232,7 @@ export default function OhotaAktov() {
       </div>
 
       <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
-        <Chip bg={r.ushla.length ? C.dangerSoft : "#f3f1ec"} color={r.ushla.length ? C.danger : C.muted}>🐗 Ушли: {r.ushla.length}</Chip>
+        <Chip bg={r.ushla.length ? C.dangerSoft : "var(--c-muted-bg)"} color={r.ushla.length ? C.danger : C.muted}>🐗 Ушли: {r.ushla.length}</Chip>
         <Chip bg={C.goldSoft} color={C.gold}>🎯 На мушке: {r.mushka.length}</Chip>
         <Chip bg={C.skySoft} color={C.sky}>🐾 На следу: {r.sled.length}</Chip>
         <Chip bg={C.moss} color={C.leaf} title={next ? `До следующего звания — ${next - r.trofei.length} акт(ов)` : ""}>
@@ -245,7 +245,7 @@ export default function OhotaAktov() {
 
       {r.kapkan.length > 0 && (
         <div className="flex flex-wrap items-center justify-between" style={{
-          gap: 10, padding: "10px 14px", borderRadius: 12, background: C.moss, border: "1px solid #bcefc5",
+          gap: 10, padding: "10px 14px", borderRadius: 12, background: C.moss, border: "1px solid var(--color-mint)",
         }}>
           <div>
             <div style={{ fontWeight: 800, color: C.pine }}>🔒 В капкане: {r.kapkan.length}</div>
@@ -280,7 +280,7 @@ export default function OhotaAktov() {
             <div className="flex flex-wrap" style={{ gap: 6, marginTop: 8 }}>
               {r.les.map((x) => (
                 <button key={x.id} type="button" onClick={() => onAkt(x)} style={{
-                  fontSize: 12, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.line}`, background: "#fff", color: C.ink,
+                  fontSize: 12, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.line}`, background: "var(--color-surface)", color: C.ink,
                 }}>{x.nazvanie} · {x.pct_osvoeniya_limita != null ? `${Math.round(x.pct_osvoeniya_limita)}%` : "—"}</button>
               ))}
             </div>
@@ -297,7 +297,7 @@ export default function OhotaAktov() {
             {r.trofei.slice(0, 24).map((x) => (
               <div key={x.id} title={`Акт ${x.posledniy_akt_data}`} style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 10,
-                background: "#fff", border: `1px solid ${C.line}`, fontSize: 13,
+                background: "var(--color-surface)", border: `1px solid ${C.line}`, fontSize: 13,
               }}>
                 <span style={{ fontSize: 20 }}>{ZVERI[x.id % ZVERI.length]}</span>
                 <span><b>{x.nazvanie}</b> <span style={{ color: C.muted }}>· {x.posledniy_akt_data}</span></span>

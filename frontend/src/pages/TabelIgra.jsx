@@ -17,24 +17,24 @@ import { useToast } from "../components/Toast.jsx";
 
 const MONO = "'JetBrains Mono', monospace";
 const C = {
-  pine: "#1a4331", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", sky: "#2c5d8a",
+  pine: "var(--color-pine)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", sky: "var(--c-info-ink)",
 };
 const STATUSY = [
   { v: "работал", label: "Работал", emoji: "🪓", bg: C.moss, fg: C.pine },
-  { v: "выходной", label: "Выходной", emoji: "🛌", bg: "#f1eee7", fg: C.muted },
+  { v: "выходной", label: "Выходной", emoji: "🛌", bg: "var(--color-hover)", fg: C.muted },
   { v: "больничный", label: "Больничный", emoji: "🤒", bg: C.dangerSoft, fg: C.danger },
-  { v: "отпуск", label: "Отпуск", emoji: "🏖", bg: "#e6eef7", fg: C.sky },
+  { v: "отпуск", label: "Отпуск", emoji: "🏖", bg: "var(--c-info-soft-2)", fg: C.sky },
   { v: "ремонт", label: "Ремонт", emoji: "🔧", bg: C.goldSoft, fg: C.gold },
-  { v: "командировка", label: "Командировка", emoji: "🧳", bg: "#e6eef7", fg: C.sky },
-  { v: "не работал", label: "Не работал", emoji: "✖", bg: "#f1eee7", fg: C.muted },
+  { v: "командировка", label: "Командировка", emoji: "🧳", bg: "var(--c-info-soft-2)", fg: C.sky },
+  { v: "не работал", label: "Не работал", emoji: "✖", bg: "var(--color-hover)", fg: C.muted },
 ];
 // На работе — можно указать место и вид работы.
 const NA_RABOTE = ["работал", "ремонт", "командировка"];
 const ST = Object.fromEntries(STATUSY.map((s) => [s.v, s]));
 const MOBILE_TO_TABEL = { "работаю": "работал", "не работаю": "не работал", "больничный": "больничный" };
 const XP_ZA_STROKU = 2;
-const AVA = ["#3f7d4e", "#2c5d8a", "#9a6200", "#7a3f8a", "#a0442c", "#2f7a78", "#5a6b2c", "#8a3f5a"];
+const AVA = ["var(--c-green-2)", "var(--c-info-ink)", "#9a6200", "#7a3f8a", "#a0442c", "#2f7a78", "#5a6b2c", "#8a3f5a"];
 const ZVENO_EMOJI = ["🪓", "🚜", "🌲", "🌱", "🐺", "🦫", "🐻", "🦉"];
 
 function rolEmoji(d) {
@@ -83,7 +83,7 @@ function Ava({ r, size = 34 }) {
 
 function Btn({ children, onClick, tone = "plain", disabled, title, style }) {
   const t = {
-    plain: { border: `1px solid ${C.line}`, background: "#fff", color: "#414944" },
+    plain: { border: `1px solid ${C.line}`, background: "var(--color-surface)", color: "var(--color-muted)" },
     gold: { border: 0, background: C.gold, color: "#fff" },
     pine: { border: 0, background: C.pine, color: "#fff" },
   }[tone];
@@ -178,7 +178,7 @@ function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros, onSteret }
   const imena = vybrany.map((id) => korotko(lyudi.find((l) => l.sotrudnik_id === id)?.fio)).join(", ");
   const chip = (on) => ({
     fontSize: 12.5, fontWeight: 600, padding: "5px 10px", borderRadius: 999, cursor: "pointer", textAlign: "left",
-    border: `1px solid ${on ? C.pine : C.line}`, background: on ? C.pine : "#fff", color: on ? "#fff" : C.ink,
+    border: `1px solid ${on ? C.pine : C.line}`, background: on ? C.pine : "var(--color-surface)", color: on ? "#fff" : C.ink,
   });
 
   return (
@@ -242,13 +242,13 @@ function Missiya({ den, vybrany, lyudi, onPrimenit, onZveno, onSbros, onSteret }
             )}
           </div>
           {nayd.length > 0 && (
-            <div className="flex flex-col" style={{ gap: 2, maxHeight: 200, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff" }}>
+            <div className="flex flex-col" style={{ gap: 2, maxHeight: 200, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 8, background: "var(--color-surface)" }}>
               {nayd.map((n, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => { setMesto(n); setQ(""); setNayd([]); }}
-                  className="text-left hover:!bg-[#f1eee7]"
+                  className="text-left hover:!bg-[var(--color-hover)]"
                   style={{ border: 0, background: "transparent", padding: "6px 10px", cursor: "pointer", fontSize: 13 }}
                 >
                   <b>{n.mesto}</b> <span style={{ color: C.muted, fontSize: 12 }}>{n.pod}</span>
@@ -527,7 +527,7 @@ export default function TabelIgra() {
 
       <div className="flex flex-wrap items-center" style={{ gap: 10, position: "relative" }}>
         <div style={{ flex: "1 1 240px", height: 12, borderRadius: 7, background: C.line, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? "#3f7d4e" : C.gold, transition: "width .4s" }} />
+          <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? "var(--c-green-2)" : C.gold, transition: "width .4s" }} />
         </div>
         <span style={{ fontFamily: MONO, fontSize: 12.5, color: C.muted }}>
           {otmecheno === vsego && vsego ? "Отряд отмечен ✅" : `Отмечено ${otmecheno} из ${vsego}`}
@@ -539,7 +539,7 @@ export default function TabelIgra() {
       {otmena && (
         <div className="flex items-center" style={{ gap: 10, background: C.pine, color: "#fff", borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
           <span style={{ flex: 1 }}>Готово — {otmena.text}. Ошибся?</span>
-          <button type="button" onClick={otmenit} disabled={zanyat} style={{ background: "#fff", color: C.pine, borderRadius: 8, padding: "4px 12px", fontWeight: 800 }}>↩ Отменить</button>
+          <button type="button" onClick={otmenit} disabled={zanyat} style={{ background: "var(--color-surface)", color: C.pine, borderRadius: 8, padding: "4px 12px", fontWeight: 800 }}>↩ Отменить</button>
         </div>
       )}
 
@@ -573,7 +573,7 @@ export default function TabelIgra() {
                 key={z.id}
                 style={{
                   display: "flex", alignItems: "center", gap: 8, padding: "7px 8px 7px 10px", borderRadius: 12,
-                  border: `2px solid ${on ? C.gold : gotovo ? "#bcefc5" : C.line}`, background: gotovo ? C.moss : "#fff",
+                  border: `2px solid ${on ? C.gold : gotovo ? "var(--color-mint)" : C.line}`, background: gotovo ? C.moss : "var(--color-surface)",
                 }}
               >
                 <button
@@ -587,7 +587,7 @@ export default function TabelIgra() {
                   <span style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>{z.nazvanie}</span>
                   <span className="flex" style={{ marginLeft: 2 }}>
                     {chleny.map((l, i) => (
-                      <span key={l.sotrudnik_id} style={{ marginLeft: i ? -6 : 0, border: "2px solid #fff", borderRadius: 9 }}>
+                      <span key={l.sotrudnik_id} style={{ marginLeft: i ? -6 : 0, border: "2px solid var(--color-surface)", borderRadius: 9 }}>
                         <Ava r={l} size={22} />
                       </span>
                     ))}
@@ -599,8 +599,8 @@ export default function TabelIgra() {
                   onClick={() => udalitZveno(z)}
                   title="Распустить звено"
                   aria-label={`Распустить звено ${z.nazvanie}`}
-                  className="hover:!text-[#ba1a1a]"
-                  style={{ border: 0, background: "transparent", color: "#8a938c", cursor: "pointer", fontSize: 14 }}
+                  className="hover:!text-[var(--color-error)]"
+                  style={{ border: 0, background: "transparent", color: "var(--color-disabled)", cursor: "pointer", fontSize: 14 }}
                 >
                   ×
                 </button>
@@ -652,8 +652,8 @@ export default function TabelIgra() {
               className="pk-card text-left"
               style={{
                 display: "flex", flexDirection: "column", gap: 7, padding: 11, borderRadius: 12, cursor: "pointer",
-                border: on ? `2px solid ${C.gold}` : l.zapis_id ? `1px solid ${C.line}` : `1.5px dashed #cfcbc2`,
-                background: on ? "#fffaf0" : l.zapis_id ? "#fff" : "#fbfaf6",
+                border: on ? `2px solid ${C.gold}` : l.zapis_id ? `1px solid ${C.line}` : `1.5px dashed var(--c-line-strong)`,
+                background: on ? "#fffaf0" : l.zapis_id ? "var(--color-surface)" : "#fbfaf6",
                 boxShadow: on ? "0 6px 16px rgba(176,125,12,.18)" : "none",
               }}
             >
@@ -686,7 +686,7 @@ export default function TabelIgra() {
                 </span>
               ) : (
                 <span className="flex flex-col" style={{ gap: 2 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "#8a938c" }}>❔ Не отмечен</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-disabled)" }}>❔ Не отмечен</span>
                   {l.mobile_status && <span style={{ fontSize: 11.5, color: C.sky }}>📱 с телефона: {l.mobile_status}</span>}
                   {l.proshloe && (
                     <span style={{ fontSize: 11.5, color: C.muted }}>

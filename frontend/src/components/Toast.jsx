@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { API_ERROR_EVENT } from "../api/client.js";
 import { createPortal } from "react-dom";
 
 /**
@@ -39,6 +40,27 @@ export function ToastProvider({ children }) {
     },
     [dismiss]
   );
+
+  // Неудачные загрузки со всего сайта (api/client.js) — одна всплывашка,
+  // одинаковая не чаще раза в минуту.
+  const lastShown = useRef({});
+  useEffect(() => {
+    const onErr = (e) => {
+      const { message, status } = e.detail || {};
+      const key = status === 0 ? "net" : message;
+      const now = Date.now();
+      if (now - (lastShown.current[key] || 0) < 60000) return;
+      lastShown.current[key] = now;
+      show({
+        tone: status === 0 ? "warning" : "danger",
+        title: status === 0 ? "Сервер не отвечает" : "Часть данных не загрузилась",
+        description: status === 0 ? "Проверьте связь — экран может быть неполным." : `${message}. Экран может быть неполным — обновите (F5).`,
+        duration: 8000,
+      });
+    };
+    window.addEventListener(API_ERROR_EVENT, onErr);
+    return () => window.removeEventListener(API_ERROR_EVENT, onErr);
+  }, [show]);
 
   return (
     <ToastContext.Provider value={{ show, dismiss }}>

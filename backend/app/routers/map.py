@@ -778,6 +778,24 @@ def get_proby_geojson_for_qgis(token: str, conn=Depends(get_conn)):
     return proby_karta.geojson(conn)
 
 
+@router.get("/qgis/dorogi.geojson")
+def get_dorogi_geojson_for_qgis(token: str, conn=Depends(get_conn)):
+    """Лесные дороги, нарисованные в приложении, — см. app/lesnye_dorogi.py."""
+    _check_service_token(token)
+    from app import lesnye_dorogi
+
+    return lesnye_dorogi.geojson(conn)
+
+
+@router.get("/qgis/sklady.geojson")
+def get_sklady_geojson_for_qgis(token: str, conn=Depends(get_conn)):
+    """Склады ЕГАИС точками, с остатком в подписи — см. app/egais_sklady.py."""
+    _check_service_token(token)
+    from app import egais_sklady
+
+    return egais_sklady.geojson(conn)
+
+
 @router.post("/qgis/granicy")
 async def post_granicy_from_qgis(request: Request, token: str, sloy: str, background_tasks: BackgroundTasks):
     """Кварталы / выделы из QGIS (плагин «Лесовод-мост») — заменяют границы
@@ -823,7 +841,10 @@ class SkladCreate(BaseModel):
 
 @router.get("/sklady")
 def get_sklady(conn=Depends(get_conn), _user=Depends(map_reader)):
-    return sklad_store.list_sklady(conn)
+    # ручные точки + склады ЕГАИС, на которых сейчас лежит лес (11.11.2026)
+    from app import egais_sklady
+
+    return sklad_store.list_sklady(conn) + egais_sklady.tochki_dlya_telefona(conn)
 
 
 @router.post("/sklady")
@@ -833,6 +854,17 @@ def create_sklad(payload: SkladCreate, conn=Depends(get_conn), _user=Depends(req
     if not (-90 <= payload.lat <= 90 and -180 <= payload.lon <= 180):
         raise HTTPException(400, "Координаты вне допустимого диапазона (широта -90..90, долгота -180..180)")
     return sklad_store.create_sklad(conn, payload.nazvanie, payload.lat, payload.lon, payload.comment)
+
+
+@router.delete("/sklady/ruchnye")
+def delete_ruchnye_sklady(conn=Depends(get_conn), _user=Depends(require_permission("delyanka.edit"))):
+    """Убрать ВСЕ склады, заведённые руками (11.11.2026: склады теперь приходят
+    из ЕГАИС с координатами и остатками, ручные точки — дубли). Возвращает
+    удалённые строки — сайт 10 секунд держит «↩ Вернуть» и по ней заводит их заново."""
+    rows = sklad_store.list_sklady(conn)
+    conn.execute("DELETE FROM sklad")
+    conn.commit()
+    return {"udaleno": rows}
 
 
 @router.delete("/sklady/{sklad_id}")
@@ -890,3 +922,59 @@ def generate_map(lesnichestvo_num: str, background_tasks: BackgroundTasks,
     task_id = webext.create_task(conn, "generate_map")
     background_tasks.add_task(_run_generate_map, task_id, lesnichestvo_num, created_by)
     return {"task_id": task_id}
+
+
+# --------------------------------------------------------------------------- #
+#   «Показать в QGIS» (шаг 5 разбора сайта 09.11.2026)
+#
+#   Карта на сайте не нужна — для неё есть QGIS (Влад). Кнопка на сайте
+#   кладёт сюда «что показать», плагин «Лесовод-мост» раз в пару секунд
+#   спрашивает «есть новое?» и сам приближает карту к делянке / участку /
+#   выделу. Держим в памяти только последние запросы: после перезапуска
+#   сервера старые «покажи» никому не нужны.
+# --------------------------------------------------------------------------- #
+import itertools as _itertools
+import threading as _threading
+import time as _time
+
+_POKAZAT_ZHIVET_S = 90
+_pokazat_lock = _threading.Lock()
+_pokazat_schet = _itertools.count(int(_time.time()))
+_pokazat_poslednie: list = []
+
+
+class PokazatVQgisIn(BaseModel):
+    tip: str  # delyanka | lesokultury | vydel | proba | sklad (склад ЕГАИС, id = id Склада)
+    id: Optional[int] = None
+    kvartal: Optional[str] = None
+    vydel: Optional[str] = None
+    lesnichestvo: Optional[str] = None
+    nazvanie: Optional[str] = None
+
+
+@router.post("/qgis/pokazat")
+def post_pokazat_v_qgis(body: PokazatVQgisIn, user=Depends(get_current_user)):
+    if body.tip not in ("delyanka", "lesokultury", "vydel", "proba", "sklad"):
+        raise HTTPException(400, "Неизвестно, что показать")
+    if not body.id and not body.kvartal:
+        raise HTTPException(400, "Нужен id или квартал")
+    with _pokazat_lock:
+        z = {**body.model_dump(), "nomer": next(_pokazat_schet), "kto": user.get("fio") or user.get("login"),
+             "kogda": _time.time()}
+        _pokazat_poslednie.append(z)
+        del _pokazat_poslednie[:-20]
+    return {"nomer": z["nomer"]}
+
+
+@router.get("/qgis/pokazat")
+def get_pokazat_v_qgis(token: str, posle: int = -1):
+    """Для плагина: последний запрос «покажи» новее posle (и не старше 90 с).
+    posle<0 — только узнать текущий номер, ничего не показывать (запуск QGIS)."""
+    _check_service_token(token)
+    with _pokazat_lock:
+        svezhie = [z for z in _pokazat_poslednie if _time.time() - z["kogda"] < _POKAZAT_ZHIVET_S]
+        posledniy = _pokazat_poslednie[-1]["nomer"] if _pokazat_poslednie else 0
+    if posle < 0:
+        return {"nomer": posledniy}
+    novye = [z for z in svezhie if z["nomer"] > posle]
+    return {"nomer": posledniy, "pokazat": novye[-1] if novye else None}

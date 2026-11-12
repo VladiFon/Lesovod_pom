@@ -503,7 +503,7 @@ export default function SvodkiModal({ open, onClose, initialTab = "raskhod", del
               <tbody>
                 {sections.map((s) => (
                   <React.Fragment key={s.key}>
-                    <tr className="bg-surface-alt/60 border-b border-border">
+                    <tr className="bg-[color-mix(in_srgb,var(--color-surface-alt)_60%,transparent)] border-b border-border">
                       <td colSpan={columns.length} className="px-3 py-1.5 font-bold text-pine">{s.label}</td>
                     </tr>
                     {s.rows.map((r, i) => (

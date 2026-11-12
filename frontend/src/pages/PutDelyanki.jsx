@@ -12,14 +12,14 @@ import { openScreen, useScreenParam } from "../nav.js";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", warn: "#a15c00", warnSoft: "#fff4e0",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", warn: "#a15c00", warnSoft: "#fff4e0",
 };
 const TON = {
-  bad: { bg: C.dangerSoft, border: "#f3c2bd", c: C.danger },
+  bad: { bg: C.dangerSoft, border: "var(--c-error-line)", c: C.danger },
   warn: { bg: C.warnSoft, border: "#f5d9a8", c: C.warn },
-  ok: { bg: "#fff", border: C.line, c: C.pine },
-  done: { bg: C.moss, border: "#bcefc5", c: C.pine },
+  ok: { bg: "var(--color-surface)", border: C.line, c: C.pine },
+  done: { bg: C.moss, border: "var(--color-mint)", c: C.pine },
 };
 const KUDA = {
   mdo: (id) => openScreen("plots", { tab: "spisok", d: id }),
@@ -40,7 +40,7 @@ const SHAG = {
 function Stanciya({ kod, emoji, title, s, tek, onGo }) {
   const done = s.done;
   const cur = tek === kod;
-  const bg = done ? C.leaf : cur ? "#fff" : "#f3f1ec";
+  const bg = done ? C.leaf : cur ? "var(--color-surface)" : "var(--c-muted-bg)";
   const border = done ? C.leaf : cur ? C.gold : C.line;
   const srok = s.srok;
   return (
@@ -152,7 +152,7 @@ export default function PutDelyanki() {
       <div style={{ background: C.pine, color: "#fff", borderRadius: 16, padding: "16px 18px" }}>
         <div className="flex flex-wrap items-baseline justify-between" style={{ gap: 10 }}>
           <div style={{ fontWeight: 800, fontSize: 18 }}>🧭 Путь делянки</div>
-          <div style={{ fontSize: 13, color: "#bcefc5" }}>
+          <div style={{ fontSize: 13, color: "var(--color-mint)" }}>
             В пути {d.v_puti.length} · 🔥 горят {d.goryat} · 🐌 застряли ({d.zastryala_dney}+ дн. без событий) {d.zastryali}
           </div>
         </div>
@@ -161,11 +161,11 @@ export default function PutDelyanki() {
             const act = stanciya === s.kod;
             return (
               <React.Fragment key={s.kod}>
-                {i > 0 && <span style={{ alignSelf: "center", color: "#bcefc5", fontSize: 18 }}>→</span>}
+                {i > 0 && <span style={{ alignSelf: "center", color: "var(--color-mint)", fontSize: 18 }}>→</span>}
                 <button type="button" onClick={() => setStanciya(act ? null : s.kod)} aria-pressed={act} style={{
                   flex: 1, minWidth: 92, borderRadius: 12, padding: "8px 6px", textAlign: "center",
-                  background: act ? "#fff" : "rgba(255,255,255,.08)", color: act ? C.pine : "#fff",
-                  border: `1px solid ${act ? "#fff" : "rgba(255,255,255,.18)"}`,
+                  background: act ? "var(--color-surface)" : "rgba(255,255,255,.08)", color: act ? C.pine : "#fff",
+                  border: `1px solid ${act ? "var(--color-surface)" : "rgba(255,255,255,.18)"}`,
                 }}>
                   <div style={{ fontSize: 22 }}>{s.emoji}</div>
                   <div style={{ fontSize: 12.5, fontWeight: 700 }}>{s.title}</div>
@@ -175,7 +175,7 @@ export default function PutDelyanki() {
             );
           })}
         </div>
-        <div style={{ fontSize: 12, color: "#bcefc5", marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: "var(--color-mint)", marginTop: 8 }}>
           Цифра — сколько делянок стоит на станции сейчас (у «Закрыта» — финишировали в этом году). Нажми станцию — покажу только их.
         </div>
       </div>
@@ -184,7 +184,7 @@ export default function PutDelyanki() {
         {FILTRY.map(([k, l]) => (
           <button key={k} type="button" onClick={() => setFiltr(k)} aria-pressed={filtr === k} style={{
             padding: "5px 12px", borderRadius: 999, fontSize: 13, fontWeight: 700,
-            background: filtr === k ? C.pine : "#fff", color: filtr === k ? "#fff" : C.pine, border: `1px solid ${filtr === k ? C.pine : C.line}`,
+            background: filtr === k ? C.pine : "var(--color-surface)", color: filtr === k ? "#fff" : C.pine, border: `1px solid ${filtr === k ? C.pine : C.line}`,
           }}>{l}</button>
         ))}
         {stanciya && (
@@ -206,7 +206,7 @@ export default function PutDelyanki() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ background: C.goldSoft, border: "1px solid #f0dca6", borderRadius: 14, padding: 14 }}>
+          <div style={{ background: C.goldSoft, border: "1px solid var(--c-gold-line)", borderRadius: 14, padding: 14 }}>
             <div style={{ fontWeight: 800, color: C.gold, marginBottom: 6 }}>🏁 Гонка {new Date().getFullYear()}</div>
             {d.finish.length === 0 ? (
               <div style={{ fontSize: 13, color: C.muted }}>В этом году ещё никто не финишировал. Первый закрытый — сразу рекорд!</div>
@@ -220,7 +220,7 @@ export default function PutDelyanki() {
                 )}
                 {d.finish.map((x, i) => (
                   <button key={x.id} type="button" onClick={() => KUDA.akt(x.id)} className="flex justify-between" style={{
-                    width: "100%", fontSize: 13, padding: "4px 0", borderTop: i ? `1px solid #f0dca6` : "none", textAlign: "left",
+                    width: "100%", fontSize: 13, padding: "4px 0", borderTop: i ? `1px solid var(--c-gold-line)` : "none", textAlign: "left",
                   }}>
                     <span>{["🥇", "🥈", "🥉"][i] || "▫️"} {x.nazvanie}</span>
                     <span style={{ fontWeight: 700 }}>{x.put_dney != null ? `${x.put_dney} дн.` : "—"}</span>
@@ -232,7 +232,7 @@ export default function PutDelyanki() {
               </>
             )}
           </div>
-          <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 14, padding: 14, fontSize: 12.5, color: C.muted, lineHeight: 1.55 }}>
+          <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 14, padding: 14, fontSize: 12.5, color: C.muted, lineHeight: 1.55 }}>
             <b style={{ color: C.pine }}>Как читаются станции</b>
             <div>🪓 Рубка пройдена — площадь закрыта по нарядам или справкой заготовителя.</div>
             <div>🚛 Вывозка пройдена — склад делянки по ЕГАИС пуст.</div>

@@ -14,8 +14,8 @@ import { openScreen } from "../nav.js";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", fire: "#d9480f",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", fire: "#d9480f",
 };
 const SELECT_CLS =
   "w-full bg-surface border border-border focus:border-pine rounded-[10px] px-2.5 h-10 text-[13.5px] text-ink outline-none";
@@ -33,7 +33,7 @@ function Shkala({ x }) {
   const color = x.status === "pobeda" ? C.gold : x.status === "proval" ? C.danger : x.tip === "bez_prosr" ? C.leaf : C.fire;
   return (
     <div style={{ position: "relative", height: 22, borderRadius: 11, background: "#efece5", overflow: "visible" }}>
-      <div style={{ height: "100%", width: `${pct}%`, borderRadius: 11, background: `linear-gradient(90deg, ${color}cc, ${color})`, transition: "width .6s" }} />
+      <div style={{ height: "100%", width: `${pct}%`, borderRadius: 11, background: `linear-gradient(90deg, color-mix(in srgb, ${color} 80%, transparent), ${color})`, transition: "width .6s" }} />
       {graf != null && x.status === "idet" && (
         <div title={`по графику сегодня: ${chislo(x.ozhid)} ${x.ed}`} style={{
           position: "absolute", top: -4, bottom: -4, left: `calc(${graf}% - 1px)`, width: 2, background: C.ink,
@@ -50,7 +50,7 @@ function Kartochka({ x, onDel }) {
   const prov = x.status === "proval";
   return (
     <div style={{
-      background: pob ? C.goldSoft : prov ? C.dangerSoft : "#fff", border: `1.5px solid ${pob ? "#e0b94a" : prov ? "#f3c2bd" : C.line}`,
+      background: pob ? C.goldSoft : prov ? C.dangerSoft : "var(--color-surface)", border: `1.5px solid ${pob ? "#e0b94a" : prov ? "var(--c-error-line)" : C.line}`,
       borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 10,
     }}>
       <div className="flex items-start justify-between" style={{ gap: 10 }}>
@@ -116,7 +116,7 @@ function Kartochka({ x, onDel }) {
           <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Больше всех вложились:</div>
           <div className="flex flex-wrap" style={{ gap: 6 }}>
             {x.vklad.map((v, i) => (
-              <span key={v.kto} style={{ fontSize: 12.5, background: i === 0 ? C.goldSoft : "#f3f1ec", borderRadius: 999, padding: "3px 10px" }}>
+              <span key={v.kto} style={{ fontSize: 12.5, background: i === 0 ? C.goldSoft : "var(--c-muted-bg)", borderRadius: 999, padding: "3px 10px" }}>
                 {["🥇", "🥈", "🥉"][i] || "•"} {v.kto} <b>{chislo(v.znach)}</b>
               </span>
             ))}
@@ -243,12 +243,12 @@ export default function Chellendzhi() {
       }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 18 }}>🔥 Челленджи всей команды</div>
-          <div style={{ fontSize: 13, color: "#bcefc5", marginTop: 2 }}>
+          <div style={{ fontSize: 13, color: "var(--color-mint)", marginTop: 2 }}>
             Одна шкала на всех, чёрная черта на ней — где должны быть по графику. Взяли цель, и команда получает звание. Побед {d.pobed} · провалов {d.provalov}
           </div>
         </div>
         <button type="button" onClick={() => setNovyy(true)} style={{
-          background: "#fff", color: C.pine, fontWeight: 800, borderRadius: 10, padding: "8px 16px", fontSize: 14,
+          background: "var(--color-surface)", color: C.pine, fontWeight: 800, borderRadius: 10, padding: "8px 16px", fontSize: 14,
         }}>＋ Новый челлендж</button>
       </div>
 
@@ -264,7 +264,7 @@ export default function Chellendzhi() {
 
       {(d.zvaniya.length > 0 || d.proshlye.length > 0) && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14 }}>
-          <div style={{ background: C.goldSoft, border: "1px solid #f0dca6", borderRadius: 14, padding: 14 }}>
+          <div style={{ background: C.goldSoft, border: "1px solid var(--c-gold-line)", borderRadius: 14, padding: 14 }}>
             <div style={{ fontWeight: 800, color: C.gold, marginBottom: 8 }}>🏛 Зал славы команды</div>
             {d.zvaniya.length === 0 ? <div style={{ fontSize: 13, color: C.muted }}>Званий пока нет — первая победа впереди.</div> : (
               d.zvaniya.map((z, i) => (
@@ -274,7 +274,7 @@ export default function Chellendzhi() {
               ))
             )}
           </div>
-          <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
+          <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
             <div style={{ fontWeight: 800, color: C.pine, marginBottom: 8 }}>📜 Прошлые челленджи</div>
             {d.proshlye.map((x) => (
               <div key={x.id} className="flex justify-between" style={{ fontSize: 13, padding: "4px 0", borderTop: `1px solid ${C.line}`, gap: 8 }}>

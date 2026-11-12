@@ -26,6 +26,7 @@ from app.routers import poisk as poisk_router
 from app.routers import skhema as skhema_router
 from app.routers import kniga_lvlr as kniga_lvlr_router
 from app.routers import putevye as putevye_router
+from app.routers import dorogi as dorogi_router
 from app.routers import (
     ai_log,
     archive,
@@ -59,6 +60,7 @@ from app.routers import (
     notes,
     notifications,
     otsrochka,
+    otchety,
     proby,
     raskhod,
     settings as settings_router,
@@ -146,6 +148,7 @@ app.include_router(korzina_router.router)
 app.include_router(proby.router)
 app.include_router(zhdet.router)
 app.include_router(otsrochka.router)
+app.include_router(otchety.router)
 app.include_router(kvesty.router)
 app.include_router(tabel_igra.router)
 app.include_router(uhody_igra.router)
@@ -168,3 +171,4 @@ app.include_router(poisk_router.router)
 app.include_router(skhema_router.router)
 app.include_router(kniga_lvlr_router.router)
 app.include_router(putevye_router.router)
+app.include_router(dorogi_router.router)

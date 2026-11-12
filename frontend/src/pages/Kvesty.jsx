@@ -15,14 +15,14 @@ import { useToast } from "../components/Toast.jsx";
 const POLL_MS = 60000;
 const MONO = "'JetBrains Mono', monospace";
 const C = {
-  pine: "#1a4331", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6",
-  danger: "#ba1a1a", dangerSoft: "#fdecea", warn: "#8a5a00", info: "#2c5d8a",
+  pine: "var(--color-pine)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)",
+  danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", warn: "var(--c-oak-ink)", info: "var(--c-info-ink)",
 };
 const VID = {
   boss: { label: "Боссы дня", note: "просрочено — бей первым", border: C.danger, bg: C.dangerSoft },
-  main: { label: "Основные квесты", note: "сроки на этой неделе", border: C.warn, bg: "#fff" },
-  side: { label: "Побочные", note: "мелочь, но копится", border: C.info, bg: "#fff" },
+  main: { label: "Основные квесты", note: "сроки на этой неделе", border: C.warn, bg: "var(--color-surface)" },
+  side: { label: "Побочные", note: "мелочь, но копится", border: C.info, bg: "var(--color-surface)" },
 };
 const DNI = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 
@@ -35,7 +35,7 @@ function Ring({ pct, n }) {
       }}
       title={`${pct}% до следующего уровня`}
     >
-      <div style={{ position: "absolute", inset: 7, borderRadius: "50%", background: "#fcf9f2" }} />
+      <div style={{ position: "absolute", inset: 7, borderRadius: "50%", background: "var(--color-paper)" }} />
       <span style={{ position: "relative", fontSize: 22, fontWeight: 800, color: C.pine }}>{n}</span>
     </div>
   );
@@ -84,7 +84,7 @@ function Kvest({ q, pop }) {
       style={{
         position: "relative", display: "flex", alignItems: "center", gap: 12, padding: "10px 13px",
         borderRadius: 10, border: `1px solid ${q.vid === "boss" ? v.border : C.line}`,
-        borderLeft: `4px solid ${v.border}`, background: q.done || q.proval ? "#f6f3ec" : v.bg,
+        borderLeft: `4px solid ${v.border}`, background: q.done || q.proval ? "var(--color-surface-alt)" : v.bg,
         opacity: q.done || q.proval ? 0.6 : 1, cursor: "pointer",
       }}
       title="Открыть, где это делается"
@@ -279,7 +279,7 @@ export default function Kvesty() {
             placeholder="Например: позвонить в лесхоз насчёт билета"
             maxLength={200}
             className="flex-1 min-w-0"
-            style={{ height: 34, border: `1px solid ${C.line}`, borderRadius: 8, padding: "0 10px", fontSize: 13.5, background: "#fff" }}
+            style={{ height: 34, border: `1px solid ${C.line}`, borderRadius: 8, padding: "0 10px", fontSize: 13.5, background: "var(--color-surface)" }}
           />
           <button
             type="submit"
@@ -295,7 +295,7 @@ export default function Kvesty() {
             className="group"
             style={{
               position: "relative", display: "flex", alignItems: "center", gap: 12, padding: "9px 13px", borderRadius: 10,
-              border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.pine}`, background: s.done ? "#f6f3ec" : "#fff", opacity: s.done ? 0.6 : 1,
+              border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.pine}`, background: s.done ? "var(--color-surface-alt)" : "var(--color-surface)", opacity: s.done ? 0.6 : 1,
             }}
           >
             <Check done={s.done} onClick={() => otmetit(s)} label={s.done ? "Снять отметку" : "Сделано"} />
@@ -308,8 +308,8 @@ export default function Kvesty() {
               onClick={() => udalit(s)}
               title="Удалить квест"
               aria-label="Удалить квест"
-              className="hover:!text-[#ba1a1a]"
-              style={{ border: 0, background: "transparent", color: "#8a938c", fontSize: 15, cursor: "pointer" }}
+              className="hover:!text-[var(--color-error)]"
+              style={{ border: 0, background: "transparent", color: "var(--color-disabled)", fontSize: 15, cursor: "pointer" }}
             >
               ×
             </button>
@@ -331,7 +331,7 @@ export default function Kvesty() {
                   key={l.id}
                   type="button"
                   onClick={() => openScreen("documents")}
-                  className="flex justify-between text-left hover:!text-[#1a4331]"
+                  className="flex justify-between text-left hover:!text-[var(--color-pine)]"
                   style={{ gap: 8, border: 0, background: "transparent", padding: 0, fontSize: 13, color: C.ink, cursor: "pointer" }}
                 >
                   <span className="min-w-0 truncate">📜 {l.file_name}</span>
@@ -354,8 +354,8 @@ export default function Kvesty() {
                 title={a.hint}
                 style={{
                   fontSize: 12, padding: "3px 9px", borderRadius: 999,
-                  background: a.est ? C.moss : "transparent", color: a.est ? C.pine : "#8a938c",
-                  border: a.est ? "1px solid #bcefc5" : `1px dashed ${C.line}`,
+                  background: a.est ? C.moss : "transparent", color: a.est ? C.pine : "var(--color-disabled)",
+                  border: a.est ? "1px solid var(--color-mint)" : `1px dashed ${C.line}`,
                 }}
               >
                 {a.est ? "🏅 " : ""}{a.title}

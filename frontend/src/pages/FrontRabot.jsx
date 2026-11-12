@@ -12,14 +12,14 @@ import { useToast } from "../components/Toast.jsx";
 
 const MONO = "'JetBrains Mono', monospace";
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", sky: "#2c5d8a",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", sky: "var(--c-info-ink)",
 };
-const AVA = ["#3f7d4e", "#2c5d8a", "#9a6200", "#7a3f8a", "#a0442c", "#2f7a78", "#5a6b2c", "#8a3f5a"];
+const AVA = ["var(--c-green-2)", "var(--c-info-ink)", "#9a6200", "#7a3f8a", "#a0442c", "#2f7a78", "#5a6b2c", "#8a3f5a"];
 const TON = {
-  bad: { bg: C.dangerSoft, fg: C.danger, border: "#f3c2bd" },
-  ok: { bg: C.moss, fg: C.pine, border: "#bcefc5" },
-  idle: { bg: "#f6f3ec", fg: C.muted, border: C.line },
+  bad: { bg: C.dangerSoft, fg: C.danger, border: "var(--c-error-line)" },
+  ok: { bg: C.moss, fg: C.pine, border: "var(--color-mint)" },
+  idle: { bg: "var(--color-surface-alt)", fg: C.muted, border: C.line },
 };
 const XP_ZA_NAZNACHENIE = 3;
 
@@ -214,13 +214,13 @@ export default function FrontRabot() {
                 <div style={{ fontSize: 12, fontWeight: 700, borderRadius: 7, padding: "4px 7px", background: t.bg, color: t.fg }}>{d.verdikt}</div>
 
                 <div style={{ minHeight: 34, border: `1.5px dashed ${C.line}`, borderRadius: 8, padding: 4, display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                  {plan.length === 0 && <span style={{ fontSize: 11, color: "#8a938c", padding: "0 4px" }}>перетащи людей сюда</span>}
+                  {plan.length === 0 && <span style={{ fontSize: 11, color: "var(--color-disabled)", padding: "0 4px" }}>перетащи людей сюда</span>}
                   {plan.map((l) => (
-                    <span key={l.sotrudnik_id} className="flex items-center" style={{ gap: 3, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 8, padding: "2px 4px 2px 2px" }}>
+                    <span key={l.sotrudnik_id} className="flex items-center" style={{ gap: 3, background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 8, padding: "2px 4px 2px 2px" }}>
                       <Ava l={l} size={20} />
                       <span style={{ fontSize: 11.5 }}>{korotko(l.fio)}</span>
                       <button type="button" onClick={() => snyat(l.sotrudnik_id, d)} aria-label={`Снять ${l.fio}`}
-                        style={{ border: 0, background: "transparent", color: "#8a938c", cursor: "pointer", fontSize: 12, padding: 0 }}>×</button>
+                        style={{ border: 0, background: "transparent", color: "var(--color-disabled)", cursor: "pointer", fontSize: 12, padding: 0 }}>×</button>
                     </span>
                   ))}
                 </div>
@@ -252,7 +252,7 @@ export default function FrontRabot() {
                 return (
                   <div key={z.id} draggable onDragStart={drag(chl)} onClick={() => toggle(chl)} role="button" tabIndex={0}
                     onKeyDown={(e) => e.key === "Enter" && toggle(chl)}
-                    style={{ cursor: "grab", display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", borderRadius: 10, background: "#fff",
+                    style={{ cursor: "grab", display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", borderRadius: 10, background: "var(--color-surface)",
                       border: `2px solid ${on ? C.gold : C.line}` }}>
                     <span style={{ fontSize: 16 }}>{z.emoji}</span>
                     <span className="min-w-0 flex-1 truncate" style={{ fontWeight: 700, fontSize: 12.5 }}>{z.nazvanie}</span>
@@ -271,7 +271,7 @@ export default function FrontRabot() {
                 return (
                   <div key={l.sotrudnik_id} draggable onDragStart={drag([l.sotrudnik_id])} onClick={() => toggle([l.sotrudnik_id])}
                     role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && toggle([l.sotrudnik_id])}
-                    style={{ cursor: "grab", display: "flex", alignItems: "center", gap: 7, padding: "5px 7px", borderRadius: 9, background: "#fff",
+                    style={{ cursor: "grab", display: "flex", alignItems: "center", gap: 7, padding: "5px 7px", borderRadius: 9, background: "var(--color-surface)",
                       border: `2px solid ${on ? C.gold : "transparent"}`, boxShadow: `0 0 0 1px ${C.line}` }}>
                     <Ava l={l} />
                     <span className="min-w-0 flex-1">
@@ -297,8 +297,8 @@ export default function FrontRabot() {
 }
 
 function btn() {
-  return { height: 30, padding: "0 11px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer", border: `1px solid ${C.line}`, background: "#fff", color: "#414944", whiteSpace: "nowrap" };
+  return { height: 30, padding: "0 11px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer", border: `1px solid ${C.line}`, background: "var(--color-surface)", color: "var(--color-muted)", whiteSpace: "nowrap" };
 }
 function chip() {
-  return { fontSize: 12.5, fontWeight: 700, padding: "5px 10px", borderRadius: 999, background: "#fff", border: `1px solid ${C.line}`, color: C.ink };
+  return { fontSize: 12.5, fontWeight: 700, padding: "5px 10px", borderRadius: 999, background: "var(--color-surface)", border: `1px solid ${C.line}`, color: C.ink };
 }

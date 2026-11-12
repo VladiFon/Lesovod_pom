@@ -10,7 +10,7 @@ import { useToast } from "../components/Toast.jsx";
  * Сервер: routers/tehnika.py.
  */
 
-const C = { pine: "#1a4331", line: "#e5e2db", muted: "#565f59", moss: "#eaf7ec", danger: "#ba1a1a" };
+const C = { pine: "var(--color-pine)", line: "var(--color-border)", muted: "var(--color-muted-2)", moss: "var(--color-mint-soft)", danger: "var(--color-error)" };
 const PUSTO = { nazvanie: "", tip: "Трактор", nomer: "", toplivo: "ДТ", zakreplen_sotrudnik_id: "", kommentariy: "", bak_l: "" };
 const EMOJI = { Трактор: "🚜", Харвестер: "🌲", Форвардер: "🚛", Автомобиль: "🚙", Бензопила: "🪚" };
 const inp = "border border-border rounded-[8px] px-2 h-9";
@@ -66,13 +66,13 @@ export default function Tehnika() {
       </div>
 
       {bezMashiny.length > 0 && (
-        <div style={{ background: "#fbf1d6", border: "1px solid #f0dca6", borderRadius: 12, padding: 10, fontSize: 13 }}>
+        <div style={{ background: "var(--c-gold-soft)", border: "1px solid var(--c-gold-line)", borderRadius: 12, padding: 10, fontSize: 13 }}>
           🔑 Без закреплённой машины: {bezMashiny.map((l) => l.fio).join(", ")} — им в отчёте придётся выбирать технику каждый раз.
         </div>
       )}
 
       {f && (
-        <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+        <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
           <label style={{ fontSize: 12, color: C.muted }}>Название<br /><input className={inp} value={f.nazvanie} onChange={(e) => setF({ ...f, nazvanie: e.target.value })} placeholder="МТЗ-82, Ponsse Ergo…" autoFocus /></label>
           <label style={{ fontSize: 12, color: C.muted }}>Тип<br />
             <select className={inp} value={f.tip || ""} onChange={(e) => setF({ ...f, tip: e.target.value })}>{d.tipy.map((t) => <option key={t}>{t}</option>)}</select></label>
@@ -92,7 +92,7 @@ export default function Tehnika() {
         </div>
       )}
 
-      <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
         {d.tehnika.length === 0 ? (
           <div style={{ padding: 24, textAlign: "center", color: C.muted }}>Техники пока нет. Добавьте трактора и харвестеры и закрепите за людьми — в телефоне машина будет подставляться сама.</div>
         ) : d.tehnika.map((t) => (

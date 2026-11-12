@@ -13,14 +13,14 @@ import { useToast } from "../components/Toast.jsx";
 
 const MONO = "'JetBrains Mono', monospace";
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", sky: "#2c5d8a", skySoft: "#e6eef7",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", sky: "var(--c-info-ink)", skySoft: "var(--c-info-soft-2)",
 };
 const KOLONKI = [
-  { vid: "uhod", title: "🔥 Жаждут ухода", note: "уходов меньше нормы", bg: C.dangerSoft, border: "#f3c2bd" },
-  { vid: "osvetlenie", title: "🪓 Ждут осветления", note: "уходы позади, осветления ещё не было", bg: C.goldSoft, border: "#efd9a4" },
-  { vid: "uhod_ok", title: "✅ Норма выполнена", note: "в этом сезоне больше не надо", bg: C.moss, border: "#bcefc5" },
-  { vid: "pokoy", title: "🌲 Не трогать", note: "переведены или уже осветлены", bg: "#f6f3ec", border: C.line },
+  { vid: "uhod", title: "🔥 Жаждут ухода", note: "уходов меньше нормы", bg: C.dangerSoft, border: "var(--c-error-line)" },
+  { vid: "osvetlenie", title: "🪓 Ждут осветления", note: "уходы позади, осветления ещё не было", bg: C.goldSoft, border: "var(--c-gold-line)" },
+  { vid: "uhod_ok", title: "✅ Норма выполнена", note: "в этом сезоне больше не надо", bg: C.moss, border: "var(--color-mint)" },
+  { vid: "pokoy", title: "🌲 Не трогать", note: "переведены или уже осветлены", bg: "var(--color-surface-alt)", border: C.line },
 ];
 const POKAZ = 25;
 const SHUTKI = {
@@ -74,7 +74,7 @@ function PlanForma({ u, sotrudniki, sezon, onDone, onCancel }) {
     }
   };
   return (
-    <div className="flex flex-wrap items-center" style={{ gap: 6, padding: 8, borderRadius: 8, background: "#fff", border: `1px dashed ${C.gold}` }}>
+    <div className="flex flex-wrap items-center" style={{ gap: 6, padding: 8, borderRadius: 8, background: "var(--color-surface)", border: `1px dashed ${C.gold}` }}>
       <select
         id={`plan-kto-${u.id}`}
         value={kto}
@@ -121,7 +121,7 @@ function Karta({ u, sotrudniki, sezon, idetSezon, onChanged }) {
     }
   };
   return (
-    <div style={{ position: "relative", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
+    <div style={{ position: "relative", background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
       <div className="flex items-start justify-between" style={{ gap: 6 }}>
         <span style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>{u.label}</span>
         <span style={{ fontFamily: MONO, fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>{u.ploshad ? `${u.ploshad} га` : ""}</span>
@@ -151,7 +151,7 @@ function Karta({ u, sotrudniki, sezon, idetSezon, onChanged }) {
             </button>
           ) : null}
           <button type="button" onClick={() => setForma(true)}
-            style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 7, border: `1px solid ${C.gold}`, background: "#fff", color: "#7a5600", cursor: "pointer" }}>
+            style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 7, border: `1px solid ${C.gold}`, background: "var(--color-surface)", color: "#7a5600", cursor: "pointer" }}>
             📅 В план
           </button>
         </div>
@@ -221,7 +221,7 @@ export default function UhodyIgra() {
           <button key={g} type="button" onClick={() => setSezon(g)} aria-pressed={sezon === g}
             style={{
               height: 30, padding: "0 12px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer",
-              border: `1px solid ${sezon === g ? C.pine : C.line}`, background: sezon === g ? C.pine : "#fff", color: sezon === g ? "#fff" : C.ink,
+              border: `1px solid ${sezon === g ? C.pine : C.line}`, background: sezon === g ? C.pine : "var(--color-surface)", color: sezon === g ? "#fff" : C.ink,
             }}>
             {g}{g === god + 1 ? " (план)" : ""}
           </button>
@@ -255,7 +255,7 @@ export default function UhodyIgra() {
           ["🪓", `${it.uchastkov_osvetlenie} уч. · ${it.ga_osvetlenie} га`, "ждут осветления"],
           ["📅", `${it.v_plane} уч.`, "уже в плане"],
         ].map(([e, v, l]) => (
-          <span key={l} style={{ padding: "6px 10px", borderRadius: 9, background: "#fff", border: `1px solid ${C.line}`, fontSize: 12.5 }}>
+          <span key={l} style={{ padding: "6px 10px", borderRadius: 9, background: "var(--color-surface)", border: `1px solid ${C.line}`, fontSize: 12.5 }}>
             {e} <b>{v}</b> <span style={{ color: C.muted }}>{l}</span>
           </span>
         ))}
@@ -270,7 +270,7 @@ export default function UhodyIgra() {
                 <div style={{ fontWeight: 800, fontSize: 13.5, color: C.ink }}>{k.title} · {vse.length}</div>
                 <div style={{ fontSize: 12, color: C.muted, margin: "2px 0 8px" }}>{k.note}</div>
                 <button type="button" onClick={() => setPokoyOpen(true)}
-                  style={{ fontSize: 12.5, border: `1px solid ${C.line}`, background: "#fff", borderRadius: 7, padding: "4px 10px", cursor: "pointer" }}>
+                  style={{ fontSize: 12.5, border: `1px solid ${C.line}`, background: "var(--color-surface)", borderRadius: 7, padding: "4px 10px", cursor: "pointer" }}>
                   Показать
                 </button>
               </div>
@@ -290,7 +290,7 @@ export default function UhodyIgra() {
               ))}
               {vse.length > n && (
                 <button type="button" onClick={() => setSkolko({ ...skolko, [k.vid]: n + POKAZ })}
-                  style={{ fontSize: 12.5, border: `1px solid ${C.line}`, background: "#fff", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
+                  style={{ fontSize: 12.5, border: `1px solid ${C.line}`, background: "var(--color-surface)", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
                   Ещё {Math.min(POKAZ, vse.length - n)} из {vse.length - n}
                 </button>
               )}

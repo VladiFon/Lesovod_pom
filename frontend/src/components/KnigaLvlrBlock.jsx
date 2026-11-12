@@ -29,7 +29,7 @@ export default function KnigaLvlrBlock({ delyankaId, canEdit }) {
       <div className="flex flex-wrap items-center gap-2">
         <b>📗 Книга ЛВ и ЛР:</b>
         {d.v_knige ? (
-          <button type="button" className="underline" onClick={() => openScreen("kniga_lvlr", { tab: "kniga" })}>
+          <button type="button" className="underline" onClick={() => openScreen("formy", { tab: "kniga", kt: "kniga" })}>
             №{d.v_knige.nomer}{d.v_knige.razvorot ? `, разворот ${d.v_knige.razvorot}, строка ${d.v_knige.stroka}` : ""}
           </button>
         ) : d.chuzhaya ? (

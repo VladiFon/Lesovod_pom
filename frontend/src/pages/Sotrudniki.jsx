@@ -82,7 +82,7 @@ function WorkerCard({ worker, onSetActive, onResetPin, onEdit }) {
           "mt-2 w-full text-xs font-semibold rounded-full px-2.5 py-1.5 border transition-colors",
           worker.is_active
             ? "border-pine text-pine bg-mint-soft hover:bg-mint"
-            : "border-error text-error bg-error-soft hover:bg-error-soft/70",
+            : "border-error text-error bg-error-soft hover:bg-[color-mix(in_srgb,var(--color-error-soft)_70%,transparent)]",
         ].join(" ")}
       >
         {worker.is_active ? "Активен" : uvolen ? "Уволен" : "Отключён"}

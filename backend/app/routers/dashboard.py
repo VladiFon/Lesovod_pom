@@ -260,18 +260,98 @@ def _build_metrics(conn: sqlite3.Connection, god: Optional[str] = None) -> dict:
 
 
 def _build_plots_table(conn: sqlite3.Connection) -> list[dict]:
-    """1-в-1 с _load_plots_table(): последние 5 неархивных делянок."""
+    """Делянки в работе для виджета «Как идёт заготовка» (разбор 09.11.2026).
+
+    Раньше — «последние 5 созданных», что ничего не говорило. Теперь все
+    активные делянки: освоение (тот же расчёт, что «Освоение делянки»),
+    срок окончания заготовки и сколько дней до него; сверху — те, что
+    горят (меньше всего дней до срока / просрочены). Поля id/nazvanie/
+    status/created_at оставлены для совместимости."""
     try:
         rows = conn.execute(
-            "SELECT id, nazvanie, status, created_at FROM delyanka "
-            "WHERE status != 'архив' ORDER BY id DESC LIMIT 5"
+            "SELECT id, nazvanie, status, created_at, srok_okonchaniya_zagotovki FROM delyanka "
+            "WHERE status = 'активна'"
         ).fetchall()
     except sqlite3.OperationalError:
-        rows = []
-    return [
-        {"id": r[0], "nazvanie": r[1] or "—", "status": r[2] or "—", "created_at": r[3] or "—"}
-        for r in rows
-    ]
+        return []
+    try:
+        osv = compute_osvoenie_batch(conn, [r[0] for r in rows])
+    except Exception:  # noqa: BLE001 — виджет отказоустойчив
+        osv = {}
+    today = datetime.date.today()
+    temp = _temp_zagotovki(conn, today)
+    out = []
+    for r in rows:
+        o = osv.get(r[0]) or {}
+        srok = _parse_srok(r[4])
+        prognoz = _prognoz(o, temp.get(r[0], 0.0), today, srok)
+        out.append({
+            "id": r[0],
+            "nazvanie": r[1] or "—",
+            "status": r[2] or "—",
+            "created_at": r[3] or "—",
+            "pct": o.get("pct"),
+            "level": o.get("level") or "net_limita",
+            "fakt_fmt": _fmt_m3(o.get("fakt") or 0),
+            "limit_fmt": _fmt_m3(o.get("limit") or 0),
+            "srok": srok.isoformat() if srok else None,
+            "dney": (srok - today).days if srok else None,
+            **prognoz,
+        })
+    out.sort(key=lambda d: (d["dney"] is None, d["dney"] if d["dney"] is not None else 0, -(d["pct"] or 0)))
+    return out
+
+
+TEMP_DNEY = 21  # за сколько последних дней считать темп рубки
+
+
+def _temp_zagotovki(conn, today) -> dict:
+    """{delyanka_id: м³ в день} по нарядам за последние TEMP_DNEY дней."""
+    ot = today - datetime.timedelta(days=TEMP_DNEY)
+    out: dict = {}
+    try:
+        rows = conn.execute(
+            "SELECT n.delyanka_id, n.data, SUM(p.obyom) FROM raskhod_pozitsiya p "
+            "JOIN raskhod_naryad n ON p.naryad_id = n.id GROUP BY n.id"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return out
+    for did, data, ob in rows:
+        d = _parse_srok(data)
+        if d and ot < d <= today:
+            out[did] = out.get(did, 0.0) + (ob or 0.0)
+    return {k: v / TEMP_DNEY for k, v in out.items()}
+
+
+def _prognoz(o: dict, temp: float, today, srok) -> dict:
+    """Когда при нынешнем темпе вырубят лимит и успевают ли к сроку
+    (экран «Сегодня», шаг 3 разбора 09.11.2026)."""
+    limit, fakt = o.get("limit") or 0, o.get("fakt") or 0
+    ost = limit - fakt
+    res = {"temp_m3_den": round(temp, 1), "ostatok_m3": round(max(ost, 0), 1), "prognoz": None, "uspevaem": None}
+    if limit <= 0 or ost <= 0.5:
+        res["prognoz_tekst"] = "лимит выбран" if limit > 0 else ""
+        return res
+    if temp <= 0:
+        res["prognoz_tekst"] = f"рубки нет {TEMP_DNEY} дн."
+        res["uspevaem"] = False if srok else None
+        return res
+    kogda = today + datetime.timedelta(days=int(-(-ost // temp)))
+    res["prognoz"] = kogda.isoformat()
+    res["uspevaem"] = (kogda <= srok) if srok else None
+    res["prognoz_tekst"] = f"≈{temp:.0f} м³/день → закончат к {kogda:%d.%m}"
+    return res
+
+
+def _parse_srok(value):
+    """Срок из базы: «ДД.ММ.ГГГГ» (как вводится в карточке) или ISO."""
+    s = str(value or "").strip()
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(s[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _build_ai_insights(conn: sqlite3.Connection) -> list[dict]:

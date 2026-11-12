@@ -69,6 +69,18 @@ def sobrat(conn, user, segodnya=None):
         add("egais", n, "Разбор ЕГАИС", "Корректировки, склады без делянки, приход ФЛС", "raskhod", {"razbor": "1"})
 
     try:
+        from app import egais_sklady
+        trev = egais_sklady.trevozhnye(conn, segodnya)
+    except Exception:  # noqa: BLE001
+        trev = []
+    if trev:
+        m3 = round(sum(x["vsego"] for x in trev))
+        add("sklady_les", len(trev), f"Лес на складах: горит срок вывозки или залежался — {m3} м³",
+            "; ".join(x["nazvanie"] for x in trev[:3]) + ("…" if len(trev) > 3 else ""),
+            "raskhod", {"tab": "sklady"},
+            "danger" if any(x["flag"] == "prosrocheno" for x in trev) else "warning")
+
+    try:
         from app.routers import inspection
         spisok = inspection.list_inspection(conn=conn)
     except Exception:  # noqa: BLE001

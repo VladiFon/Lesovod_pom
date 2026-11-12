@@ -14,8 +14,8 @@ import Lesopoval from "./Lesopoval.jsx";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", sky: "#2c5d8a", skySoft: "#e6eef7",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", sky: "var(--c-info-ink)", skySoft: "var(--c-info-soft-2)",
   wood: "#9a6a3a", woodSoft: "#f6ede2",
 };
 const MEDALI = ["🥇", "🥈", "🥉"];
@@ -60,13 +60,13 @@ function Shtabel({ na, prihod }) {
 
 function Sklad({ x, onLesopoval }) {
   const tone = {
-    bad: { bg: C.dangerSoft, border: "#f3c2bd", color: C.danger },
-    ok: { bg: C.moss, border: "#bcefc5", color: C.leaf },
-    idle: { bg: "#fff", border: C.line, color: C.muted },
-    pusto: { bg: "#faf9f6", border: C.line, color: C.muted },
+    bad: { bg: C.dangerSoft, border: "var(--c-error-line)", color: C.danger },
+    ok: { bg: C.moss, border: "var(--color-mint)", color: C.leaf },
+    idle: { bg: "var(--color-surface)", border: C.line, color: C.muted },
+    pusto: { bg: "var(--c-muted-bg)", border: C.line, color: C.muted },
   }[x.ton];
   return (
-    <div style={{ background: "#fff", border: `1.5px solid ${x.ton === "bad" ? "#f3c2bd" : C.line}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ background: "var(--color-surface)", border: `1.5px solid ${x.ton === "bad" ? "var(--c-error-line)" : C.line}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
       <div className="flex items-start" style={{ gap: 10 }}>
         <Shtabel na={x.na_sklade} prihod={x.prihod} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -109,7 +109,7 @@ function Sklad({ x, onLesopoval }) {
 function Tablo({ po_dnyam, rekord }) {
   const max = Math.max(1, ...po_dnyam.map((d) => d.obyom));
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+    <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
       <div className="flex justify-between" style={{ fontSize: 13, color: C.muted, marginBottom: 8 }}>
         <b style={{ color: C.pine }}>🚛 Расход ЕГАИС по дням, 4 недели</b>
         {rekord && <span>рекорд — {m3(rekord.obyom)} ({rekord.data})</span>}
@@ -180,7 +180,7 @@ export default function VyvozkaIgra() {
 
       <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
         <Chip bg={C.woodSoft} color={C.wood}>🪵 Лежит на складах: {m3(d.itogo_na_skladah)}</Chip>
-        <Chip bg={bad ? C.dangerSoft : "#f3f1ec"} color={bad ? C.danger : C.muted}>🔥 Горит складов: {bad}</Chip>
+        <Chip bg={bad ? C.dangerSoft : "var(--c-muted-bg)"} color={bad ? C.danger : C.muted}>🔥 Горит складов: {bad}</Chip>
         <Chip bg={C.moss} color={C.leaf} title={`Прошлая неделя за те же дни: ${m3(d.proshlaya_nedelya)}`}>
           🚛 Эта неделя: {m3(d.eta_nedelya)} {delta > 0.05 ? "▲" : delta < -0.05 ? "▼" : "="} {m3(Math.abs(delta))}
         </Chip>
@@ -201,7 +201,7 @@ export default function VyvozkaIgra() {
         </div>
 
         <aside style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+          <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
             <div style={{ fontWeight: 800, color: C.pine, marginBottom: 6 }}>🧾 Кто оформил больше · месяц</div>
             {d.kto.length === 0 && <div style={{ fontSize: 13, color: C.muted }}>В этом месяце расхода ещё не было</div>}
             {d.kto.map((k, i) => (
@@ -211,7 +211,7 @@ export default function VyvozkaIgra() {
               </div>
             ))}
           </div>
-          <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+          <div style={{ background: "var(--color-surface)", border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
             <div style={{ fontWeight: 800, color: C.pine, marginBottom: 6 }}>📦 Куда ушло · месяц</div>
             {d.kuda.length === 0 && <div style={{ fontSize: 13, color: C.muted }}>Пока никуда</div>}
             {d.kuda.map((k) => {
@@ -224,7 +224,7 @@ export default function VyvozkaIgra() {
               );
             })}
           </div>
-          <div style={{ background: musor ? C.goldSoft : C.moss, border: `1px solid ${musor ? "#efd9a4" : "#bcefc5"}`, borderRadius: 12, padding: 12 }}>
+          <div style={{ background: musor ? C.goldSoft : C.moss, border: `1px solid ${musor ? "var(--c-gold-line)" : "var(--color-mint)"}`, borderRadius: 12, padding: 12 }}>
             <div style={{ fontWeight: 800, color: C.pine, marginBottom: 6 }}>🧹 Мусор в ЕГАИС: {musor}</div>
             {musor === 0 ? (
               <div style={{ fontSize: 13, color: C.leaf }}>Чисто, как после санитарки 🌲</div>

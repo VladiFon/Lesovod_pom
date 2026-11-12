@@ -499,7 +499,7 @@ export default function Documents() {
       />
 
       {preview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4 py-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1c1c18]/40 px-4 py-8">
           <Card className="w-full max-w-4xl" title={`Просмотр: ${preview.fileName}`}>
             {preview.loading && (
               <div className="h-[70vh] flex items-center justify-center text-muted text-sm">
@@ -526,7 +526,7 @@ export default function Documents() {
       )}
 
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1c1c18]/40 px-4">
           <Card className="max-w-sm w-full" title="Удалить документы?">
             <p className="text-muted text-sm mb-4">
               {deleteConfirm.ids.length === 1

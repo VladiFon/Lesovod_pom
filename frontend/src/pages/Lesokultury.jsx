@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState, useMemo } from "react";
+import QgisButton from "../components/QgisButton.jsx";
 import IspolniteliPicker from "../components/IspolniteliPicker.jsx";
 import { api } from "../api/client.js";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
+import DateField from "../components/DateField.jsx";
 import TextAreaField from "../components/TextAreaField.jsx";
 import DataTable from "../components/DataTable.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
@@ -480,7 +482,7 @@ function AddMeropriyatieForm({ uchastokId, zapis, onAdded, onStatusChanged, onCa
             ))}
           </select>
         </div>
-        <TextField label="Дата" placeholder="ДД.ММ.ГГГГ" value={data} onChange={(e) => setData(e.target.value)} />
+        <DateField label="Дата" value={data} onChange={setData} />
         <TextField
           label="Приживаемость, %"
           type="number"
@@ -705,11 +707,21 @@ function UchastokDetail({ uchastokId, onListChanged }) {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Удалить участок вместе с журналом мероприятий? Он попадёт в «Корзину» (Прочее → Корзина), оттуда его можно вернуть в течение 30 дней.")) return;
+    // Разбор 09.11.2026: без «Вы уверены?» — удаление сразу, а в
+    // уведомлении 10 секунд кнопка «↩ Вернуть» (и 30 дней — Корзина).
     setDeleting(true);
     try {
-      await api.delete(`/lesokultury/uchastki/${uchastokId}`);
-      toast.show({ tone: "success", title: "Участок удалён", description: "Вернуть можно в «Корзине» 30 дней" });
+      const res = await api.delete(`/lesokultury/uchastki/${uchastokId}`);
+      toast.show({
+        tone: "success", title: "Участок удалён", description: "Вернуть можно в «Корзине» 30 дней",
+        duration: 10000,
+        action: res?.korzina_id ? {
+          label: "↩ Вернуть",
+          onClick: () => api.post(`/korzina/${res.korzina_id}/restore`)
+            .then(() => { toast.show({ tone: "success", title: "Вернул на место" }); onListChanged(true); })
+            .catch((e) => toast.show({ tone: "danger", title: "Не удалось вернуть", description: e.message })),
+        } : undefined,
+      });
       onListChanged(true);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
@@ -741,6 +753,8 @@ function UchastokDetail({ uchastokId, onListChanged }) {
             <p className="text-muted text-sm mt-0.5">{uchastok.lesnichestvo || "—"} · заведён {(uchastok.created_at || "").slice(0, 10).split("-").reverse().join(".") || "—"}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <QgisButton tip="lesokultury" id={uchastok.id} kvartal={uchastok.kvartal} vydel={String(uchastok.vydel || "").split(/[,;]/)[0]}
+              lesnichestvo={uchastok.lesnichestvo} nazvanie={`кв. ${uchastok.kvartal || "—"} / выд. ${uchastok.vydel || "—"}`} />
             {uchastok.status !== "переведён" && (
               <Button variant="secondary" size="sm" onClick={() => handleStatusChange("переведён")} disabled={saving}>
                 🌲 В покрытые лесом

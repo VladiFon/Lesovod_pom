@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import QgisButton from "../components/QgisButton.jsx";
+import Fotolenta from "../components/Fotolenta.jsx";
 import { api, API_BASE_URL } from "../api/client.js";
 import { pollTask } from "../hooks/useTaskPolling.js";
 import Card from "../components/Card.jsx";
@@ -531,11 +533,10 @@ function ActivateDelyankaModal({ open, onClose, onActivated, delyankaId, initial
           </p>
         )}
         <TextField label="№ лесорубочного билета" value={nomer} onChange={(e) => setNomer(e.target.value)} />
-        <TextField
+        <DateField
           label="Дата лесорубочного билета"
-          placeholder="ДД.ММ.ГГГГ"
           value={data}
-          onChange={(e) => setData(normalizeDateInput(e.target.value))}
+          onChange={(v) => setData(normalizeDateInput(v))}
         />
         <p className="text-[12.5px] text-muted-2 -mb-2">Сроки из билета — по ним Инспекция считает срок акта и шлёт напоминания:</p>
         <div className="grid grid-cols-2 gap-3">
@@ -884,11 +885,21 @@ function PlotDetail({ delyankaId, onListChanged }) {
 
   const handleDelete = async () => {
     const name = delyanka?.nazvanie || `делянку №${delyankaId}`;
-    if (!window.confirm(`Удалить ${name} вместе со всеми выделами и нарядами? Она попадёт в «Корзину» (Прочее → Корзина), оттуда её можно вернуть в течение 30 дней.`)) return;
+    // Разбор 09.11.2026: без «Вы уверены?» — удаление сразу, а в
+    // уведомлении 10 секунд кнопка «↩ Вернуть» (и 30 дней — Корзина).
     setBusyAction("delete");
     try {
-      await api.delete(`/delyanki/${delyankaId}`);
-      toast.show({ tone: "success", title: "Делянка удалена", description: "Вернуть можно в «Корзине» 30 дней" });
+      const res = await api.delete(`/delyanki/${delyankaId}`);
+      toast.show({
+        tone: "success", title: "Делянка удалена", description: "Вернуть можно в «Корзине» 30 дней",
+        duration: 10000,
+        action: res?.korzina_id ? {
+          label: "↩ Вернуть",
+          onClick: () => api.post(`/korzina/${res.korzina_id}/restore`)
+            .then(() => { toast.show({ tone: "success", title: "Вернул на место" }); onListChanged(true); })
+            .catch((e) => toast.show({ tone: "danger", title: "Не удалось вернуть", description: e.message })),
+        } : undefined,
+      });
       onListChanged(true);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
@@ -941,6 +952,8 @@ function PlotDetail({ delyankaId, onListChanged }) {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <QgisButton tip="delyanka" id={delyanka.id} kvartal={items[0]?.kvartal} vydel={items[0]?.vydel}
+              lesnichestvo={items[0]?.lesnichestvo} nazvanie={delyanka.nazvanie} />
             {/* Перекрёстные переходы — ряд DelyankaNav под заголовком
                 (Расход · Инспекция · Документы), шаг 4 разбора 03.11.2026. */}
             {delyanka.status === "активна" && can("delyanka.edit") && (
@@ -982,6 +995,7 @@ function PlotDetail({ delyankaId, onListChanged }) {
         </div>
 
         <GotovnostChecklist delyanka={delyanka} items={items} documents={documents} />
+        <Fotolenta delyankaId={delyanka.id} />
 
         {/* Сторонняя заготовка — та же галочка, что в Инспекции. */}
         {delyanka.status !== "черновик" && (can("inspection.edit") || delyanka.storonnyaya) && (
@@ -1180,11 +1194,10 @@ function PlotDetail({ delyankaId, onListChanged }) {
                   value={form.listok_obnaruzhil_fio}
                   onChange={setField("listok_obnaruzhil_fio")}
                 />
-                <TextField
+                <DateField
                   label="Обнаружил, дата"
-                  placeholder="ДД.ММ.ГГГГ"
                   value={form.listok_obnaruzhil_data}
-                  onChange={setField("listok_obnaruzhil_data")}
+                  onChange={(v) => setField("listok_obnaruzhil_data")({ target: { value: v } })}
                 />
               </div>
               <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
@@ -1198,11 +1211,10 @@ function PlotDetail({ delyankaId, onListChanged }) {
                   value={form.listok_proveril_fio}
                   onChange={setField("listok_proveril_fio")}
                 />
-                <TextField
+                <DateField
                   label="Проверил, дата"
-                  placeholder="ДД.ММ.ГГГГ"
                   value={form.listok_proveril_data}
-                  onChange={setField("listok_proveril_data")}
+                  onChange={(v) => setField("listok_proveril_data")({ target: { value: v } })}
                 />
               </div>
               <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">

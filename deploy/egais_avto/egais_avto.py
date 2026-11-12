@@ -54,7 +54,7 @@ import time
 import traceback
 from pathlib import Path
 
-VERSIYA = "3.0.1"
+VERSIYA = "3.3.0"
 PAPKA = Path(__file__).resolve().parent
 NASTROYKI = PAPKA / "nastroyki.ini"
 SOSTOYANIE = PAPKA / "sostoyanie.json"
@@ -84,6 +84,12 @@ ZAMETKI = []
 
 class Oshibka(Exception):
     """Понятная человеку ошибка — пишется в лог без трейсбэка."""
+
+
+class OshibkaBezPovtora(Oshibka):
+    """Ошибка, после которой начинать заново бессмысленно или вредно:
+    экран заблокирован, ЕГАИС не принял пароль (ещё пара попыток — и учётку
+    заблокируют), Лесовод недоступен (файл уже выгружен и лежит на диске)."""
 
 
 # --------------------------------------------------------------------------- #
@@ -147,7 +153,7 @@ class Hod:
                     zap[1] = "ok"
                 else:
                     zap[1] = "oshibka"
-                    zap[2] = str(e) if et is Oshibka else f"непредвиденная ошибка: {e!r}"
+                    zap[2] = str(e) if issubclass(et, Oshibka) else f"непредвиденная ошибка: {e!r}"
                 return False
         return _Shag()
 
@@ -438,6 +444,8 @@ def vsplyvshie_okna(pid):
                 if t:
                     teksty.append(t)
             if knopka is None:
+                knopka = _knopka_po_pravilu(w, teksty)
+            if knopka is None:
                 continue  # выпадающие списки, подсказки и т.п.
             tekst = " ".join(teksty) or _tekst_iz_bufera(w)
             out.append({"okno": w, "zagolovok": w.window_text().strip(),
@@ -445,6 +453,142 @@ def vsplyvshie_okna(pid):
         except Exception:  # noqa: BLE001
             pass
     return out
+
+
+# Правила «незнакомых» окон: раздел [okna] в nastroyki.ini, строки вида
+#   кусок текста или заголовка окна = текст кнопки
+# Робот сам жмёт только OK/Ознакомлен/Закрыть. Если ЕГАИС вылез с окном, где
+# надо выбрать (Да/Нет/Отмена), робот его НЕ трогает, а описывает в отчёте —
+# и одной строкой в [okna] его можно научить, что жать в следующий раз.
+PRAVILA_OKON = []
+
+
+def zagruzit_pravila_okon(cfg):
+    PRAVILA_OKON.clear()
+    if cfg is not None and cfg.has_section("okna"):
+        for kusok, knopka in cfg.items("okna"):
+            if kusok.strip() and knopka.strip():
+                PRAVILA_OKON.append((kusok.strip().lower(), knopka.replace("&", "").strip().lower()))
+
+
+def _knopka_po_pravilu(w, teksty):
+    if not PRAVILA_OKON:
+        return None
+    vse = (w.window_text() + " " + " ".join(teksty)).lower()
+    for kusok, nado in PRAVILA_OKON:
+        if kusok in vse:
+            for c in w.descendants():
+                if _eto_knopka(c) and _tekst_knopki(c) == nado:
+                    log.info("Окно «%s»: по правилу [okna] жму «%s».", w.window_text(), nado)
+                    return c
+    return None
+
+
+def opisat_okna(pid=None):
+    """Что сейчас на экране у ЕГАИС: каждое видимое окно — заголовок, текст
+    и кнопки. Нужен, когда робот споткнулся: по этому описанию видно, какое
+    незнакомое окно вылезло, и можно дописать правило в [okna]."""
+    from pywinauto import Desktop
+    pidy = {pid} if pid else pidy_egais()
+    out = []
+    for w in Desktop(backend="win32").windows(visible_only=True):
+        try:
+            if w.process_id() not in pidy:
+                continue
+            knopki, teksty = [], []
+            for c in w.descendants():
+                t = c.window_text().strip()
+                if not t:
+                    continue
+                if _eto_knopka(c):
+                    knopki.append(c.window_text().replace("&", "").strip())
+                elif len(teksty) < 6 and not w.window_text().startswith("ЕГАИС"):
+                    teksty.append(t[:200])
+            if w.window_text().startswith("ЕГАИС"):
+                continue  # главное окно/вход — не «всплывшее»
+            out.append(f"окно «{w.window_text().strip() or '(без заголовка)'}»"
+                       + (f": {' '.join(teksty)[:300]}" if teksty else "")
+                       + (f" [кнопки: {', '.join(knopki[:6])}]" if knopki else ""))
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#   Живучесть (3.1): ЕГАИС всегда закрывается, а прогон начинается заново
+# --------------------------------------------------------------------------- #
+ZHIZN = {"sami": False, "pidy": set(), "byl_otkryt": False}
+
+
+def pidy_egais():
+    """Процессы ЕГАИС: по окнам «ЕГАИС…» + те, что робот уже видел в этом
+    запуске (у зависшего процесса окна могут и не найтись)."""
+    try:
+        for w in okna_egais():
+            ZHIZN["pidy"].add(w.process_id())
+    except Exception:  # noqa: BLE001
+        pass
+    return set(ZHIZN["pidy"])
+
+
+def _process_zhiv(pid):
+    try:
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))  # QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        kod = ctypes.c_ulong()
+        ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(kod))
+        ctypes.windll.kernel32.CloseHandle(h)
+        return kod.value == 259  # STILL_ACTIVE
+    except Exception:  # noqa: BLE001
+        return False
+
+
+KNOPKI_DA = ("да", "yes", "ok", "ок", "выход", "выйти", "закрыть")
+
+
+def zakryt_egais(prichina=""):
+    """Закрывает ЕГАИС ПОЛНОСТЬЮ: сначала по-хорошему (крестик + «Да» на
+    вопрос «Выйти?»), через 10 секунд — снимает процесс. Возвращает True,
+    если после этого ни одного процесса ЕГАИС не осталось."""
+    pidy = pidy_egais()
+    if not pidy:
+        return True
+    log.info("Закрываю ЕГАИС%s…", f" ({prichina})" if prichina else "")
+    WM_CLOSE = 0x0010
+    try:
+        for w in okna_egais():
+            ctypes.windll.user32.PostMessageW(w.handle, WM_CLOSE, 0, 0)
+    except Exception:  # noqa: BLE001
+        pass
+    konec = time.time() + 10
+    while time.time() < konec and any(_process_zhiv(p) for p in pidy):
+        time.sleep(1)
+        try:  # «Вы действительно хотите выйти?» → Да
+            from pywinauto import Desktop
+            for w in Desktop(backend="win32").windows(visible_only=True):
+                if w.process_id() in pidy and not w.window_text().startswith("ЕГАИС"):
+                    for c in w.descendants():
+                        if _eto_knopka(c) and _tekst_knopki(c) in KNOPKI_DA:
+                            c.click()
+                            break
+        except Exception:  # noqa: BLE001
+            pass
+    for p in pidy:
+        if _process_zhiv(p):
+            log.warning("ЕГАИС (процесс %s) сам не закрылся — снимаю.", p)
+            try:
+                subprocess.run(["taskkill", "/PID", str(p), "/T", "/F"], capture_output=True, timeout=30)
+            except Exception as e:  # noqa: BLE001
+                log.warning("taskkill не сработал: %s", e)
+    time.sleep(2)
+    zhivye = [p for p in pidy if _process_zhiv(p)]
+    if zhivye:
+        log.error("ЕГАИС так и не закрылся (процессы %s).", zhivye)
+        return False
+    ZHIZN["pidy"].clear()
+    log.info("ЕГАИС закрыт.")
+    return True
 
 
 def soobshcheniya_oshibok(pid):
@@ -536,6 +680,7 @@ def zapustit_i_voyti(cfg):
 
     gl = glavnoe_okno()
     if gl:
+        ZHIZN["byl_otkryt"] = True
         log.info("ЕГАИС уже открыт и вход выполнен — беру готовое окно.")
         zakryt_vsplyvashki(gl.process_id())
         return gl, False
@@ -545,8 +690,9 @@ def zapustit_i_voyti(cfg):
         put = os.path.expandvars(cfg.get("egais", "yarlyk",
                                          fallback=r"%USERPROFILE%\Desktop\EGAIS.lnk"))
         if not Path(put).exists():
-            raise Oshibka(f"Не нашёл ярлык/программу ЕГАИС: {put} (поправь yarlyk в nastroyki.ini)")
+            raise OshibkaBezPovtora(f"Не нашёл ярлык/программу ЕГАИС: {put} (поправь yarlyk в nastroyki.ini)")
         log.info("Запускаю ЕГАИС: %s", put)
+        ZHIZN["sami"] = True
         os.startfile(put)  # noqa: S606 — .lnk тоже открывается
         vh = zhdat(ustoychivoe_okno, 180, chto="окно входа ЕГАИС")
         if "Пользователь" in vh.window_text():
@@ -592,7 +738,9 @@ def zapustit_i_voyti(cfg):
     except Oshibka:
         oshibki = soobshcheniya_oshibok(pid)
         skrin("vhod")
-        raise Oshibka("Вход в ЕГАИС не удался. " + ("; ".join(oshibki) or "Окно не появилось."))
+        if oshibki:  # ЕГАИС сам сказал «нет» (пароль?) — второй раз не ломимся
+            raise OshibkaBezPovtora("Вход в ЕГАИС не удался. " + "; ".join(oshibki))
+        raise Oshibka("Вход в ЕГАИС не удался. Окно не появилось.")
     # предупреждения вылезают через пару секунд после входа — ловим их
     zakryt_vsplyvashki(pid, zhdat_sek=15)
     return gl, True
@@ -668,6 +816,9 @@ def otkryt_reestr(gl):
 
 
 def _vkladka_otkryta(gl):
+    listy = [c for c in gl.descendants() if c.class_name() == "TcxTabSheet"]
+    if listy:  # вкладок может быть несколько (Склады, Наличие…) — нужна именно наша и активная
+        return any(OTCHET in c.window_text() and c.is_visible() for c in listy)
     for c in gl.descendants():
         try:
             if "datee" in c.class_name().lower():  # поля даты есть только на вкладке отчёта
@@ -1058,6 +1209,68 @@ def poluchit_dannye(gl, app_pid, minimum_sek, maksimum_sek):
     zakryt_vsplyvashki(app_pid)
 
 
+# --------------------------------------------------------------------------- #
+#   Excel за собой закрываем (3.2.2): ЕГАИС после выгрузки открывает файл в
+#   Excel, и к утру на экране висела пачка окон. Перед нажатием иконки
+#   запоминаем, какие книги уже были открыты (твои не трогаем), после —
+#   закрываем только новые, без сохранения (файл робот уже забрал).
+# --------------------------------------------------------------------------- #
+EXCEL_DO = {"knigi": None, "snyato": False}
+
+
+def _excel():
+    try:
+        import win32com.client
+        return win32com.client.GetActiveObject("Excel.Application")
+    except Exception:  # noqa: BLE001 — Excel не запущен
+        return None
+
+
+def zapomnit_excel():
+    xl = _excel()
+    knigi = None
+    if xl is not None:
+        try:
+            knigi = {str(wb.FullName).lower() for wb in xl.Workbooks}
+        except Exception:  # noqa: BLE001
+            knigi = set()
+    EXCEL_DO["knigi"], EXCEL_DO["snyato"] = knigi, True
+
+
+def zakryt_novye_knigi(zhdat_sek=20):
+    """Закрывает книги Excel, появившиеся после zapomnit_excel(). Excel мог
+    открыть файл с опозданием — ловим zhdat_sek секунд. Если Excel до робота
+    не был запущен и книг не осталось — закрываем и сам Excel."""
+    if not EXCEL_DO["snyato"]:
+        return 0
+    byli = EXCEL_DO["knigi"]
+    zakryto, konec, tiho = 0, time.time() + zhdat_sek, 0
+    while True:
+        xl = _excel()
+        nashel = False
+        if xl is not None:
+            try:
+                for wb in list(xl.Workbooks):
+                    if byli is None or str(wb.FullName).lower() not in byli:
+                        imya = str(wb.Name)
+                        xl.DisplayAlerts = False
+                        wb.Close(False)
+                        zakryto += 1
+                        nashel = True
+                        log.info("Закрыл окно Excel: %s", imya)
+                if xl.Workbooks.Count == 0 and (byli is None or zakryto):
+                    if byli is None or not byli:
+                        xl.Quit()
+                else:
+                    xl.DisplayAlerts = True
+            except Exception as e:  # noqa: BLE001 — Excel занят, попробуем ещё
+                log.info("Excel пока занят: %s", e)
+        tiho = 0 if nashel else tiho + 1
+        if time.time() >= konec or (zakryto and tiho >= 3):
+            return zakryto
+        time.sleep(2)
+
+
 def najat_excel(gl):
     """Кнопка «Сформировать Excel» — последняя иконка на панели вкладки
     (TdxBarControl «MainBar», по разведке L292–R451, T75–B99). Это панель
@@ -1065,6 +1278,7 @@ def najat_excel(gl):
     на экране по картинке ikonka_excel.png, не нашли — жмём в последнюю
     кнопку панели по её координатам."""
     import pyautogui
+    zapomnit_excel()
     poz = None
     for kwargs in ({"confidence": 0.8}, {}):
         try:
@@ -1122,6 +1336,17 @@ def dozhdatsya_excel(xl, wb, maks_sek=1200):
 
 
 def zabrat_fayl(pid, kuda, start, papki_poiska, sekund):
+    """Забрать файл выгрузки и закрыть за собой окно Excel, если ЕГАИС его открыл."""
+    try:
+        return _zabrat_fayl(pid, kuda, start, papki_poiska, sekund)
+    finally:
+        try:
+            zakryt_novye_knigi()
+        except Exception as e:  # noqa: BLE001
+            log.info("Закрытие окон Excel: %s", e)
+
+
+def _zabrat_fayl(pid, kuda, start, papki_poiska, sekund):
     """Ждём, что сделает ЕГАИС после кнопки Excel, и забираем файл:
     а) диалог «Сохранить как» — вписываем наш путь;
     б) открылся Excel с новой книгой — сохраняем её через Excel;
@@ -1267,6 +1492,306 @@ def zalit_v_lesovod(cfg, put):
     raise Oshibka("Лесовод разбирает файл дольше 30 минут — проверь на сайте.")
 
 
+def zalit_s_povtorami(cfg, put, popytok=3):
+    """Лесовод мог моргнуть (перезапуск, сеть) — пробуем залить несколько раз
+    с паузой. Не вышло — это уже не повод гонять ЕГАИС заново: файл лежит."""
+    posl = None
+    for n in range(1, popytok + 1):
+        try:
+            return zalit_v_lesovod(cfg, put)
+        except Oshibka as e:
+            posl = e
+        except Exception as e:  # noqa: BLE001 — сеть, таймаут, кривой ответ
+            posl = Oshibka(f"Лесовод не отвечает: {e}")
+        log.warning("Заливка в Лесовод, попытка %d из %d: %s", n, popytok, posl)
+        if n < popytok:
+            time.sleep(60 * n)
+    raise OshibkaBezPovtora(f"{posl} Файл выгружен и лежит здесь: {put}")
+
+
+# --------------------------------------------------------------------------- #
+#   Склады и наличие продукции (3.2): «Склад → Склады» и «Склад → Наличие
+#   продукции на складах». По разведке ПК Влада 11.11.2026 (ЕГАИС 1.0.43.12):
+#   формы TfrmStorages и TfrmStorageBalance, на каждой своя «Получить F7»
+#   и панель MainBar с иконкой Excel.
+# --------------------------------------------------------------------------- #
+DOP_OTCHETY = [
+    # ключ, пункт меню «Склад → …», класс формы вкладки, имя файла
+    ("sklady", "Склады", "TfrmStorages", "egais_sklady"),
+    ("nalichie", "Наличие продукции на складах", "TfrmStorageBalance", "egais_nalichie"),
+]
+
+
+def _forma(gl, klass):
+    """Форма вкладки, если вкладка открыта И активна (видна)."""
+    for c in gl.descendants():
+        try:
+            if c.class_name() == klass and c.is_visible():
+                return c
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
+def otkryt_vkladku(gl, punkt_menyu, klass):
+    """Открывает (или делает активной) вкладку из ветки меню «Склад»."""
+    from pywinauto.keyboard import send_keys
+    zakryt_vsplyvashki(gl.process_id())
+    gl.set_focus()
+    if gl.get_show_state() != 3:
+        gl.maximize()
+    time.sleep(1)
+    f = _forma(gl, klass)
+    if f is not None:
+        return f
+    for c in gl.descendants():
+        if "treeview" not in c.class_name().lower():
+            continue
+        try:
+            from pywinauto.controls.common_controls import TreeViewWrapper
+            tv = TreeViewWrapper(c.handle)
+            for koren in tv.roots():
+                if koren.text().strip() != "Склад":
+                    continue
+                koren.expand()
+                for el in koren.children():
+                    if el.text().strip() == punkt_menyu:
+                        el.ensure_visible()
+                        el.select()
+                        el.click_input(double=True)
+                        time.sleep(3)
+                        if _forma(gl, klass) is None:
+                            send_keys("{ENTER}")
+                            time.sleep(3)
+                        break
+        except Exception as e:  # noqa: BLE001
+            log.info("Дерево не дало открыть «%s»: %s", punkt_menyu, e)
+        f = _forma(gl, klass)
+        if f is not None:
+            return f
+    skrin("menyu_" + klass)
+    raise Oshibka(f"Не смог открыть «Склад → {punkt_menyu}».")
+
+
+def ochistit_datu_otkrytiya(forma):
+    """«Склады»: поле «Дата открытия с» должно быть ПУСТЫМ — иначе склады,
+    открытые в прошлые годы (а на них лежит лес), в выборку не попадут.
+    Поле — самый левый TcxDateEdit формы (правее него «по» = сегодня)."""
+    import pyautogui
+    from pywinauto.keyboard import send_keys
+    polya = sorted((c for c in forma.descendants() if c.class_name() == "TcxDateEdit" and _na_ekrane(c)),
+                   key=lambda c: c.rectangle().left)
+    if len(polya) < 2:
+        raise Oshibka("На вкладке «Склады» не нашёл поля «Дата открытия с … по …».")
+    pole = polya[0]
+
+    def pusto():
+        return not any(ch.isdigit() for ch in pole.window_text())
+
+    if pusto():
+        return "и так пусто"
+    bylo = pole.window_text().strip()
+    vnutr = (pole.children() or [pole])[0]
+    r = pole.rectangle()
+    sposoby = [
+        ("Home+Shift+End, Delete", lambda: (vnutr.click_input(), send_keys("{HOME}+{END}{DELETE}{TAB}"))),
+        ("ластик в поле", lambda: pyautogui.click(r.right - 11, (r.top + r.bottom) // 2)),
+        ("Delete по символам", lambda: (vnutr.click_input(), send_keys("{HOME}" + "{DELETE}" * 10 + "{TAB}"))),
+    ]
+    for imya, sdelat in sposoby:
+        try:
+            sdelat()
+        except Exception as e:  # noqa: BLE001
+            log.info("Очистка даты, способ «%s» не применим: %s", imya, e)
+            continue
+        time.sleep(0.7)
+        if pusto():
+            log.info("«Дата открытия с» очищена (было %s, способ: %s).", bylo, imya)
+            return f"стёр {bylo}"
+        log.info("Очистка даты, способ «%s» не сработал: в поле «%s».", imya, pole.window_text())
+    skrin("data_otkrytiya")
+    raise Oshibka(f"Не смог стереть «Дата открытия с» на вкладке «Склады» (в поле «{pole.window_text().strip()}»).")
+
+
+def poluchit_na_vkladke(gl, forma, pid, minimum_sek=8, maksimum_sek=900):
+    """«Получить F7» на конкретной вкладке и ожидание загрузки."""
+    import pywinauto.mouse as mouse
+    zakryt_vsplyvashki(pid)
+    knopka = next((c for c in forma.descendants() if c.class_name() == "TButton"
+                   and c.window_text().startswith("Получить") and _na_ekrane(c)), None)
+    if knopka is None:
+        raise Oshibka("На вкладке не нашёл кнопку «Получить».")
+    knopka.click_input()
+    start = time.time()
+    tabl = next((c for c in forma.descendants() if c.class_name() == "TcxGridSite" and _na_ekrane(c)), None)
+    if tabl is not None:
+        r = tabl.rectangle()
+        mouse.move(coords=((r.left + r.right) // 2, (r.top + r.bottom) // 2))
+    stabilno = 0
+    while time.time() - start < maksimum_sek:
+        time.sleep(2)
+        okna = vsplyvshie_okna(pid)
+        if okna:
+            for o in okna:
+                zakryt_okno(o, "okno_posle_poluchit")
+            o = okna[0]
+            raise Oshibka(f"После «Получить» ЕГАИС показал окно «{o['zagolovok']}»: "
+                          f"{o['tekst'] or '(текст не прочитался, см. скрин в logi)'}")
+        try:
+            gotov = _otvechaet(gl.handle) and knopka.is_enabled() and not _kursor_zanyat()
+        except Exception:  # noqa: BLE001
+            gotov = False
+        stabilno = stabilno + 1 if gotov else 0
+        if time.time() - start >= minimum_sek and stabilno >= 4:
+            return int(time.time() - start)
+    log.warning("ЕГАИС грузит дольше %d с — выгружаю что есть.", maksimum_sek)
+    return int(time.time() - start)
+
+
+def najat_excel_na_vkladke(forma):
+    """Иконка Excel на панели MainBar ИМЕННО этой вкладки: ищем картинку
+    только в полосе панели (на «Складах» Excel — не последняя кнопка)."""
+    import pyautogui
+    zapomnit_excel()
+    panel = next((c for c in forma.descendants() if c.class_name() == "TdxBarControl"
+                  and c.window_text() == "MainBar" and _na_ekrane(c)), None)
+    if panel is None:
+        raise Oshibka("Не нашёл панель кнопок вкладки (MainBar).")
+    r = panel.rectangle()
+    oblast = (max(r.left - 4, 0), max(r.top - 4, 0), r.width() + 8, r.height() + 8)
+    for kwargs in ({"confidence": 0.8}, {"confidence": 0.7}, {}):
+        try:
+            poz = pyautogui.locateCenterOnScreen(str(PAPKA / "ikonka_excel.png"), region=oblast, **kwargs)
+        except Exception:  # noqa: BLE001
+            poz = None
+        if poz:
+            pyautogui.click(poz)
+            log.info("Нажал Excel по картинке в точке %s.", poz)
+            return
+    skrin("net_knopki_excel")
+    raise Oshibka("Не нашёл иконку Excel на панели вкладки.")
+
+
+def opisat_fayl(put, strok_primera=3):
+    """Сколько строк в файле и что в нём за колонки (шапка + пример)."""
+    import openpyxl
+    wb = openpyxl.load_workbook(put, read_only=True, data_only=True)
+    ws = wb.worksheets[0]
+    nachalo, strok = [], 0
+    for r in ws.iter_rows(values_only=True):
+        if not any(v is not None and str(v).strip() for v in r):
+            continue
+        strok += 1
+        if len(nachalo) < 1 + strok_primera:
+            nachalo.append(["" if v is None else str(v).strip() for v in r])
+    wb.close()
+    return max(strok - 1, 0), nachalo
+
+
+def zalit_sklady_v_lesovod(cfg, put):
+    """Файл «Склады» / «Наличие» → Лесовод (POST /api/raskhod/egais/sklady/import)."""
+    url = cfg.get("lesovod", "url").rstrip("/")
+    ses = _http(cfg)
+    h = {"Authorization": f"Bearer {lesovod_login(cfg)}"}
+    try:
+        with open(put, "rb") as f:
+            r = ses.post(f"{url}/api/raskhod/egais/sklady/import", headers=h, timeout=300,
+                         files={"file": (put.name, f,
+                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    finally:
+        try:
+            ses.post(f"{url}/api/auth/logout", headers=h, timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+    if r.status_code in (404, 405):
+        raise Oshibka("сервер Лесовода ещё не умеет принимать склады — нужно обновление сервера")
+    if r.status_code != 200:
+        raise Oshibka(f"Лесовод не принял файл {put.name} ({r.status_code}): {r.text[:300]}")
+    return r.json()
+
+
+def vygruzit_sklady(cfg, gl, pid, zalivat):
+    """«Склады» и «Наличие продукции на складах»: выгрузить оба отчёта в папку
+    выгрузок и (если zalivat) залить в Лесовод. На «Складах» стирается «Дата
+    открытия с»; остальные фильтры — как ЕГАИС подставил сам."""
+    papka_vyg = Path(os.path.expandvars(cfg.get("obshchee", "papka_vygruzok", fallback=str(PAPKA / "vygruzki"))))
+    papki_poiska = [os.path.expandvars(p.strip()) for p in cfg.get(
+        "obshchee", "papki_poiska",
+        fallback=r"C:\EGAIS\Temp;%USERPROFILE%\Downloads;%USERPROFILE%\Documents;%USERPROFILE%\Desktop;%TEMP%").split(";")]
+    segodnya = dt.date.today()
+    opisanie = [f"Робот ЕГАИС v{VERSIYA} — что лежит в выгрузках складов, {dt.datetime.now():%d.%m.%Y %H:%M}", ""]
+    itogi = []
+    for klyuch, punkt, klass, imya in DOP_OTCHETY:
+        kuda = papka_vyg / f"{imya}_{segodnya:%Y-%m-%d}.xlsx"
+        with HOD.shag(f"Вкладка «{punkt}»"):
+            forma = otkryt_vkladku(gl, punkt, klass)
+        if klyuch == "sklady":
+            with HOD.shag("«Склады»: дата открытия пустая (все годы)") as sh:
+                sh.detal(ochistit_datu_otkrytiya(forma))
+        with HOD.shag(f"«{punkt}»: получить данные") as sh:
+            sek = poluchit_na_vkladke(gl, forma, pid)
+            sh.detal(f"загрузка {sek} с")
+        with HOD.shag(f"«{punkt}»: файл Excel") as sh:
+            start = time.time()
+            najat_excel_na_vkladke(forma)
+            zabrat_fayl(pid, kuda, start, papki_poiska, sekund=600)
+            strok, nachalo = opisat_fayl(kuda)
+            sh.detal(f"{strok} строк → {kuda}")
+        if klyuch == "sklady" and strok == 0:
+            raise Oshibka("ЕГАИС отдал пустой список складов.")
+        opisanie.append(f"=== {punkt}: {strok} строк, файл {kuda.name}")
+        for i, r in enumerate(nachalo):
+            opisanie.append(("КОЛОНКИ: " if i == 0 else f"строка {i}: ") + " | ".join(r))
+        opisanie.append("")
+        it = {"klyuch": klyuch, "strok": strok, "fayl": str(kuda)}
+        if zalivat:
+            with HOD.shag(f"«{punkt}»: заливка в Лесовод") as sh:
+                it["lesovod"] = zalit_sklady_v_lesovod(cfg, kuda)
+                sh.detal(", ".join(f"{k}: {v}" for k, v in it["lesovod"].items() if k != "vid"))
+        itogi.append(it)
+    (PAPKA / "sklady_kolonki.txt").write_text("\n".join(opisanie), encoding="utf-8")
+    for f in papka_vyg.glob("egais_sklady_*.xlsx"):
+        _ubrat_staryy(cfg, f)
+    for f in papka_vyg.glob("egais_nalichie_*.xlsx"):
+        _ubrat_staryy(cfg, f)
+    return itogi
+
+
+def _ubrat_staryy(cfg, f):
+    try:
+        if time.time() - f.stat().st_mtime > cfg.getint("obshchee", "hranit_dney", fallback=30) * 86400:
+            f.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def tekst_skladov(itogi):
+    po = {i["klyuch"]: i for i in itogi}
+    chasti = []
+    if "sklady" in po:
+        l = po["sklady"].get("lesovod") or {}
+        chasti.append(f"складов {l.get('skladov', po['sklady']['strok'])}"
+                      + (f" (новых {l['novyh']})" if l.get("novyh") else ""))
+    if "nalichie" in po:
+        l = po["nalichie"].get("lesovod") or {}
+        chasti.append(f"на складах лежит {l['m3']:g} м³" if "m3" in l else f"наличие {po['nalichie']['strok']} строк")
+    return "Склады: " + ", ".join(chasti) + "."
+
+
+def progon_sklady(cfg, bez_zagruzki=False):
+    """Только склады (vygruzit_sklady.bat): вход в ЕГАИС + оба отчёта."""
+    with HOD.shag("Экран Windows"):
+        if ekran_zablokirovan():
+            raise OshibkaBezPovtora("Экран Windows заблокирован — робот не может нажимать кнопки.")
+    with HOD.shag("Вход в ЕГАИС") as sh:
+        gl, sami = zapustit_i_voyti(cfg)
+        sh.detal("открыл и вошёл" if sami else "ЕГАИС уже был открыт")
+    pid = gl.process_id()
+    ZHIZN["pidy"].add(pid)
+    zalivat = not bez_zagruzki and bool(cfg.get("lesovod", "login", fallback="").strip())
+    return vygruzit_sklady(cfg, gl, pid, zalivat)
+
+
 # --------------------------------------------------------------------------- #
 #   Разведка
 # --------------------------------------------------------------------------- #
@@ -1310,13 +1835,14 @@ def _strok_v_proshlyy_raz(st, god):
 def progon(cfg, bez_zagruzki=False):
     with HOD.shag("Экран Windows"):
         if ekran_zablokirovan():
-            raise Oshibka("Экран Windows заблокирован — робот не может нажимать кнопки.")
+            raise OshibkaBezPovtora("Экран Windows заблокирован — робот не может нажимать кнопки.")
 
     segodnya = dt.date.today()
     with HOD.shag("Вход в ЕГАИС") as sh:
         gl, zapuskali_sami = zapustit_i_voyti(cfg)
         sh.detal("открыл и вошёл" if zapuskali_sami else "ЕГАИС уже был открыт")
     pid = gl.process_id()
+    ZHIZN["pidy"].add(pid)
     with HOD.shag("Вкладка «Реестр движения по складам»"):
         otkryt_reestr(gl)
 
@@ -1376,7 +1902,7 @@ def progon(cfg, bez_zagruzki=False):
         itog = {}
         if zalivat:
             with HOD.shag("Заливка в Лесовод") as sh:
-                itog = zalit_v_lesovod(cfg, kuda)
+                itog = zalit_s_povtorami(cfg, kuda)
                 sh.detal(f"новых {itog.get('journal_rows_added', 0)}, "
                          f"обновлено {itog.get('journal_rows_replaced', 0)}")
             log.info("Лесовод: строк в журнале %s, новых %s, заменено %s.",
@@ -1387,6 +1913,15 @@ def progon(cfg, bez_zagruzki=False):
             log.info("Заливка в Лесовод выключена — файл лежит в %s", kuda)
         po_godam[str(s.year)] = strok
         itogi.append({"god": s.year, "period": metka, "strok": strok, **itog})
+
+    # склады и остатки — после реестра; их сбой не отменяет уже залитый реестр
+    if cfg.getboolean("egais", "sklady", fallback=True):
+        try:
+            ZAMETKI.append(tekst_skladov(vygruzit_sklady(cfg, gl, pid, bool(zalivat))).rstrip("."))
+        except Exception as e:  # noqa: BLE001
+            log.error("Склады не выгрузились: %s", e if isinstance(e, Oshibka) else traceback.format_exc())
+            skrin("sklady")
+            ZAMETKI.append(f"⚠ склады и остатки НЕ обновились: {e}")
 
     posledniy = itogi[-1]
     SOSTOYANIE.write_text(json.dumps({
@@ -1401,11 +1936,6 @@ def progon(cfg, bez_zagruzki=False):
         if time.time() - f.stat().st_mtime > hranit * 86400:
             f.unlink(missing_ok=True)
 
-    if zapuskali_sami and cfg.getboolean("egais", "zakryvat_posle", fallback=True):
-        try:
-            gl.close()
-        except Exception:  # noqa: BLE001
-            pass
     return itogi
 
 
@@ -1868,6 +2398,8 @@ def main():
     ap.add_argument("--nastroit", action="store_true")
     ap.add_argument("--razvedka", action="store_true")
     ap.add_argument("--bez-zagruzki", action="store_true")
+    ap.add_argument("--sklady", action="store_true",
+                    help="выгрузить «Склады» и «Наличие продукции на складах» в папку выгрузок")
     ap.add_argument("--proverka", action="store_true", help="проверить расписание, сон, экран, пароли")
     ap.add_argument("--raspisanie", nargs="?", const="20:00", metavar="ЧЧ:ММ",
                     help="(пере)создать задачу Планировщика")
@@ -1925,28 +2457,82 @@ def main():
                                             f"вручную (кнопка «Пропустить сегодня»).")
             return 0
 
-    ok, tekst = False, ""
-    try:
-        itogi = progon(cfg, bez_zagruzki=a.bez_zagruzki)
-        ok = True
-        tekst = _tekst_uspeha(itogi)
-        if ZAMETKI:
-            tekst += " " + "; ".join(dict.fromkeys(ZAMETKI)) + "."
-        log.info("=== Выгрузка ЕГАИС: готово ===")
-    except Oshibka as e:
-        log.error("ОШИБКА: %s", e)
-        tekst = str(e)
-    except Exception:  # noqa: BLE001
-        log.error("Непредвиденная ошибка:\n%s", traceback.format_exc())
-        tekst = "непредвиденная ошибка, подробности в логе"
-        skrin("nepredvidennaya")
+    global HOD
+    zagruzit_pravila_okon(cfg)
+    popytok = max(1, cfg.getint("obshchee", "popytok", fallback=3))
+    zakryvat = cfg.getboolean("egais", "zakryvat_posle", fallback=True)
+    ok, tekst, proshlye = False, "", []
+    for popytka in range(1, popytok + 1):
+        if popytka > 1:
+            HOD = Hod()
+            log.info("=== Попытка %d из %d: начинаю с чистого листа ===", popytka, popytok)
+        povtoryat = True
+        try:
+            if a.sklady:
+                itogi = progon_sklady(cfg, bez_zagruzki=a.bez_zagruzki)
+                tekst = tekst_skladov(itogi) + (" В Лесовод залито." if any("lesovod" in i for i in itogi)
+                                                 else " В Лесовод НЕ заливал — файлы в папке выгрузок.")
+            else:
+                itogi = progon(cfg, bez_zagruzki=a.bez_zagruzki)
+                tekst = _tekst_uspeha(itogi)
+            ok = True
+            if ZAMETKI:
+                tekst += " " + "; ".join(dict.fromkeys(ZAMETKI)) + "."
+            if popytka > 1:
+                tekst += f" Получилось с попытки {popytka} (до этого: {'; '.join(proshlye)})."
+            log.info("=== Выгрузка ЕГАИС: готово ===")
+        except OshibkaBezPovtora as e:
+            log.error("ОШИБКА: %s", e)
+            tekst, povtoryat = str(e), False
+        except Oshibka as e:
+            log.error("ОШИБКА: %s", e)
+            tekst = str(e)
+        except Exception:  # noqa: BLE001
+            log.error("Непредвиденная ошибка:\n%s", traceback.format_exc())
+            tekst = "непредвиденная ошибка, подробности в логе"
+            skrin("nepredvidennaya")
+        if ok:
+            break
+        # что было на экране в момент падения — в лог и в отчёт
+        try:
+            okna = opisat_okna()
+        except Exception:  # noqa: BLE001
+            okna = []
+        if okna:
+            skrin("okna_pri_oshibke")
+            log.warning("На экране у ЕГАИС: %s", " | ".join(okna))
+            tekst += " На экране было: " + " | ".join(okna)[:600] + "."
+        proshlye.append(f"попытка {popytka} — шаг «{HOD.gde_upal() or '?'}»")
+        if not povtoryat or popytka == popytok:
+            break
+        # заново: ЕГАИС закрываем целиком (и зависший, и «уже открытый») и стартуем с нуля
+        zakryt_egais("перезапуск после ошибки")
+        ZHIZN["sami"] = True
+        time.sleep(15 * popytka)
+
+    try:  # окно Excel могло открыться с опозданием — добираем
+        zakryt_novye_knigi(zhdat_sek=6)
+    except Exception as e:  # noqa: BLE001
+        log.info("Закрытие окон Excel: %s", e)
+
+    # ЕГАИС после робота не должен оставаться висеть: закрываем, если робот
+    # открывал его сам (в том числе после перезапуска) — и при успехе, и при ошибке
+    if ZHIZN["sami"] and zakryvat:
+        try:
+            if not zakryt_egais("конец прогона"):
+                ZAMETKI.append("ЕГАИС не удалось закрыть")
+                tekst += " ЕГАИС не удалось закрыть — закрой руками."
+        except Exception as e:  # noqa: BLE001
+            log.warning("Закрытие ЕГАИС: %s", e)
+    if not ok and len(proshlye) > 1:
+        tekst += f" Пробовал {len(proshlye)} раза: {'; '.join(proshlye)}."
 
     otchet = HOD.otchet(ok, tekst, rezhim)
     REZULTAT.write_text(otchet, encoding="utf-8")
     log.info("Итог:\n%s", otchet)
     upal = HOD.gde_upal()
     zapisat_istoriyu(ok, tekst if ok else f"шаг «{upal or '?'}»: {tekst}")
-    if not a.bez_zagruzki:
+    if not a.bez_zagruzki and not a.sklady:
         if ok:
             soobshchit_v_lesovod(cfg, True, tekst)
         else:

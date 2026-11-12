@@ -240,7 +240,7 @@ function MobileCard() {
 
   useEffect(() => {
     if (!qrOpen) return;
-    QRCode.toDataURL(origin, { margin: 1, width: 240, color: { dark: "#1a4331", light: "#ffffff" } })
+    QRCode.toDataURL(origin, { margin: 1, width: 240, color: { dark: "var(--color-pine)", light: "var(--color-surface)" } })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(null));
   }, [qrOpen, origin]);
@@ -425,7 +425,7 @@ function UsersCard() {
             "text-xs font-semibold rounded-full px-2.5 py-1 border",
             u.is_active
               ? "border-pine text-pine bg-mint-soft hover:bg-mint"
-              : "border-error text-error bg-error-soft hover:bg-error-soft/70",
+              : "border-error text-error bg-error-soft hover:bg-[color-mix(in_srgb,var(--color-error-soft)_70%,transparent)]",
           ].join(" ")}
         >
           {u.is_active ? "Активен" : "Отключён"}
@@ -823,7 +823,7 @@ export default function Settings({ currentUser }) {
       </div>
 
       {loadError && (
-        <Card className="border-error/40">
+        <Card className="border-[var(--c-error-line)]">
           <p className="text-error text-base">{loadError}</p>
         </Card>
       )}

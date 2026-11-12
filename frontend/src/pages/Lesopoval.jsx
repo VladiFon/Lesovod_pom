@@ -18,8 +18,8 @@ import { openScreen } from "../nav.js";
  */
 
 const C = {
-  pine: "#1a4331", leaf: "#3f7d4e", moss: "#eaf7ec", line: "#e5e2db", muted: "#565f59", ink: "#1c1c18",
-  gold: "#b07d0c", goldSoft: "#fbf1d6", danger: "#ba1a1a", dangerSoft: "#fdecea", wood: "#9a6a3a", woodSoft: "#f6ede2",
+  pine: "var(--color-pine)", leaf: "var(--c-green-2)", moss: "var(--color-mint-soft)", line: "var(--color-border)", muted: "var(--color-muted-2)", ink: "var(--color-ink)",
+  gold: "var(--c-gold)", goldSoft: "var(--c-gold-soft)", danger: "var(--color-error)", dangerSoft: "var(--c-error-soft-2)", wood: "#9a6a3a", woodSoft: "#f6ede2",
 };
 const SORT = [["KR", "Крупная"], ["SR", "Средняя"], ["ML", "Мелкая"], ["DROVA", "Дрова"]];
 const SORT_L = Object.fromEntries(SORT);
@@ -51,7 +51,7 @@ function OsvoenieBar({ it }) {
         <b style={{ color: lv.c }}>🪓 Срублено {f1(it.fakt)} из {f1(it.limit)} м³ · {Math.round(pct)}% — {lv.t}</b>
         <span style={{ color: C.muted }}>наряд {f1(it.fakt_naryad)} · ЕГАИС {f1(it.fakt_egais)}</span>
       </div>
-      <div style={{ position: "relative", height: 14, borderRadius: 7, background: "#fff", overflow: "hidden", border: `1px solid ${C.line}` }}>
+      <div style={{ position: "relative", height: 14, borderRadius: 7, background: "var(--color-surface)", overflow: "hidden", border: `1px solid ${C.line}` }}>
         <div style={{ width: `${Math.min(100, (pct / 110) * 100)}%`, height: "100%", background: lv.c }} />
         {[90, 100].map((p) => (
           <div key={p} style={{ position: "absolute", left: `${(p / 110) * 100}%`, top: 0, bottom: 0, width: 2, background: p === 100 ? C.danger : C.gold }} />
@@ -78,7 +78,7 @@ function Shtabel({ poroda, code, b, vybran, onPick }) {
   return (
     <button type="button" onClick={() => onPick(poroda, code)} title={`${poroda} · ${SORT_L[code]}: лимит ${f1(limit)}, срублено ${f1(fakt)} (наряд ${f1(b.fakt)}, ЕГАИС ${f1(b.fakt_egais)}). Клик — в наряд`}
       style={{
-        textAlign: "left", padding: 8, borderRadius: 10, background: vybran ? C.woodSoft : "#fff",
+        textAlign: "left", padding: 8, borderRadius: 10, background: vybran ? C.woodSoft : "var(--color-surface)",
         border: `1.5px solid ${vybran ? C.wood : C.line}`, display: "flex", flexDirection: "column", gap: 4, minWidth: 0,
       }}>
       <div style={{ display: "flex", flexWrap: "wrap-reverse", gap: 2, width: 60 }}>
@@ -207,7 +207,7 @@ export default function Lesopoval({ delyanka, onClose, onSaved }) {
             {items.map((it) => (
               <button key={it.item_id} type="button" onClick={() => setItemId(it.item_id)} style={{
                 padding: "4px 12px", borderRadius: 999, fontSize: 13, fontWeight: 600,
-                background: it.item_id === itemId ? C.pine : "#fff", color: it.item_id === itemId ? "#fff" : C.pine, border: `1px solid ${C.pine}`,
+                background: it.item_id === itemId ? C.pine : "var(--color-surface)", color: it.item_id === itemId ? "#fff" : C.pine, border: `1px solid ${C.pine}`,
               }}>{it.label}</button>
             ))}
           </div>
@@ -247,15 +247,15 @@ export default function Lesopoval({ delyanka, onClose, onSaved }) {
                 <>
                   <div className="flex flex-wrap items-center" style={{ gap: 6, marginBottom: 8 }}>
                     <input value={data} onChange={(e) => setData(e.target.value)} placeholder="ДД.ММ.ГГГГ" aria-label="Дата наряда"
-                      style={{ width: 110, padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }} />
-                    <button type="button" onClick={() => setData(ruDate(new Date()))} style={{ fontSize: 12, padding: "3px 8px", borderRadius: 999, background: "#fff", border: `1px solid ${C.line}` }}>сегодня</button>
-                    <button type="button" onClick={() => setData(ruDate(vchera))} style={{ fontSize: 12, padding: "3px 8px", borderRadius: 999, background: "#fff", border: `1px solid ${C.line}` }}>вчера</button>
+                      style={{ width: 110, padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, background: "var(--color-surface)" }} />
+                    <button type="button" onClick={() => setData(ruDate(new Date()))} style={{ fontSize: 12, padding: "3px 8px", borderRadius: 999, background: "var(--color-surface)", border: `1px solid ${C.line}` }}>сегодня</button>
+                    <button type="button" onClick={() => setData(ruDate(vchera))} style={{ fontSize: 12, padding: "3px 8px", borderRadius: 999, background: "var(--color-surface)", border: `1px solid ${C.line}` }}>вчера</button>
                     <span style={{ fontSize: 13, color: C.muted }}>№</span>
                     <input value={nomer} onChange={(e) => setNomer(e.target.value)} aria-label="Номер наряда"
-                      style={{ width: 56, padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }} />
+                      style={{ width: 56, padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, background: "var(--color-surface)" }} />
                     <span style={{ fontSize: 13, color: C.muted }}>га</span>
                     <input value={ploshad} onChange={(e) => setPloshad(e.target.value)} aria-label="Площадь наряда" placeholder="авто"
-                      style={{ width: 64, padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }} />
+                      style={{ width: 64, padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, background: "var(--color-surface)" }} />
                   </div>
                   {poz.length === 0 && <div style={{ fontSize: 13, color: C.muted }}>👈 Кликни штабель (порода × сортимент), который рубили</div>}
                   {poz.map((p, i) => (
@@ -264,7 +264,7 @@ export default function Lesopoval({ delyanka, onClose, onSaved }) {
                       <input autoFocus={i === poz.length - 1} value={p.obyom} onChange={(e) => setObyom(i, e.target.value)} inputMode="decimal" placeholder="м³"
                         aria-label={`Объём ${p.poroda} ${SORT_L[p.sortiment]}`}
                         onKeyDown={(e) => { if (e.key === "Enter") save(); }}
-                        style={{ width: 80, padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff", textAlign: "right" }} />
+                        style={{ width: 80, padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, background: "var(--color-surface)", textAlign: "right" }} />
                       <button type="button" onClick={() => pick(p.poroda, p.sortiment)} aria-label="Убрать" style={{ color: C.muted, padding: "0 4px" }}>×</button>
                     </div>
                   ))}

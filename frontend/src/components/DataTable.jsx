@@ -77,7 +77,7 @@ export default function DataTable({
   }
 
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden shadow-card">
       <table className="w-full text-base border-collapse">
         <thead>
           <tr className="bg-surface-alt border-b border-border">
@@ -99,7 +99,7 @@ export default function DataTable({
                 style={col.width ? { width: col.width } : undefined}
                 onClick={() => toggleSort(col.key, col.sortable)}
                 className={[
-                  "px-4 py-[9px] text-left text-[11.5px] font-medium text-muted-2 select-none",
+                  "px-4 py-[10px] text-left text-[10.5px] font-bold uppercase tracking-[.06em] text-muted-2 select-none whitespace-nowrap",
                   col.sortable ? "cursor-pointer hover:text-pine" : "",
                 ].join(" ")}
               >
@@ -135,7 +135,7 @@ export default function DataTable({
                     className={[
                       "border-b border-hover last:border-b-0 transition-colors",
                       onRowClick ? "cursor-pointer" : "",
-                      isSelected ? "bg-mint-soft" : "hover:bg-[#faf8f2]",
+                      isSelected ? "bg-mint-soft" : onRowClick ? "hover:bg-[var(--c-mint-softer)]" : "hover:bg-[#faf8f2]",
                     ].join(" ")}
                   >
                     {selectable && (
@@ -149,8 +149,8 @@ export default function DataTable({
                         />
                       </td>
                     )}
-                    {columns.map((col) => (
-                      <td key={col.key} className="px-4 py-2.5 text-ink text-[13.5px]">
+                    {columns.map((col, ci) => (
+                      <td key={col.key} className={["px-4 py-3 text-ink text-[13.5px]", ci === 0 ? "font-semibold" : ""].join(" ")}>
                         {col.render ? col.render(row) : ruDate(row[col.key])}
                       </td>
                     ))}

@@ -27,7 +27,7 @@ export default function Modal({ open, onClose, title, footer, size = "md", child
     // самый верхний слой интерфейса, так что берём z с явным запасом.
     <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-pine-deep/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-[#002d1c]/40 backdrop-blur-[2px]"
         onClick={onClose}
         aria-hidden="true"
       />

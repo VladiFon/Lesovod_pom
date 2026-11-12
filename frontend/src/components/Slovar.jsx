@@ -38,7 +38,7 @@ export default function SlovarButton() {
         type="button"
         title="Словарь сокращений и подсказки"
         onClick={() => setOpen(true)}
-        style={{ height: 30, width: 30, borderRadius: 999, border: "1px solid #e5e2db", background: "#fff", color: "#1a4331", fontWeight: 800, cursor: "pointer" }}
+        style={{ height: 30, width: 30, borderRadius: 999, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-pine)", fontWeight: 800, cursor: "pointer" }}
       >
         ?
       </button>

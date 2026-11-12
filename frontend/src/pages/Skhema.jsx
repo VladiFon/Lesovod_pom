@@ -242,7 +242,7 @@ function Uzel({ u, cifry, rol, bok }) {
 }
 
 function Strelka() {
-  return <span aria-hidden className="self-center text-pine/60 text-[20px] font-bold px-0.5">›</span>;
+  return <span aria-hidden className="self-center text-[#1a4331]/60 text-[20px] font-bold px-0.5">›</span>;
 }
 
 export default function Skhema() {

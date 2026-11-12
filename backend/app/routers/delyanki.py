@@ -194,6 +194,13 @@ def get_delyanki_by_location(kvartal: str, vydel: str, lesnichestvo: Optional[st
     return [dict(zip(cols, r)) for r in rows]
 
 
+@router.get("/{delyanka_id}/foto")
+def get_delyanka_foto(delyanka_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Фотолента делянки: отчёты, работы и метки с фото (app/fotolenta.py)."""
+    from app import fotolenta
+    return fotolenta.foto_delyanki(conn, delyanka_id)
+
+
 @router.get("/{delyanka_id}")
 def get_delyanka(delyanka_id: int, conn=Depends(get_conn)):
     d, items = delyanka.get_delyanka_full(conn, delyanka_id)
@@ -231,11 +238,11 @@ def delete_delyanka(delyanka_id: int, user=Depends(require_permission("delyanka.
         raise HTTPException(404, "Делянка не найдена")
     # Сначала в корзину (можно вернуть 30 дней), потом прежнее удаление.
     snap = korzina.snapshot_delyanka(conn, delyanka_id)
-    korzina.polozhit(conn, "delyanka", delyanka_id, d.get("nazvanie"),
+    korzina_id = korzina.polozhit(conn, "delyanka", delyanka_id, d.get("nazvanie"),
                      snap, user["login"])
     korzina.otvyazat(conn, snap)
     delyanka.delete_delyanka(conn, delyanka_id)
-    return {"ok": True, "v_korzine": True}
+    return {"ok": True, "v_korzine": True, "korzina_id": korzina_id}
 
 
 @router.post("/{delyanka_id}/archive")
@@ -364,6 +371,26 @@ def _item_for_kontur(conn, item_id: int):
     if row is None:
         raise HTTPException(404, "Выдел делянки не найден")
     return row
+
+
+@router.get("/items/{item_id}/sosedi")
+def get_item_sosedi(item_id: int, bbox: str, conn=Depends(get_conn), _user=Depends(get_current_user)):
+    """Соседние выдела и кварталы для абриса — окно bbox="minx,miny,maxx,maxy"
+    в метрах UTM 35N (как рисует редактор), см. app/abris_sosedi.py.
+    Нет границ / лесничества — не ошибка, а {"found": false, "prichina"}."""
+    from app import abris_sosedi
+
+    lesnichestvo = _item_for_kontur(conn, item_id)[2]
+    try:
+        minx, miny, maxx, maxy = (float(x) for x in bbox.split(","))
+    except ValueError:
+        raise HTTPException(400, "bbox: четыре числа через запятую")
+    try:
+        return {"found": True, **abris_sosedi.okno(legacy_config.LCH_MAP.get(lesnichestvo or ""), minx, miny, maxx, maxy)}
+    except abris_sosedi.SosediError as e:
+        return {"found": False, "prichina": str(e)}
+    except Exception as e:  # noqa: BLE001 — битый файл границ не должен ронять абрис
+        return {"found": False, "prichina": f"границы не прочитались: {e}"}
 
 
 @router.get("/items/{item_id}/kontur")
