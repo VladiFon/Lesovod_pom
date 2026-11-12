@@ -37,6 +37,19 @@ export default function KartaSkrytyeCard() {
       setBusy(false);
     }
   };
+  const udalitSloy = async (b) => {
+    if (!window.confirm(`Удалить с сервера слой «${b.layer_name}» (${b.n_features} контуров)? Из QGIS его можно опубликовать заново.`)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/map/import-layers/${encodeURIComponent(b.batch_id)}`);
+      toast.show({ tone: "success", title: "Слой удалён — в телефоне пропадёт после «Обновить» на карте" });
+      await load();
+    } catch (e) {
+      toast.show({ tone: "danger", title: "Не удалось удалить", description: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
   const vid = (kod, on) => save({ skryt_vidy: on ? [...n.skryt_vidy, kod] : n.skryt_vidy.filter((x) => x !== kod) });
   const dis = !d.mozhno || busy;
   return (
@@ -70,6 +83,31 @@ export default function KartaSkrytyeCard() {
             ))}
           </div>
         </div>
+        {d.sloi && d.sloi.length > 0 && (
+          <div>
+            <div className="text-[12.5px] font-semibold text-muted-2 mb-1.5">
+              Загруженные на сервер слои контуров — их рисует телефон. «Опубликовать в Лесовод» из QGIS заменяет только
+              «лесосеки_qgis»; старые файлы, загруженные руками, остаются, пока их не удалить здесь
+            </div>
+            <div className="flex flex-col divide-y divide-border">
+              {d.sloi.map((b) => (
+                <div key={b.batch_id} className="flex items-center gap-3 py-1.5">
+                  <span className="flex-1">
+                    {b.layer_name || "без имени"}
+                    <span className="text-muted-2 text-[12.5px]">
+                      {" "}· {b.lesnichestvo || "без лесничества"} · {b.n_features} конт. · {String(b.created_at || "").slice(0, 16)}
+                      {b.iz_qgis ? " · из QGIS" : " · загружен руками"}
+                      {!b.lesoseki ? " · в телефоне не рисуется" : ""}
+                    </span>
+                  </span>
+                  {d.mozhno_udalyat_sloi && (
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => udalitSloy(b)}>Удалить</Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div>
           <div className="text-[12.5px] font-semibold text-muted-2 mb-1.5">
             Скрыто и помечено вручную ({d.skrytye.length}) — ставится в карточке делянки, в QGIS по выделенным и в телефоне

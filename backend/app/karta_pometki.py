@@ -28,7 +28,7 @@ import re
 from datetime import date
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-ISTOCHNIKI = ("delyanka", "gisleshoz", "lk")
+ISTOCHNIKI = ("delyanka", "gisleshoz", "lk", "import")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS karta_pometki (
@@ -264,7 +264,17 @@ class Filtr:
         raw = {str(k).lower(): v for k, v in (props.get("raw") or {}).items()}
         uid = raw.get("uid")
         if uid is None:
-            return True
+            # контур из другого загруженного файла (не ГИСлесхоз): ключ — строка imported_map_layer
+            item_id = props.get("item_id")
+            if item_id is None:
+                return True
+            props["pometka"] = f"import:{item_id}"
+            p = self._pometka("import", item_id)
+            prichina = "скрыта вручную" if p is not None and p["skryta"] else None
+            if prichina is None and props.get("vid_rubki_kod") and props["vid_rubki_kod"] in self.vidy:
+                prichina = f"вид рубки {props['vid_rubki_kod']} не показывается"
+            props["skryta"], props["skryta_prichina"] = prichina is not None, prichina
+            return vse or prichina is None
         vydely = _vydely(raw.get("num_vds") or raw.get("num_vd") or props.get("vydel"))
         lk, info = self.lesokultury("gisleshoz", uid, raw.get("num_kv") or props.get("kvartal"), vydely)
         props["lesokultury"], props["lk_info"] = lk, info
@@ -304,9 +314,10 @@ def spisok_skrytyh(conn) -> List[dict]:
         elif ist == "lk":
             nazvanie = naz.get("lk" + kl) or p["opisanie"] or f"Участок культур №{kl}"
         else:
-            nazvanie = p["opisanie"] or f"Лесосека ГИСлесхоза uid {kl}"
+            nazvanie = p["opisanie"] or (f"Контур из файла № {kl}" if ist == "import" else f"Лесосека ГИСлесхоза uid {kl}")
         out.append({**p, "nazvanie": nazvanie, "istochnik_label": {
-            "delyanka": "Делянка Лесовода", "gisleshoz": "Лесосека ГИСлесхоза", "lk": "Лесные культуры"}[ist]})
+            "delyanka": "Делянка Лесовода", "gisleshoz": "Лесосека ГИСлесхоза", "lk": "Лесные культуры",
+            "import": "Загруженный слой"}[ist]})
     return out
 
 

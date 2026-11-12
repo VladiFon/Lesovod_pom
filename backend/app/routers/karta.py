@@ -56,8 +56,28 @@ def _vidy_rubok() -> List[dict]:
             for v in vidy.legendy()["vidy_rubok"] if v.get("kod")]
 
 
+def _sloi(conn) -> List[dict]:
+    """Загруженные на сервер слои контуров (пачки imported_map_layer): из QGIS
+    «Опубликовать в Лесовод» и старые файлы, загруженные руками. Старые
+    файлы публикация из QGIS не заменяет — их контуры висят в телефоне, пока
+    пачку не удалить здесь."""
+    import map_import
+
+    out = []
+    for b in map_import.list_import_batches(conn):
+        name = str(b.get("layer_name") or "")
+        out.append({**b, "iz_qgis": name in ("лесосеки_qgis", "qgis_lesoseki"),
+                    "lesoseki": "лесосек" in name.lower() or "lesosek" in name.lower()})
+    return out
+
+
 def _svodka(conn, user=None) -> dict:
+    from app import legacy_bridge  # noqa: F401
+    import webext
+
     return {
+        "sloi": _sloi(conn),
+        "mozhno_udalyat_sloi": user is not None and webext.has_permission(user, "map.import"),
         "nastroyki": karta_pometki.nastroyki(conn),
         "skrytye": karta_pometki.spisok_skrytyh(conn),
         "vidy_rubok": _vidy_rubok(),
