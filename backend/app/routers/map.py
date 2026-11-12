@@ -24,7 +24,7 @@ import sklad as sklad_store
 
 from app.database import get_conn, get_connection
 from app.doc_tasks import new_task_dir, register_document
-from app import map_features, vidy
+from app import karta_pometki, map_features, vidy
 from app.auth import get_current_user, map_reader, require_permission
 import webext
 
@@ -161,11 +161,16 @@ async def import_map_layer(
 
 
 @router.get("/import-layers")
-def get_import_layers(lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn), _user=Depends(map_reader)):
+def get_import_layers(lesnichestvo_num: Optional[str] = None, vse: bool = False, conn=Depends(get_conn),
+                      _user=Depends(map_reader)):
     """FeatureCollection всех импортированных слоёв — независимый от
-    делянок оверлей на Живой карте (см. LiveMap.jsx)."""
+    делянок оверлей на Живой карте (см. LiveMap.jsx) и слой лесосек в
+    телефоне. Скрытые с карт лесосеки (app/karta_pometki.py) не отдаются,
+    ?vse=1 — отдать всё с признаком skryta."""
     lesn = _lesnichestvo_name(lesnichestvo_num)
     result = map_import.list_import_layer_geojson(conn, lesnichestvo=lesn)
+    filtr = karta_pometki.Filtr(conn)
+    ostavit = []
     for f in result["features"]:
         # лесосеки из ГИСлесхоза (плагин «Лесовод-мост») несут вид рубки и вид
         # пользования в cuttingtyp / usetype — тот же цвет, что у делянок
@@ -173,7 +178,12 @@ def get_import_layers(lesnichestvo_num: Optional[str] = None, conn=Depends(get_c
         if raw.get("cuttingtyp") or raw.get("usetype"):
             info = vidy.vid_rubki_info(None, None, raw.get("cuttingtyp"), raw.get("usetype"))
             f["properties"].update({k: info[k] for k in _VID_RUBKI_KEYS})
-    result["features"].extend(_own_lesoseki(conn, lesn, result["features"]))
+        if filtr.razmetit_gisleshoz(f["properties"], vse):
+            ostavit.append(f)
+    result["features"] = ostavit
+    for f in _own_lesoseki(conn, lesn, result["features"]):
+        if filtr.razmetit_delyanku(f["properties"], vse):
+            result["features"].append(f)
     return result
 
 
@@ -322,8 +332,15 @@ def search_map(q: str, lesnichestvo_num: Optional[str] = None, conn=Depends(get_
 @router.get("/lesokultury")
 def get_lesokultury_for_map(lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn),
                             _user=Depends(get_current_user)):
-    """Участки лесных культур для подсветки выделов на карте."""
-    return map_features.lesokultury_for_map(conn, lesnichestvo_num)
+    """Участки лесных культур для подсветки выделов на карте (без скрытых с карт)."""
+    filtr = karta_pometki.Filtr(conn)
+    out = []
+    for u in map_features.lesokultury_for_map(conn, lesnichestvo_num):
+        if filtr.lk_skryt(u["id"]):
+            continue
+        u["pometka"] = f"lk:{u['id']}"
+        out.append(u)
+    return out
 
 
 @router.get("/lesokultury/{uchastok_id}/kartochka")
@@ -421,9 +438,13 @@ def _num_for_lesnichestvo(name: Optional[str]) -> Optional[str]:
 
 
 @router.get("/qgis/delyanki.geojson")
-def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = None, conn=Depends(get_conn)):
-    """Делянки со статусом работ для QGIS: свой контур лесосеки, если есть, иначе полигоны выделов."""
+def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = None, vse: bool = False,
+                                  conn=Depends(get_conn)):
+    """Делянки со статусом работ для QGIS: свой контур лесосеки, если есть, иначе полигоны выделов.
+    Скрытые с карт (вручную, закрытые, по виду рубки) не отдаются, ?vse=1 — все с признаком skryta;
+    lesokultury / lk_info — делянка лежит на лесных культурах."""
     _check_service_token(token)
+    filtr = karta_pometki.Filtr(conn)
     colors = {s["status"]: s["color"] for s in map_features.DELYANKA_STATUSES}
     wanted: dict = {}
     own = []
@@ -444,6 +465,8 @@ def get_delyanki_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str] = 
             "ploshad": ploshad,
             **vidy.vid_rubki_info(vid_rubki_kod, mdo_raw_json, meropriyatiya, namechaemoe),
         }
+        if not filtr.razmetit_delyanku(props, vse):
+            continue
         if geom:
             try:
                 own.append({"type": "Feature", "geometry": json.loads(geom),
@@ -466,7 +489,11 @@ def get_lesokultury_geojson_for_qgis(token: str, lesnichestvo_num: Optional[str]
     _check_service_token(token)
     wanted: dict = {}
     own = []
+    filtr = karta_pometki.Filtr(conn)
     for u in map_features.lesokultury_for_map(conn, lesnichestvo_num):
+        if filtr.lk_skryt(u["id"]):
+            continue
+        u["pometka"] = f"lk:{u['id']}"
         num = _num_for_lesnichestvo(u["lesnichestvo"])
         if num is None or (lesnichestvo_num and num != str(lesnichestvo_num)):
             continue

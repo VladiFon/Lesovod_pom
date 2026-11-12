@@ -28,6 +28,7 @@ from app.routers import kniga_lvlr as kniga_lvlr_router
 from app.routers import lk_proekty as lk_proekty_router
 from app.routers import putevye as putevye_router
 from app.routers import dorogi as dorogi_router
+from app.routers import karta as karta_router
 from app.routers import (
     ai_log,
     archive,
@@ -174,3 +175,4 @@ app.include_router(kniga_lvlr_router.router)
 app.include_router(lk_proekty_router.router)
 app.include_router(putevye_router.router)
 app.include_router(dorogi_router.router)
+app.include_router(karta_router.router)
