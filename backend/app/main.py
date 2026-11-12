@@ -25,6 +25,7 @@ from app.routers import zhurnal as zhurnal_rabot_router
 from app.routers import poisk as poisk_router
 from app.routers import skhema as skhema_router
 from app.routers import kniga_lvlr as kniga_lvlr_router
+from app.routers import lk_proekty as lk_proekty_router
 from app.routers import putevye as putevye_router
 from app.routers import dorogi as dorogi_router
 from app.routers import (
@@ -170,5 +171,6 @@ app.include_router(zhurnal_rabot_router.router)
 app.include_router(poisk_router.router)
 app.include_router(skhema_router.router)
 app.include_router(kniga_lvlr_router.router)
+app.include_router(lk_proekty_router.router)
 app.include_router(putevye_router.router)
 app.include_router(dorogi_router.router)

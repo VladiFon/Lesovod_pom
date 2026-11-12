@@ -9,6 +9,7 @@ import Taxation from "./pages/Taxation.jsx";
 import Lesokultury from "./pages/Lesokultury.jsx";
 import TekushchieIzmeneniya from "./pages/TekushchieIzmeneniya.jsx";
 import KnigaLvlr from "./pages/KnigaLvlr.jsx";
+import ProektyLk from "./pages/ProektyLk.jsx";
 import Raskhod from "./pages/Raskhod.jsx";
 import SkladyEgais from "./pages/SkladyEgais.jsx";
 import Inspection from "./pages/Inspection.jsx";
@@ -128,6 +129,13 @@ const InspectionIgra = makeMergedScreen("inspection", [
 const LesokulturyIgra = makeMergedScreen("forestry", [
   { key: "ogorod", label: "🌱 Огород уходов", Page: UhodyIgra },
   { key: "uchastki", label: "Участки", Page: Lesokultury },
+  { key: "proekty", label: "📐 Проекты", Page: ProektyLk },
+]);
+// Обычный вид «Лесокультур»: участки + проекты лесных культур из АРМ ЛВ
+// (прил. 5 Положения ЛВ/ЛР, Влад 12.11.2026).
+const LesokulturyObych = makeMergedScreen("forestry", [
+  { key: "uchastki", label: "Участки", Page: Lesokultury },
+  { key: "proekty", label: "📐 Проекты", Page: ProektyLk },
 ]);
 // Игровой вид «Делянок» (03.11.2026): «Путь делянки» + обычный список.
 const PlotsIgra = makeMergedScreen("plots", [
@@ -169,7 +177,7 @@ const READY_SCREENS = {
   // из меню по решению пользователя — карты ведутся в самом QGIS, экран не
   // нужен. Backend (app/routers/map.py) не трогали, файл страницы удалён.
   taxation: { title: "Выдел", subtitle: "Таксация выдела и его жизнь: делянки, культуры, рубки ухода, кто работал", Page: Taxation },
-  forestry: { title: "Лесокультуры", subtitle: "Участки лесных культур и журнал мероприятий по уходу", Page: poVidu(Lesokultury, LesokulturyIgra) },
+  forestry: { title: "Лесокультуры", subtitle: "Проекты лесных культур, участки и журнал мероприятий по уходу", Page: poVidu(LesokulturyObych, LesokulturyIgra) },
   // Ведомости текущих изменений по приказу Минлесхоза №130 (Word по шаблону).
   // Книга учёта площадей ЛВ и ЛР (прил. 6 Положения, Влад 09.11.2026).
   formy: { title: "Формы и книги", subtitle: "Текущие изменения (прил. 1–15 для Белгослеса) и Книга учёта площадей ЛВ и ЛР", Page: Formy },
