@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
+import KartaSkrytyeCard from "../components/KartaSkrytyeCard.jsx";
 import Card from "../components/Card.jsx";
 import Button from "../components/Button.jsx";
 import TextField from "../components/TextField.jsx";
@@ -893,6 +894,8 @@ export default function Settings({ currentUser }) {
           💾 Сохранить данные лесничего
         </Button>
       </Card>
+
+      <KartaSkrytyeCard />
 
       <VidCard />
 

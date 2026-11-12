@@ -61,6 +61,9 @@ def init_db() -> None:
         # лесные дороги для маршрутов в приложении (12.11.2026)
         from app import lesnye_dorogi
         lesnye_dorogi.ensure_schema(conn)
+        # пометки лесосек на картах: «скрыть с карт», «лесные культуры» (12.11.2026)
+        from app import karta_pometki
+        karta_pometki.ensure_schema(conn)
         from app import korzina
         korzina.ensure_schema(conn)
         # исполнители старых записей журнала → ссылки на справочник

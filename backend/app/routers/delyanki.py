@@ -108,7 +108,16 @@ def create_delyanka_manual(body: ManualDelyankaIn,
 def get_delyanki_for_map(conn=Depends(get_conn), _user=Depends(map_reader)):
     """Облегчённый список для подсветки делянок на живой карте (веб и
     мобильное приложение) — см. delyanka.list_delyanka_items_for_map."""
+    # skryta — делянку не рисовать на карте (скрыта вручную, закрыта, вид
+    # рубки не показывается); из списка не убираем: этим же списком телефон
+    # выбирает делянку для отчёта. lesokultury — лежит на лесных культурах
+    # (app/karta_pometki.py).
+    from app import karta_pometki
+
+    filtr = karta_pometki.Filtr(conn)
     rows = delyanka.list_delyanka_items_for_map(conn)
+    for r in rows:
+        filtr.razmetit_delyanku(r)
     # Сторонняя заготовка (app/storonnyaya.py): «рубит …» на карте и в
     # выборе делянки для отчёта; nashi_naryady=false — наряды пишет сам
     # заготовитель, телефон не предлагает такую делянку для отчёта.
