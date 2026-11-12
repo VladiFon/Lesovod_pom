@@ -58,6 +58,9 @@ def init_db() -> None:
         # пробные площади на карте (26.10.2026)
         from app import proby_karta
         proby_karta.ensure_schema(conn)
+        # лесные дороги для маршрутов в приложении (12.11.2026)
+        from app import lesnye_dorogi
+        lesnye_dorogi.ensure_schema(conn)
         from app import korzina
         korzina.ensure_schema(conn)
         # исполнители старых записей журнала → ссылки на справочник

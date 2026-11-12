@@ -778,6 +778,15 @@ def get_proby_geojson_for_qgis(token: str, conn=Depends(get_conn)):
     return proby_karta.geojson(conn)
 
 
+@router.get("/qgis/dorogi.geojson")
+def get_dorogi_geojson_for_qgis(token: str, conn=Depends(get_conn)):
+    """Лесные дороги, нарисованные в приложении, — см. app/lesnye_dorogi.py."""
+    _check_service_token(token)
+    from app import lesnye_dorogi
+
+    return lesnye_dorogi.geojson(conn)
+
+
 @router.get("/qgis/sklady.geojson")
 def get_sklady_geojson_for_qgis(token: str, conn=Depends(get_conn)):
     """Склады ЕГАИС точками, с остатком в подписи — см. app/egais_sklady.py."""
