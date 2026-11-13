@@ -180,11 +180,13 @@ function KorrektirovkaRow({ row, busy, onResolve }) {
 function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
   // Если подходящий по кварталу/выделу выдел один — сразу предлагаем его,
   // остаётся только нажать «Привязать».
-  const guess = !row.item_id && row.candidates.length === 1 ? row.candidates[0] : null;
+  const candidates = Array.isArray(row.candidates) ? row.candidates : [];
+  const guess = !row.item_id && candidates.length === 1 ? candidates[0] : null;
   const [pick, setPick] = useState(row.item_id ? String(row.item_id) : guess ? String(guess.item_id) : "");
   const how = SKLAD_HOW[row.how] || { tone: "neutral", label: row.how };
-  const candidateIds = new Set(row.candidates.map((c) => c.item_id));
-  const kvartaly = new Set((row.kvartal || "").split(", ").filter(Boolean));
+  const candidateIds = new Set(candidates.map((c) => c.item_id));
+  const kvartaly = new Set(String(row.kvartal || "").split(", ").filter(Boolean));
+  items = Array.isArray(items) ? items : [];
   const sameKvartal = items.filter((it) => !candidateIds.has(it.item_id) && kvartaly.has(it.kvartal));
   const others = items.filter((it) => !candidateIds.has(it.item_id) && !kvartaly.has(it.kvartal));
   return (
@@ -216,9 +218,9 @@ function SkladRow({ row, busy, items, onLink, onIgnore, onReset }) {
           className="bg-surface border border-border focus:border-pine rounded-md px-2.5 py-1.5 text-sm text-ink outline-none max-w-[280px]"
         >
           <option value="">Какой это выдел делянки?</option>
-          {row.candidates.length > 0 && (
+          {candidates.length > 0 && (
             <optgroup label="Подходят по кварталу/выделу">
-              {row.candidates.map((c) => <option key={c.item_id} value={c.item_id}>{c.label}</option>)}
+              {candidates.map((c) => <option key={c.item_id} value={c.item_id}>{c.label}</option>)}
             </optgroup>
           )}
           {sameKvartal.length > 0 && (
@@ -316,15 +318,15 @@ function EgaisReviewModal({ open, onClose }) {
     try {
       if (tab === "sklady") {
         const res = await api.get("/raskhod/egais/sklady", { scope: skladyAll ? "all" : "problems" });
-        setRows(res?.sklady || []);
-        setSkladItems(res?.items || []);
+        setRows(Array.isArray(res?.sklady) ? res.sklady : []);
+        setSkladItems(Array.isArray(res?.items) ? res.items : []);
         return;
       }
       const endpoint =
         tab === "korrektirovki" ? "/raskhod/egais/review/korrektirovki" :
         "/raskhod/egais/review/fls-prihod";
       const res = await api.get(endpoint, { status: "new" });
-      setRows(res || []);
+      setRows(Array.isArray(res) ? res : []);
     } catch (e) {
       toast.show({ tone: "danger", title: "Не удалось загрузить список", description: e.message });
     } finally {
@@ -441,7 +443,7 @@ function EgaisReviewModal({ open, onClose }) {
           {tab === "sklady" &&
             rows
               .filter((row) => !tolkoMoe || !moeLesnichestvo || !row.lesnichestvo ||
-                row.lesnichestvo.toLowerCase().includes(moeLesnichestvo.toLowerCase()))
+                String(row.lesnichestvo).toLowerCase().includes(moeLesnichestvo.toLowerCase()))
               .map((row) => (
               <SkladRow
                 key={row.sklad}

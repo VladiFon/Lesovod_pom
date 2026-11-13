@@ -357,7 +357,10 @@ def import_egais_sklady(file: UploadFile = File(...), user=Depends(require_permi
         dest.unlink(missing_ok=True)
 
 
-@router.get("/egais/sklady")
+# ВАЖНО: не «/egais/sklady» — этот адрес занят разбором привязки складов
+# (list_egais_sklady ниже). Два GET на одном пути → FastAPI берёт первый,
+# и «Разбор ЕГАИС» получал чужой ответ и падал (13.11.2026).
+@router.get("/egais/ostatki")
 def get_egais_sklady(conn=Depends(get_conn), _user=Depends(get_current_user)):
     from app import egais_sklady
     return egais_sklady.obzor(conn)
