@@ -8,7 +8,7 @@ import QgisButton from "../components/QgisButton.jsx";
  * «Склады и остатки» (11.11.2026, просьба Влада): что лежит на складах по
  * данным ЕГАИС прямо сейчас. Данные каждый вечер привозит робот выгрузки
  * (отчёты «Склады» и «Наличие продукции на складах»); можно залить и руками.
- * Сервер: app/egais_sklady.py, адреса /api/raskhod/egais/sklady*.
+ * Сервер: app/egais_sklady.py, адреса /api/raskhod/egais/ostatki (обзор) и /api/raskhod/egais/sklady/import, …/{id}/sostav.
  *
  * Сверху — сколько всего леса лежит и что «горит»: срок вывозки делянки
  * близко/прошёл, а на складе лес, либо склад давно без движения.
@@ -80,7 +80,7 @@ export default function SkladyEgais() {
   const fileRef = useRef(null);
 
   const zagruzit = useCallback(() => {
-    api.get("/raskhod/egais/sklady").then((r) => { setData(r); setOshibka(""); }).catch((e) => setOshibka(e.message));
+    api.get("/raskhod/egais/ostatki").then((r) => { setData(r); setOshibka(""); }).catch((e) => setOshibka(e.message));
   }, []);
   useEffect(() => { zagruzit(); }, [zagruzit]);
 
